@@ -16,6 +16,8 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Consumer | Someone allowed to use a host's resources. A consumer is an account of kind *individual* (a person) or *application* (an app acting on its own behalf). A *key-only consumer* has access keys but no login. | Consumer | req_001 §2 glossary, A4, D-13 |
 | Client app | Software that calls a host on a consumer's behalf, e.g. PA. | App | req_001 §2 glossary |
 | PA | The personal-assistant application, the first client app. It lives in a separate repo (`personal-assistant`). | — | req_001 formal §1, D-03 |
+| Platform admin | The operator of the optional platform services (the project owner). They can see a host's data only through a sharing grant the host approved. | Platform admin | D-43 |
+| Principal | Any actor with an identity: host admin, consumer, platform admin, or future kinds. Shared properties live on the principal, and kind-specific ones on the type table. | — | D-42 |
 
 ## Machines and software
 
@@ -26,6 +28,14 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Engine | The model runtime underneath local-server (Ollama by default; llama.cpp and MLX later). | Engine | req_001 §2 glossary, D-14 |
 | Transport | How consumers reach the host machine over an encrypted channel. Phase 1 default: Tailscale. | Connection | D-12 |
 | Fallback | The provider a client app uses when the host is offline, paused or declines (for PA: its Gemini/Anthropic adapters). | Fallback | D-03, D-11 |
+| System Tailscale | The default transport mode: the host's normal Tailscale app carries traffic. | — | D-23 |
+| Embedded Tailscale | An optional build of local-server with Tailscale (tsnet) inside the binary, so the host installs only one thing. | — | D-23 |
+| Public mode | Opt-in, off by default. Exposes the consumer API on a public `*.ts.net` address through Tailscale Funnel, with TLS ending on the host machine. | Public access | D-24 |
+| Port / adapter | A port is an interface local-server's modules depend on (`Engine`, transport, storage, auth, notify, directory, `Policy`, `Notifier`, `Telemetry`, `HostMetrics`, `Power`, `OffHostSync`). An adapter is one implementation of it (e.g. the Ollama adapter). | — | D-21 |
+| Module | One internal part of local-server: gateway, control plane, scheduler, ledger, notifier, host-metrics. Each owns its tables. | — | D-21, D-28 |
+| Listener | One of local-server's three network endpoints: consumer API, consumer web page, admin UI. | — | D-10, D-21 |
+| Service mode | How local-server runs in the background: *user* (starts at login, the default) or *system* (starts at boot). | Start at login / Start at boot | D-30 |
+| Sleep lock | local-server keeps the host machine awake while sharing is on and not paused. | Keep awake | D-30 |
 
 ## Access and limits
 
@@ -39,6 +49,11 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Background-work hours | A time window in which background requests run (e.g. 00:00–07:00), set per grant or for the whole host. Different from quiet hours. | Background hours | D-15 |
 | Pause sharing | A switch that stops the host serving all consumers immediately. Consumers see the host as *paused*. | Paused | D-06 |
 | Quiet hours | A schedule during which sharing is paused automatically. | Quiet hours | D-06 |
+| Host identity key | The Ed25519 key pair each install generates. Its public key is the host's global ID. | Host ID | D-25 |
+| Receipt-signing key | A rotating key, signed by the host identity key, that signs usage receipts and ledger checkpoints. | — | D-27 |
+| Policy rule | A versioned, declarative rule the host edits through a form (request properties, time windows, priority class, caps). Set per grant or globally. | Rule | D-25 |
+| Priority class | *Interactive* (someone is waiting) or *background* (can wait). Interactive runs first, and background ages up so it is never starved. | Interactive / Background | D-26 |
+| Setting owner | The one party (platform admin, host or consumer) that owns a configurable value. A lower party may tighten a value only within the higher party's bounds. | — | D-38 |
 
 ## Requests and records
 
@@ -49,6 +64,25 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Usage ledger | The host's append-only, tamper-evident record of every metered request. | Usage history | D-16 |
 | Usage receipt | A record of one request's usage, signed by the host and returned with the response, so a consumer can check a bill independently. | Receipt | D-16 |
 | Audit log | The record of admin actions: keys issued or revoked, grants changed, requests decided. | Activity log | D-07 |
+| Job | A background request submitted to `/v1/jobs`. It runs when the host admits it, and the result is fetched later. | Background job | D-26, D-38 |
+| Idempotency key | A client-chosen id on a job submission, so a retried submission never runs twice. | — | D-26 |
+| Checkpoint | A signed snapshot of the usage ledger's size and root hash. Receipts point to one, so consumers can prove the ledger was never rewritten. | — | D-27 |
+| Rollup | Usage totals per minute, hour or day, computed from usage records. | Usage over time | D-27 |
+| Outbox | The table where an event and its pending webhook deliveries are written in the same transaction, so none are lost. | — | D-29 |
+| Webhook endpoint | A URL a consumer or host registers to receive signed event notifications. | Webhook | D-29 |
+
+## Data and sharing
+
+| Term | Meaning | Users see | Source |
+|---|---|---|---|
+| Dataset | A named group of tables that can be shared or synced as one unit (usage, audit, consumer directory). Each has its own encryption key. | Data set | D-43 |
+| Sharing grant | A grantor's time-boxed permission for a grantee to read one dataset, with a stated purpose and terms version. It can be revoked. | Data sharing | D-43 |
+| Consent record | A stored acceptance of a policy (terms, privacy, a sharing grant) with its version and evidence. It can be withdrawn. | Consent | D-44, D-45 |
+| Data classification | The label on every table and column: `public`, `internal`, `personal`, `sensitive` or `content`, plus a *billable* flag. | — | D-44 |
+| Off-host backup | Encrypted whole-database snapshots the host machine sends to a bucket the host owns. The default. | Backup | D-41 |
+| Platform sync | Opt-in per host. Encrypted change rows sent to the platform's database, needed only for platform features such as sharing grants. | Platform sync | D-41 |
+| Recovery code | The host data key, shown once at setup, needed to restore encrypted backups. | Recovery code | D-41 |
+| Module table prefix | The short prefix on every table name naming its owning module: `hst_` host, `idn_` identity, `grt_` grants, `req_` requests, `sch_` scheduler, `use_` usage, `ldg_` ledger, `ntf_` notify, `aud_` audit, `syn_` sync, `plt_` platform, `ops_` ops. | — | D-44 |
 
 ## Retired names
 
@@ -57,3 +91,5 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | host user | Host | Ambiguous with consumer (req_001). |
 | user user | Consumer | Ambiguous with host (req_001). |
 | reserved resources | Share budget | req_001 §2 glossary. |
+| platform admin approval | Sharing grant | Generalised to any grantor and grantee (D-43 supersedes D-36). |
+| `platform_`, `identity_`, … table prefixes | `plt_`, `idn_`, … | Short prefixes (D-44 supersedes D-37). |
