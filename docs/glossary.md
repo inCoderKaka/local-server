@@ -46,6 +46,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Share budget | Everything the host sets aside for all consumers together (models, memory, concurrency, tokens). | Share budget | req_001 §2 glossary |
 | Grant | One consumer's slice of the share budget: allowed models, quotas, context limit, output limit, concurrency, expiry and allowed request properties. | Your limits | req_001 §2 glossary |
 | Request properties | Tags a consumer or client app attaches to a call (e.g. *background*), which the host's rules use to decide what the host machine does with it. | Request type | Q22, D-15 |
+| Context overflow | What happens when a prompt is longer than the grant's context limit. Each grant sets it to *refuse* (the default, an error) or *truncate* (the oldest messages are dropped). | If a prompt is too long | D-48 |
 | Background-work hours | A time window in which background requests run (e.g. 00:00–07:00), set per grant or for the whole host. Different from quiet hours. | Background hours | D-15 |
 | Pause sharing | A switch that stops the host serving all consumers immediately. Consumers see the host as *paused*. | Paused | D-06 |
 | Quiet hours | A schedule during which sharing is paused automatically. | Quiet hours | D-06 |

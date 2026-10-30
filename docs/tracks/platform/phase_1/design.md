@@ -43,4 +43,10 @@ The HLD and LLD closed on 2026-10-30, recorded in [ADR 0002](../../../adr/0002-r
   - Call flows F1–F9, where metering failure still returns the answer and is alerted.
   - Data paths.
 - **Future direction (D-45):** seams only. Legal traces live in [`docs/legal/`](../../../legal/README.md).
-- **Before ticketize:** verify five unsourced claims: Funnel on the free plan, Gatekeeper with an unsigned binary, `OllamaSetup.exe` silent flags, Ollama truncation beyond `num_ctx`, and per-OS keychain support.
+- **Pre-ticketize verification (F-06..F-10, D-48, D-49; [ADR 0003](../../../adr/0003-req001-pre-ticketize-verification.md)):**
+  - Funnel works on the free plan but is beta and non-commercial.
+  - curl-only installs avoid Gatekeeper.
+  - `go-keyring` for secrets.
+  - Ollama's silent truncation becomes a per-grant `on_context_overflow` setting, refusing by default.
+  - Windows installs Ollama with `/SILENT` after the host's yes.
+  - Still to test before release: LaunchAgent with an unsigned binary on macOS 15/26.

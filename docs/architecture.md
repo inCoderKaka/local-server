@@ -52,7 +52,7 @@ One binary on the host. Consumers install nothing from local-server: they use a 
 - **Public mode (opt-in, off by default):** Tailscale Funnel. TLS terminates on the host, and the relays do not decrypt ([Funnel](https://tailscale.com/kb/1223/funnel)). Consumers such as PA on Fly then need no Tailscale.
   - Turning it on makes these mandatory on the consumer API: auth, rate limits, brute-force lockout, and request size and time limits.
   - Funnel limits: ports 443/8443/10000, bandwidth that can't be configured, `*.ts.net` names only.
-  - **Unsourced:** whether the Personal (free) plan includes Funnel. To be checked before ticketize.
+  - Funnel is "available for all plans", including the free Personal plan, but it is **in beta**. The Personal plan is non-commercial only (F-06, [Funnel docs](https://tailscale.com/docs/features/tailscale-funnel.md), [pricing](https://tailscale.com/pricing)).
 - **Caveats:**
   - Tagged nodes from another tailnet cannot reach shared machines ([tags](https://tailscale.com/kb/1068/tags), [sharing](https://tailscale.com/kb/1084/sharing), [Fly.io](https://tailscale.com/kb/1132/flyio)). So PA on Fly must be a user-owned node, or the consumer must be invited as a user (6 users on the free plan, non-commercial, [pricing](https://tailscale.com/pricing)).
   - `*.ts.net` names appear in public Certificate Transparency logs.
@@ -196,7 +196,11 @@ One binary on the host. Consumers install nothing from local-server: they use a 
 - **Sleep lock:** a `Power` port: IOPM assertion / `caffeinate -i` on macOS ([QA1340](https://developer.apple.com/library/archive/qa/qa1340/_index.html), [caffeinate](https://ss64.com/mac/caffeinate.html)), [`SetThreadExecutionState`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate) on Windows, and a logind inhibitor on Linux ([inhibitor locks](https://systemd.io/INHIBITOR_LOCKS/), [native/power](https://pkg.go.dev/github.com/crgimenes/native/power)).
   - It is held only while sharing is on and not paused.
   - The UI warns that closing the lid and manual sleep can't be blocked.
-- **Unsourced:** Gatekeeper behaviour for an unsigned curl-downloaded binary (test before first release), and the silent-install flags for `OllamaSetup.exe`.
+- **Gatekeeper (F-07):**
+  - curl does not set the quarantine flag, so a curl-downloaded binary isn't checked by Gatekeeper. A browser download would be blocked, so the installers fetch with curl only ([Apple forums](https://developer.apple.com/forums/thread/788787), [Eclectic Light](https://eclecticlight.co/2020/10/29/quarantine-and-the-quarantine-flag/)).
+  - Go's linker ad-hoc signs darwin/arm64 binaries ([go#42684](https://github.com/golang/go/issues/42684)), so the release pipeline never strips or alters a built darwin binary.
+  - **Unsourced:** a LaunchAgent running it on macOS 15/26, and amd64 needing no signature. Test before the first release.
+- **Windows engine install (D-49, F-10):** after the host's yes, `OllamaSetup.exe /SILENT`. It shows a progress window, installs per user with no admin, and Ollama starts when it finishes ([ollama.iss](https://raw.githubusercontent.com/ollama/ollama/main/app/ollama.iss), [Inno Setup flags](https://jrsoftware.org/ishelp/topic_setupcmdline.htm)).
 
 ## Observability and maintainability (D-31)
 
@@ -273,7 +277,13 @@ Terminal states are never reopened, so audit and billing history stays linear.
   8. One `BEGIN IMMEDIATE` batch writes the usage record, ledger leaf/hashes and sync change. Then the JWS receipt is sent.
   9. If metering fails it is retried. If it keeps failing, the answer is still returned and the failure is logged and alerted (experience first, user-confirmed).
 
-  An engine that's down returns 503 `engine_unavailable`. **Unsourced:** whether Ollama silently truncates prompts longer than `num_ctx`.
+  An engine that's down returns 503 `engine_unavailable`.
+- **Context overflow (D-48, F-09):**
+  - Ollama silently drops the oldest messages by default ([prompt.go](https://raw.githubusercontent.com/ollama/ollama/main/server/prompt.go)).
+  - Each grant version sets `on_context_overflow`: `refuse` (default) or `truncate`.
+  - `refuse` sends `truncate:false` and `shift:false` on `/api/chat` ([types.go](https://raw.githubusercontent.com/ollama/ollama/main/api/types.go); undocumented) and `truncate:false` on `/api/embed` ([embed](https://docs.ollama.com/api/embed)). The error maps to `context_too_long`.
+  - A minimum Ollama version is pinned, and a contract test checks the refuse behaviour.
+  - Embedding can error even with truncation on ([#14186](https://github.com/ollama/ollama/issues/14186)), so the adapter handles that error.
 - **F2 job:** `POST /v1/jobs` with an Idempotency-Key (a duplicate returns the existing job) → F1 steps 2–4 → queued → 202. A worker runs it in priority/aging order through F1 steps 5–8. The result is encrypted, then `job.done` → outbox. Results are fetched from `GET /v1/jobs/{id}` and `…/result` (deleted on fetch, per setting).
 - **F3 resource request:** the consumer posts → the host is notified. On approve, one transaction writes the new grant version, the current pointer, the status, the audit event, the notification event and the sync change. Then the cache is cleared and the consumer is notified.
 - **F4 webhooks:** due outbox rows → signed POST ([Standard Webhooks](https://raw.githubusercontent.com/standard-webhooks/standard-webhooks/main/spec/standard-webhooks.md)) → status.
@@ -301,7 +311,7 @@ Terminal states are never reopened, so audit and billing history stays linear.
 | Host resource readings | Every N s → `hst_metric_minute` (7 d) → `/metrics` and the UI. Not synced. |
 | Logs | Rotating slog JSON files with redacted types. Not synced. |
 | Webhook payloads | Events carry no content. Kept until delivered + 7 d. |
-| Secret keys | Sealed with a host master key held in the OS keychain (macOS Keychain, Windows DPAPI/Credential Manager, Linux Secret Service), else a user-only file. Never leave the host, except dataset keys wrapped for an approved grantee. **Judgement:** the keychain-plus-file fallback. **Unsourced:** per-OS keychain API support. |
+| Secret keys | Sealed with a host master key held in the OS keychain (macOS Keychain, Windows DPAPI/Credential Manager, Linux Secret Service), else a user-only file. Never leave the host, except dataset keys wrapped for an approved grantee. **Judgement:** the keychain-plus-file fallback. Library: [`zalando/go-keyring`](https://raw.githubusercontent.com/zalando/go-keyring/master/README.md), with no cgo on all three OSes (F-08). On Linux it errors without a Secret Service daemon (headless), so the file fallback is needed there. |
 
 ## Future direction: seams only (D-45)
 
