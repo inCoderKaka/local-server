@@ -50,3 +50,4 @@ The HLD and LLD closed on 2026-10-30, recorded in [ADR 0002](../../../adr/0002-r
   - Ollama's silent truncation becomes a per-grant `on_context_overflow` setting, refusing by default.
   - Windows installs Ollama with `/SILENT` after the host's yes.
   - Still to test before release: LaunchAgent with an unsigned binary on macOS 15/26.
+- **Receipts (D-51, D-52):** when metering fails, the response still carries a signed receipt, marked `unmetered`. Otherwise a receipt carries its leaf index and tree size, and the covering checkpoint and proof are fetched later.
