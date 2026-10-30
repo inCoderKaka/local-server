@@ -1,0 +1,16 @@
+The user’s (be it (consumers or hosts or any other in future) of all types) should be well categorized such that later, users can be easily classified used for various potential future purposes like  various subscription strategies. also build with the future ability to support the app saving user data with privacy consents etc. ability in future to build user profile based on factors like usage, benchmarks, the prompt and response data (consented wherever required).
+
+In future, consumers can use well performing algorithms with self learning if possible for selecting the host machines for tasks designed based on the host machine performance benchmarks etc.
+
+potential future features benchmarking of host machines etc.
+
+the consumers and hosts or any other different types of users have any interaction between them, they should in future be able to share traces with proper data sharing plan etc
+
+maintain from beginning proper software document structure with my decision traces for any future legal asks like Terms of Use drafts, Privacy Consents drafts etc.
+
+I want to go with the idea that data should be decentralized as much as possible unless the user decides to go for centralized data.
+The data should have well access controls and security measures.
+Data should be well classifiable in the future.
+data can be billable in the future.
+we should follow the legal way as much as possible. (While building only discuss the legal requirements for the current phase and not the future phases, they come when their design is being discussed.)
+Revisit the already decided and discussed HLD and LLD if any of the above future proofing features changes and only wherever required.
