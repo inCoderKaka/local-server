@@ -75,7 +75,7 @@ Requirement-driven tickets carry these fields inside existing cells. Every row a
 - **Plan hierarchy:** phase > batch > slice > feature > subfeature. "Wave" is never a plan level. It means OpenCode handoff files only.
 - **Requirement-driven rows:** a row is requirement-driven if a cell contains a `req_\d+` token.
 - **Work order:** planned tickets (Source `req_N` or `design`) come first, by Pri.
-- **Public docs:** `User-visible: yes` in Notes marks a ticket that needs a public-docs `@planned` block. The repo has no public docs source yet, so none are authored.
+- **Public docs:** `User-visible: yes` in Notes marks a ticket that needs a public-docs `@planned` block. The public docs (D-63) currently mark planned features with a page-level status banner; no `@planned` blocks are authored yet.
 
 ## What stays global
 

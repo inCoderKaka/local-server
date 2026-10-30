@@ -50,7 +50,7 @@ flowchart LR
 |---|---|---|
 | G1 | **Light:** one static binary per OS, no runtime, no external database | A host installs it with one command and forgets it (D-09, D-21) |
 | G2 | **Secure by default:** encrypted transport, nothing admin-facing on the public internet, least-privilege keys | Hosts open their personal machine to others (D-10, D-24) |
-| G3 | **Private by default:** prompts and responses are never logged or stored | The host must not become a data processor by accident (D-31, D-40) |
+| G3 | **Private by default:** prompts and responses are not logged or stored by default; the only content at rest is queued background-job content and its result, encrypted and deleted at completion or on fetch (§8.2) | The host must not become a data processor by accident (D-31, D-40) |
 | G4 | **Compatible:** standard OpenAI surfaces, unmodified | Every existing SDK and app works without a custom client (D-32) |
 | G5 | **Fair and controllable:** per-consumer grants, quotas, context caps, priorities, pause and quiet hours | The host stays in charge of their own machine (D-25, D-26, D-06) |
 | G6 | **Verifiable usage:** a tamper-evident ledger and a signed receipt for every response | Future billing disputes are settled with proofs, not trust (D-16, D-27) |
@@ -159,7 +159,7 @@ Each feature names what it does, how it works, the engineering ideas it rests on
 - **What:** a single process with the gateway, control plane, scheduler, ledger, notifier and host metrics, plus three listeners: the consumer API, the consumer web page and the admin UI.
 - **How:** core modules import only ports. Adapters are chosen at startup from settings, or compiled in or out with build tags. Embedded Tailscale and desktop notifications are optional builds. The web UIs are single-page apps embedded with `go:embed`, and they call the same versioned HTTP API as everyone else. So a hosted website can replace them later without touching the core.
 - **Ideas in play:** hexagonal architecture; the **dependency inversion principle** (the core owns the interfaces, so details depend on policy, not the reverse); **interface segregation** (small, role-specific ports); one shared **contract test suite per port** that every adapter must pass. Boundaries are checked by a machine, not by convention.
-- **Rejected:** microservices or several processes. They add install weight, IPC and failure modes, with no benefit on one machine. Per-request panic recovery contains the blast radius instead (**Judgement**).
+- **Rejected:** microservices or several processes. They add install weight, IPC and failure modes, with no benefit on one machine. Per-request panic recovery contains the blast radius instead (**Judgement**). The only extra process is that notification helper in the optional system-service mode (§6.13).
 
 ### 6.2 Inference gateway and the Engine port (D-22, D-32, D-33, D-48)
 
@@ -183,7 +183,13 @@ Each feature names what it does, how it works, the engineering ideas it rests on
 - **Ideas in play:** **zero-trust networking**, the idea behind Google's BeyondCorp: identity is checked per request, and being on the network grants nothing by itself. **Defence in depth:** the network layer and the application layer each authenticate. **Secure defaults:** public exposure is opt-in and refuses to start without its protections.
 - **Rejected:** Cloudflare's HTTP proxy, because it terminates TLS. Port forwarding, because it exposes the home IP and needs router access.
 - **Kept as a seam:** Cloudflare Tunnel plus our own end-to-end encryption.
-- **Known limits:** Funnel is beta, and Tailscale's free plan is non-commercial (F-06). Both matter once billing arrives (§10).
+- **Known limits:**
+  - Funnel is beta, and Tailscale's free plan is non-commercial (F-06). Both matter once billing arrives (§10).
+  - Funnel serves only ports 443, 8443 and 10000 on `*.ts.net` names, with bandwidth that can't be configured (D-24, F-06).
+  - Tagged nodes from another tailnet cannot reach shared machines, so a client app hosted elsewhere (e.g. PA on Fly) must be a user-owned node, or its consumer is invited as a Tailscale user (6 on the free plan), unless the host uses public mode (D-23).
+  - `*.ts.net` machine names appear in public Certificate Transparency logs (D-23).
+  - The passkey RP ID is bound to the host's hostname, so renaming the machine breaks consumers' passkeys (D-23).
+  - Embedded tsnet's streaming-stall issue ([tailscale#21577](https://github.com/tailscale/tailscale/issues/21577)) must be re-checked before tsnet serves streamed responses (D-23).
 
 ### 6.4 Identity, keys, grants and policy (D-13, D-25, D-42, D-53)
 
@@ -225,7 +231,7 @@ Each feature names what it does, how it works, the engineering ideas it rests on
 
 ### 6.7 Verifiable usage: ledger and receipts (D-16, D-27, D-51, D-52)
 
-- **What:** every response carries a signed receipt. The host's usage history is a tamper-evident log, so a consumer can later prove that the host recorded their call, and recorded it once.
+- **What:** every response carries a signed receipt. The host's usage history is a tamper-evident log, so a consumer can later prove that the host recorded their call.
 - **How:**
   - **The record and its leaf:** at request end, one transaction appends an immutable usage record and its leaf in a **Merkle-tree log** (RFC 6962 math via [`x/mod/sumdb/tlog`](https://pkg.go.dev/golang.org/x/mod/sumdb/tlog)).
   - **The receipt:** a JWS signed with Ed25519 ([RFC 9864](https://www.rfc-editor.org/rfc/rfc9864.html)). It carries the leaf index and the tree size, and goes in the `LS-Receipt` header or the final stream event.
@@ -313,7 +319,7 @@ Nothing is hard-coded. There is no bounds hierarchy: each party sets its own val
 
 ### 6.13 Packaging and OS integration (D-30, D-49, D-62)
 
-- **Service:** a per-user login service by default (LaunchAgent, `systemd --user`, Windows logon task), which needs no admin rights and runs next to Ollama. A system service is optional.
+- **Service:** a per-user login service by default (LaunchAgent, `systemd --user`, Windows logon task), which needs no admin rights and runs next to Ollama. A system service that starts at boot is optional, and comes with a small user-session helper that shows desktop notifications (D-30).
 - **Installers:** `curl … | sh` and PowerShell. They verify the SHA-256 checksum, install into a user folder, register the service, and offer to install Ollama and Tailscale; they never install either silently.
 - **Sleep lock:** held only while sharing is on.
 - **Releases:**
@@ -326,7 +332,7 @@ Nothing is hard-coded. There is no bounds hierarchy: each party sets its own val
 - **Spec-first:** OpenAPI 3.1 is the source of truth. Server interfaces are generated from it (ogen, D-57), and client apps test against it.
 - **Standard surfaces, as published:** `/v1/chat/completions` (with streaming), `/v1/embeddings`, `/v1/models`, Standard Webhooks, JWS receipts and C2SP checkpoints.
 - **Additive local-server contracts:** `/v1/health`, `/v1/capabilities`, `/v1/jobs`, `/v1/resource-requests`, `/v1/usage`, `/v1/keys`, `/v1/ledger/checkpoint`, `/v1/usage/{id}/proof`, notification preferences and webhook endpoints. The admin API `/admin/v1` is on the admin listener only.
-- **Errors:** the OpenAI error envelope plus typed codes: `quota_exceeded`, `host_paused`, `model_not_granted`, `context_too_long`, `queue_full`, `engine_unavailable`. Each comes with `Retry-After` where a retry makes sense.
+- **Errors:** the OpenAI error envelope plus typed codes: `quota_exceeded`, `host_paused`, `model_not_granted`, `context_too_long`, `queue_full`, `engine_unavailable`. Each comes with `Retry-After` where a retry makes sense (D-32; `engine_unavailable` from D-39).
 - **Evolution:** the major version is in the URL, and changes within a major are additive only. Deprecations use `Deprecation`/`Sunset` headers, and golden tests guard compatibility.
 
 The [developer guide](../developer-guide.md) shows these from a client app's side.
@@ -343,6 +349,9 @@ The [developer guide](../developer-guide.md) shows these from a client app's sid
 | Remote admin takeover | Admin listener on localhost by default, never public, behind a login when on the tailnet |
 | Host inflates a bill | Merkle ledger with consumer-held receipts; consistency proofs reveal rewrites |
 | Malformed or hostile input | Explicit field rejection, size limits, typed parsers with **fuzz tests** on every untrusted input (D-60) |
+| A consumer's webhook used to reach the host's network (SSRF) | http(s) URLs only; the resolved IP is checked at dial time, so DNS rebinding cannot bypass it; loopback, link-local, unspecified, multicast and the host machine's own addresses are refused; redirects are not followed (PLT-F-030) |
+| A web page driving the admin or consumer UI (DNS rebinding, CSRF) | The admin listener accepts only a loopback or configured tailnet Host header, and cookie-authenticated writes need a same-origin Origin header (PLT-F-024, PLT-F-027) |
+| Script injection through consumer-written text | Both web UIs are served with a strict Content-Security-Policy, and comments and names are rendered as text, never as HTML (PLT-F-032) |
 | Supply-chain tampering | Checksums, SLSA provenance, `govulncheck` in CI (D-62) |
 | Secret theft at rest | Secrets sealed with a master key in the OS keychain (file fallback on headless Linux) |
 | Data races corrupting metering | `go test -race` in CI over the concurrent modules (D-61) |
@@ -361,7 +370,7 @@ The [developer guide](../developer-guide.md) shows these from a client app's sid
 | Host offline or paused | `/v1/health` tells clients quickly. Interactive calls fall back, and background work waits in the client's retry queue |
 | Overload | Bounded queue, `queue_full` + `Retry-After`. Running requests are never interrupted |
 | Client disconnects mid-stream | The engine call is cancelled, and the tokens generated so far are metered |
-| Crash or restart | Running jobs become `failed(host_restart)` (Ollama can't resume a generation). Terminal states never reopen, and idempotency keys prevent double runs |
+| Crash or restart | Running jobs become `failed(host_restart)` (Ollama can't resume a generation, **Judgement**). Terminal states never reopen, and idempotency keys prevent double runs |
 | Metering write fails repeatedly | The answer is still returned with an `unmetered` signed receipt. The failure is logged, counted and alerted (D-51) |
 | Webhook receiver down | Exponential backoff from the outbox. The endpoint is disabled after `410` or N failures |
 | Disk loss | Restore from encrypted snapshots with the recovery code |
@@ -464,4 +473,4 @@ Each idea, and the one place it does real work.
 | OS service | kardianos/service | D-30 |
 | Off-host | S3-compatible (R2, Google Cloud Storage), Postgres (Supabase, Cloud SQL) | D-41, D-59 |
 | CI and release | GitHub Actions on 3 OSes, race detector, fuzzing, govulncheck, SLSA attestations | D-31, D-60..D-62 |
-| Web UIs | Embedded SPAs with a generated TypeScript client | D-21 |
+| Web UIs | Embedded SPAs with a generated TypeScript client | D-21, PLT-F-032 |

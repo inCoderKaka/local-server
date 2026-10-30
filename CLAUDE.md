@@ -7,7 +7,7 @@ local-server lets a host share their machine's AI inference (Ollama) with invite
 - **Tracks convention:** `docs/tracks/README.md`. **Current focus:** the `platform` track, active phase `docs/tracks/platform/phase_1/`.
 - **Requirements and decisions:** `docs/tracks/platform/phase_1/requirements/req_001.md` and `req_001.decisions.md`. The decisions log is the source of truth.
 - **Design:** `docs/design_docs/hld.md` and `docs/design_docs/lld.md` (planned until built; `docs/architecture.md` only points to them), `docs/adr/`, `docs/glossary.md` (search here before naming anything), `docs/legal/`, `docs/execetive_inputs/`.
-- **Public docs:** `README.md`, `ROADMAP.md`, `docs/user-guide.md` (hosts and consumers, plain language), `docs/developer-guide.md` (client-app developers). They describe only software, never ways of working, and mark planned features as planned (D-63).
+- **Public docs:** `README.md`, `ROADMAP.md`, `docs/user-guide.md` (hosts and consumers, plain language), `docs/developer-guide.md` (client-app developers) (D-63). They describe only software, never ways of working, and mark planned features as planned.
 - **Work queue:** the active phase's `next-steps.md` and `backlog.md`.
 
 ## Rules

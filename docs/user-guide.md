@@ -21,12 +21,12 @@ Everything travels over an encrypted private network (Tailscale). Nobody can use
 
 ### Install
 
-You run one command in a terminal. It downloads local-server, checks that the download is genuine, and starts it in the background whenever you log in. The exact commands and the full host setup appear in [Host setup](#host-setup) when the first release is out.
+You run one command in a terminal. It downloads local-server, checks it against the checksum published with the release, and starts it in the background whenever you log in. The exact commands and the full host setup appear in [Host setup](#host-setup) when the first release is out.
 
 ### Choose what to share
 
 Open the admin page in your browser. It only opens on your own computer, unless you turn on remote admin for your private network. Then you:
-- **Set a share budget,** the part of your computer's memory local-server may use. Every page shows three numbers: what your other apps use, what local-server uses, and what is reserved for sharing.
+- **Set a share budget,** how much of your computer local-server may use for sharing: memory, how many requests run at once, and the models you allow. Every page shows three numbers: what your other apps use, what local-server uses, and your share budget.
 - **Pick the models** you allow, and for each person or app, how long their messages may be (the **context limit**) and how much they may use (**quotas**).
 - **Choose when.** Pause sharing at any time with one switch, set **quiet hours**, or allow heavy background work only at night (**background-work hours**).
 
@@ -52,6 +52,7 @@ Turn on backups to a folder or to a storage bucket you own (Cloudflare R2 or Goo
 
 ### Joining
 
+- **First, reach the host:** the host adds you to their private network, by sharing their machine with you in Tailscale or inviting you as a Tailscale user. Install Tailscale and accept. If the host has turned on public mode, skip this.
 - **As a person:** open the host's invite link, choose a password or passkey, and accept the terms. Your page shows your limits, your usage, your keys and your requests.
 - **As an app:** paste the access key the host gave you into the app. Developers: see the [developer guide](developer-guide.md).
 
@@ -67,18 +68,18 @@ Send a resource request from your page. You are notified when the host answers.
 
 ### Receipts
 
-Every answer comes with a signed **usage receipt**. Your app can keep them. Later, anyone can check a receipt against the host's ledger, and confirm that the host recorded the call exactly once.
+Every answer comes with a signed **usage receipt**. Your app can keep them. Later, anyone can check a receipt against the host's ledger, and confirm that the host's ledger contains the call.
 
 ## Privacy, in plain words
 
 - **Your messages are not saved.** local-server never writes prompts or answers to disk or logs. The only exception is background jobs: those are stored encrypted while they wait, and deleted when you fetch the result (or after a day).
 - **The host's computer runs the AI.** Your messages are processed in its memory. Only use hosts you trust, as you would with any computer you send data to.
 - **Your personal details are erased** if your account is deleted. The usage records stay, without your personal details, so the host's accounting stays correct.
-- **Nothing is shared with anyone else** unless the host approves a specific, time-limited **sharing grant**. Even then, your messages are never part of it.
+- **Nothing is shared with anyone else** unless the host approves a specific, time-limited **sharing grant**. Even then, your messages are never part of it. If the host turns on platform sync, an encrypted copy of your account details (name and email) and usage is kept by the platform, which cannot read it without such a grant.
 
 ## Host setup
 
-> Filled in when the installers ship (PLT-C-004). It will cover: install and upgrade commands; setting up Ollama and Tailscale; how apps hosted elsewhere (for example on Fly.io) reach you; public mode and its limits; keeping a headless machine logged in; why closing the lid stops sharing; why your `*.ts.net` name is publicly visible; why renaming the computer breaks consumers' passkeys; building from source; and checking a download's provenance.
+> Filled in when the installers ship. It will cover: install and upgrade commands; setting up Ollama and Tailscale; how apps hosted elsewhere (for example on Fly.io) reach you; public mode and its limits; keeping a headless machine logged in; why closing the lid stops sharing; why your `*.ts.net` name is publicly visible; why renaming the computer breaks consumers' passkeys; building from source; and checking a download's provenance.
 
 ## Questions
 

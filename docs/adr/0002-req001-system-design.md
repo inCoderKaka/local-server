@@ -4,7 +4,7 @@
 **Date:** 2026-10-30
 **Extends:** [ADR 0001](0001-req001-scope-and-product-decisions.md)
 **Requirement:** `docs/tracks/platform/phase_1/requirements/req_001.md`
-**Decisions:** D-21..D-33, D-38..D-45 in [`req_001.decisions.md`](../tracks/platform/phase_1/requirements/req_001.decisions.md). D-34..D-37 are superseded by D-41..D-44. The log is the source; this ADR summarises it.
+**Decisions:** D-21..D-33, D-38..D-45 in [`req_001.decisions.md`](../tracks/platform/phase_1/requirements/req_001.decisions.md). D-34..D-37 are superseded by D-41..D-44, and D-38 by D-54 ([ADR 0004](0004-req001-pre-implementation-confirmations.md)). The log is the source; this ADR summarises it.
 **executive_inputs_reference:** docs/execetive_inputs/26-10-30_platform_req_001_design-review.md, docs/execetive_inputs/26-10-30_platform_req_001_design-sessions-verbatim.md (your exact prompts and answers, both design sessions)
 
 ## Context
@@ -15,7 +15,7 @@ ADR 0001 fixed scope, stack (Go, SQLite, a single binary), exposure, login and u
 - D-34 → D-42: a unified principal.
 - D-37 → D-44: short table prefixes, consent records and classification.
 
-The full design, with every source inline, is in [`docs/architecture.md`](../architecture.md). The project has no AI logic of its own, so the AI-architecture stage was skipped (D-20).
+The full design is in the [HLD](../design_docs/hld.md) and [LLD](../design_docs/lld.md) (D-63; `docs/architecture.md` now points to them), and the source behind every decision is in its `D-NN` row. The project has no AI logic of its own, so the AI-architecture stage was skipped (D-20).
 
 ## Decision
 
@@ -49,7 +49,7 @@ The full design, with every source inline, is in [`docs/architecture.md`](../arc
   - Errors use the OpenAI envelope plus typed codes. Unsupported fields are rejected.
   - Versions are major-in-URL and additive-only.
 - **D-33 Headers:** extensions on OpenAI-compatible calls go in headers (`LS-Request-Properties`, `LS-Receipt`). When streaming, the receipt also comes in a final SSE event.
-- **D-38 State machines:** for jobs, interactive requests, resource requests, keys, invites, consumers, host sharing, models, webhooks, sharing grants, signing keys and sync changes. Terminal states are never reopened. Every time, retention, TTL, retry and threshold is a runtime setting owned by one party, and lower parties may tighten only within the higher party's bounds.
+- **D-38 State machines:** for jobs, interactive requests, resource requests, keys, invites, consumers, host sharing, models, webhooks, sharing grants, signing keys and sync changes. Terminal states are never reopened. Every time, retention, TTL, retry and threshold is a runtime setting owned by one party, and lower parties may tighten only within the higher party's bounds. *(Superseded by D-54, [ADR 0004](0004-req001-pre-implementation-confirmations.md): there is no bounds hierarchy; each party sets the values it owns freely.)*
 - **D-39 Call flows:**
   - F1 interactive: auth → policy → validate → admit → engine → stream → one metering transaction → receipt.
   - If metering fails, the answer is still returned and the failure is alerted (user-confirmed).
@@ -100,7 +100,7 @@ Only what the log records:
 
 ## Sources
 
-Every source URL recorded on D-21..D-33 and D-38..D-45 is carried inline, next to its claim, in [`docs/architecture.md`](../architecture.md). Key ones:
+Every source URL recorded on D-21..D-33 and D-38..D-45 is in its `D-NN` row in the [decisions log](../tracks/platform/phase_1/requirements/req_001.decisions.md); the design is in the [HLD](../design_docs/hld.md) and [LLD](../design_docs/lld.md) (D-63). Key ones:
 - **Ollama:** [OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility), [api.md](https://raw.githubusercontent.com/ollama/ollama/main/docs/api.md), [FAQ](https://docs.ollama.com/faq)
 - **Tailscale:** [Funnel](https://tailscale.com/kb/1223/funnel), [tsnet](https://tailscale.com/kb/1244/tsnet), [tsnet #21577](https://github.com/tailscale/tailscale/issues/21577), [pricing](https://tailscale.com/pricing)
 - **Ledger and receipts:** [RFC 6962](https://www.rfc-editor.org/rfc/rfc6962.html), [C2SP tlog-checkpoint](https://c2sp.org/tlog-checkpoint), [x/mod/sumdb/tlog](https://pkg.go.dev/golang.org/x/mod/sumdb/tlog), [RFC 9864](https://www.rfc-editor.org/rfc/rfc9864.html), [Crosby & Wallach 2009](https://www.usenix.org/legacy/event/sec09/tech/full_papers/crosby.pdf)

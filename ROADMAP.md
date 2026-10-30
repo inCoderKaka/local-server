@@ -7,8 +7,8 @@ Phase 1 is fully designed ([HLD](docs/design_docs/hld.md), [LLD](docs/design_doc
 | Batch | What it delivers | Status |
 |---|---|---|
 | B1 Foundations | Go module and 3-OS CI with boundary, race, fuzz and vulnerability checks; the OpenAPI 3.1 contract; the storage foundation (single writer, migrations, data catalog); telemetry; runtime settings; host identity and sealed secrets | next |
-| B2 Core domain | Engine port with the Ollama adapter; identity and grants; audit log; domain events; access keys; policy rules; host metrics | planned |
-| B3 Inference path | Scheduler with memory admission; usage records, Merkle ledger and signed receipts; checkpoints and proofs; quotas and rate limits; the OpenAI-compatible gateway with streaming; jobs API; usage rollups | planned |
+| B2 Core domain | Engine port with the Ollama adapter; identity and grants; audit log; domain events; access keys; policy rules; host metrics; pause sharing and quiet hours | planned |
+| B3 Inference path | Scheduler with memory admission; usage records, Merkle ledger and signed receipts; checkpoints and proofs; quotas and rate limits; the OpenAI-compatible gateway with streaming; jobs API; usage rollups; host status, capabilities and models endpoints; startup and the `doctor` command | planned |
 | B4 Control plane and accounts | Admin API; consumers, invites and keys; grants, models and policy; consumer accounts with password and passkey login; resource requests; terms and privacy drafts | planned |
 | B5 Notifications | In-app notifications, Standard Webhooks via an outbox, desktop notifications | planned |
 | B6 Web UIs | Admin UI and consumer web page | planned |
@@ -20,7 +20,7 @@ Phase 1 is fully designed ([HLD](docs/design_docs/hld.md), [LLD](docs/design_doc
 ## Later phases (designed as seams, not yet scheduled)
 
 - **Discovery and marketplace:** a central directory of hosts with benchmarks and smart host selection. Proposed on Google Cloud ([HLD §9](docs/design_docs/hld.md#9-future-scale-out-and-the-central-service-proposal-not-decided)).
-- **Billing:** plans and credits, built on the usage ledger and receipts that Phase 1 already produces.
+- **Billing:** plans and credits, built on the usage ledger and receipts that Phase 1 already produces. A commercial-ready transport (Cloudflare Tunnel with our own end-to-end encryption, or our own relay) comes first, since Tailscale's free plan is non-commercial.
 - **Failover:** client-side failover across several hosts.
 - **More engines:** llama.cpp and MLX adapters.
 - **More channels:** email and Telegram notifications.

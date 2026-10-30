@@ -39,6 +39,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Domain event | A record that something happened (request decided, host paused, job done). It is written in the same unit of work as the change, then handed to subscribers such as notifications. | — | D-29 |
 | Doctor | The `local-server doctor` command, which checks the engine version, keychain, ports and Tailscale. | Doctor | D-14, D-23, D-48 |
 | Sleep lock | local-server keeps the host machine awake while sharing is on and not paused. | Keep awake | D-30 |
+| Unattributed | Host resource use local-server cannot assign to a process because the OS won't report it; shown separately, never guessed. | Unattributed | D-31 |
 
 ## Access and limits
 
@@ -48,6 +49,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Invite | A one-time sign-up link the host sends so a person can create a consumer account. | Invite link | D-13 |
 | Share budget | Everything the host sets aside for all consumers together (models, memory, concurrency, tokens). | Share budget | req_001 §2 glossary |
 | Grant | One consumer's slice of the share budget: allowed models, quotas, context limit, output limit, concurrency, expiry and allowed request properties. | Your limits | req_001 §2 glossary |
+| Grant version | An immutable snapshot of a grant's limits. Each change creates a new version, and usage records name the version they ran under. | — | D-25, D-42 |
 | Context limit | The largest context window, in tokens, a grant allows for one model; local-server sends it to Ollama as num_ctx. The decisions log and tickets call it *context cap* (ctx_cap in the schema). | Context limit | D-22, D-25 |
 | Request properties | Tags a consumer or client app attaches to a call (e.g. *background*), which the host's rules use to decide what the host machine does with it. | Request type | Q22, D-15 |
 | Context overflow | What happens when a prompt is longer than the grant's context limit. Each grant sets it to *refuse* (the default, an error) or *truncate* (the oldest messages are dropped). | If a prompt is too long | D-48 |
@@ -74,7 +76,10 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Audit log | The record of admin actions: keys issued or revoked, grants changed, requests decided. | Activity log | D-07 |
 | Job | A background request submitted to `/v1/jobs`. It runs when the host admits it, and the result is fetched later. | Background job | D-26, D-38 |
 | Idempotency key | A client-chosen id on a job submission, so a retried submission never runs twice. | — | D-26 |
-| Checkpoint | A signed snapshot of the usage ledger's size and root hash. Receipts point to one, so consumers can prove the ledger was never rewritten. | — | D-27 |
+| Checkpoint | A signed snapshot of the usage ledger's size and root hash, made in the background. A receipt carries its leaf index and tree size; the consumer later fetches the first checkpoint covering that leaf with an inclusion proof, and keeps checkpoints so consistency proofs can show the ledger only grew. | — | D-27, D-52 |
+| Unmetered receipt | A usage receipt marked *unmetered*: the host answered but could not record the call, so it carries the engine's token counts and no leaf index; signed evidence the call can't be billed later. | Unmetered | D-51 |
+| Inclusion proof | A short proof that one usage record's leaf is in the usage ledger, checked against a signed checkpoint. | — | D-27, D-52 |
+| Consistency proof | A proof that a later checkpoint's ledger contains an earlier one's unchanged, so the ledger only grew between them. | — | D-27 |
 | Rollup | Usage totals per minute, hour or day, computed from usage records. | Usage over time | D-27 |
 | Outbox | The table where an event and its pending webhook deliveries are written in the same transaction, so none are lost. | — | D-29 |
 | Webhook endpoint | A URL a consumer or host registers to receive signed event notifications. | Webhook | D-29 |

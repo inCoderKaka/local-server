@@ -4,7 +4,7 @@
 
 local-server is a single Go binary. A **host** installs it next to [Ollama](https://ollama.com), decides how much of the machine to share, and invites **consumers**. Consumers call it with any OpenAI SDK over an encrypted [Tailscale](https://tailscale.com) network. Every call is admitted fairly, metered, and returned with a **signed usage receipt** backed by a tamper-evident Merkle-tree ledger.
 
-> **Status:** Phase 1 design is complete; implementation is starting. See the [roadmap](ROADMAP.md). Licence: [Apache-2.0](LICENSE).
+> **Status:** Phase 1 design is complete and implementation is starting, so everything described below is planned. See the [roadmap](ROADMAP.md) for what exists. Licence: [Apache-2.0](LICENSE).
 
 ```mermaid
 flowchart LR
@@ -18,7 +18,7 @@ flowchart LR
 
 - **Use the hardware you already own.** A Mac mini or gaming PC that idles most of the day can serve friends and side projects.
 - **Stay in control.** Per-consumer grants (models, context length, quotas, concurrency), pause and quiet hours, and requests for more that you approve or reject.
-- **Keep it private.** Prompts and responses are never logged or stored. Nothing admin-facing is ever public.
+- **Keep it private.** Prompts and responses are not logged or stored by default; the only content kept is a queued background job and its result, encrypted, and deleted when the job ends or its result is fetched. Nothing admin-facing is ever public.
 - **Trust the bill.** Receipts and inclusion proofs let a consumer verify usage independently. It is the same transparency-log idea that secures Certificate Transparency.
 
 ## Highlights for engineers
