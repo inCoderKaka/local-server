@@ -6,7 +6,8 @@ local-server lets a host share their machine's AI inference (Ollama) with invite
 
 - **Tracks convention:** `docs/tracks/README.md`. **Current focus:** the `platform` track, active phase `docs/tracks/platform/phase_1/`.
 - **Requirements and decisions:** `docs/tracks/platform/phase_1/requirements/req_001.md` and `req_001.decisions.md`. The decisions log is the source of truth.
-- **Design:** `docs/architecture.md` (planned until built), `docs/adr/`, `docs/glossary.md` (search here before naming anything), `docs/legal/`, `execetive_inputs/`.
+- **Design:** `docs/design_docs/hld.md` and `docs/design_docs/lld.md` (planned until built; `docs/architecture.md` only points to them), `docs/adr/`, `docs/glossary.md` (search here before naming anything), `docs/legal/`, `docs/execetive_inputs/`.
+- **Public docs:** `README.md`, `ROADMAP.md`, `docs/user-guide.md` (hosts and consumers, plain language), `docs/developer-guide.md` (client-app developers). They describe only software, never ways of working, and mark planned features as planned (D-63).
 - **Work queue:** the active phase's `next-steps.md` and `backlog.md`.
 
 ## Rules
@@ -17,7 +18,7 @@ local-server lets a host share their machine's AI inference (Ollama) with invite
 - **Names:** one word, one meaning. Follow `docs/glossary.md`.
 - **Configuration:** every time, retention, TTL, retry and threshold value is a runtime setting owned by one party, never hard-coded (D-38).
 - **Content privacy:** prompts and responses are never logged or stored by default (D-31, D-40).
-- **Builds:** `CGO_ENABLED=0`. Never strip or alter a built darwin binary (F-07).
+- **Builds:** `CGO_ENABLED=0`. The only exception is the CI race-detector test job (`CGO_ENABLED=1 go test -race`, D-61). Never strip or alter a built darwin binary (F-07).
 
 ## Close-out (after building or ticketing)
 
