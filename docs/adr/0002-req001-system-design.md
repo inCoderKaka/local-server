@@ -5,11 +5,11 @@
 **Extends:** [ADR 0001](0001-req001-scope-and-product-decisions.md)
 **Requirement:** `docs/tracks/platform/phase_1/requirements/req_001.md`
 **Decisions:** D-21..D-33, D-38..D-45 in [`req_001.decisions.md`](../tracks/platform/phase_1/requirements/req_001.decisions.md). D-34..D-37 are superseded by D-41..D-44. The log is the source; this ADR summarises it.
-**executive_inputs_reference:** execetive_inputs/26-10-30_platform_req_001_design-review.md, execetive_inputs/26-10-30_platform_req_001_design-sessions-verbatim.md (your exact prompts and answers, both design sessions)
+**executive_inputs_reference:** docs/execetive_inputs/26-10-30_platform_req_001_design-review.md, docs/execetive_inputs/26-10-30_platform_req_001_design-sessions-verbatim.md (your exact prompts and answers, both design sessions)
 
 ## Context
 
-ADR 0001 fixed scope, stack (Go, SQLite, a single binary), exposure, login and usage integrity. The design-review stage turned that into a system design (HLD) and a low-level design of state machines, call flows, data paths, relationships and schema (LLD). Midway through, the user's future-scoping input (`docs/reqs/phase1/req001_future_scoping.txt`) superseded four rows:
+ADR 0001 fixed scope, stack (Go, SQLite, a single binary), exposure, login and usage integrity. The design-review stage turned that into a system design (HLD) and a low-level design of state machines, call flows, data paths, relationships and schema (LLD). Midway through, the user's future-scoping input (`docs/tracks/platform/phase_1/requirements/req001_future_scoping.txt`) superseded four rows:
 - D-35 → D-41: off-host data is decentralised by default.
 - D-36 → D-43: sharing is generalised.
 - D-34 → D-42: a unified principal.
@@ -109,4 +109,4 @@ Every source URL recorded on D-21..D-33 and D-38..D-45 is carried inline, next t
 - **Passwords:** [OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
 - **Off-host costs:** [Cloudflare R2 pricing](https://developers.cloudflare.com/r2/pricing/), [Supabase pricing](https://supabase.com/pricing)
 
-Repo: `docs/reqs/phase1/req001_future_scoping.txt` (D-41..D-45).
+Repo: `docs/tracks/platform/phase_1/requirements/req001_future_scoping.txt` (D-41..D-45).

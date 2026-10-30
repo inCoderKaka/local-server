@@ -13,7 +13,7 @@ The repo keeps decision traces from day one, so future legal questions can be an
 ## Where the decision traces are
 
 - **ADRs:** [`docs/adr/`](../adr/). Each one summarises a stage of a requirement's decisions.
-- **Executive inputs:** [`execetive_inputs/`](../../execetive_inputs/). These are dated records of the questions asked and the user's answers. The verbatim trace of every question and answer in the req_001 design chats is [`26-10-30_platform_req_001_design-sessions-verbatim.md`](../../execetive_inputs/26-10-30_platform_req_001_design-sessions-verbatim.md).
+- **Executive inputs:** [`docs/execetive_inputs/`](../execetive_inputs/). These are dated records of the questions asked and the user's answers. The verbatim trace of every question and answer in the req_001 design chats is [`26-10-30_platform_req_001_design-sessions-verbatim.md`](../execetive_inputs/26-10-30_platform_req_001_design-sessions-verbatim.md).
 - **Decisions logs:** `docs/tracks/<module>/phase_<N>/requirements/req_<N>.decisions.md`. They are the source of truth for every `D-NN`.
 
 ## Decision index (legal-relevant)

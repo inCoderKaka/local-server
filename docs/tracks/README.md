@@ -79,7 +79,7 @@ Requirement-driven tickets carry these fields inside existing cells. Every row a
 
 ## What stays global
 
-`docs/architecture.md`, `docs/adr/`, `docs/glossary.md`, `docs/legal/`, `execetive_inputs/`, `README.md`.
+`docs/design_docs/` (HLD, LLD), `docs/architecture.md` (pointer), `docs/adr/`, `docs/glossary.md`, `docs/legal/`, `docs/execetive_inputs/`, `README.md`, `ROADMAP.md`, `docs/user-guide.md`, `docs/developer-guide.md`.
 
 ## Skills / workflow mapping
 

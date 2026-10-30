@@ -5,7 +5,7 @@
 **Extends:** [ADR 0002](0002-req001-system-design.md), [ADR 0003](0003-req001-pre-ticketize-verification.md)
 **Requirement:** `docs/tracks/platform/phase_1/requirements/req_001.md`
 **Decisions:** D-51..D-56 in [`req_001.decisions.md`](../tracks/platform/phase_1/requirements/req_001.decisions.md). The log is the source.
-**executive_inputs_reference:** execetive_inputs/26-10-30_platform_req_001_pre-implementation.md, execetive_inputs/26-10-30_platform_req_001_design-sessions-verbatim.md
+**executive_inputs_reference:** docs/execetive_inputs/26-10-30_platform_req_001_pre-implementation.md, docs/execetive_inputs/26-10-30_platform_req_001_design-sessions-verbatim.md
 
 ## Context
 
