@@ -21,7 +21,7 @@ Closed on 2026-10-30 (D-19), recorded in [ADR 0001](../../../adr/0001-req001-sco
 
 ### design-review
 
-The HLD and LLD closed on 2026-10-30, recorded in [ADR 0002](../../../adr/0002-req001-system-design.md). The full design is in [`docs/architecture.md`](../../../architecture.md). AI architecture was skipped (D-20).
+The HLD and LLD closed on 2026-10-30, recorded in [ADR 0002](../../../adr/0002-req001-system-design.md). The full design is in the [HLD](../../../design_docs/hld.md) and [LLD](../../../design_docs/lld.md) (D-63; `docs/architecture.md` now points to them). AI architecture was skipped (D-20).
 - **Shape (D-21, D-22):** a modular monolith with ports and adapters. The Ollama native API sits behind an `Engine` port, and local-server owns the model lifecycle and `num_ctx`.
 - **Transport (D-23, D-24):** system Tailscale by default and embedded tsnet as an option. Funnel is an opt-in public mode with mandatory defence in depth.
 - **Identity, scheduling, ledger (D-25..D-27, D-42):**
@@ -56,3 +56,8 @@ The HLD and LLD closed on 2026-10-30, recorded in [ADR 0002](../../../adr/0002-r
   - D-54 (supersedes D-38): no bounds hierarchy for settings.
   - D-55: SLO targets are measured, then you approve them.
   - D-56: auto-update comes in a later phase.
+- **Pre-implementation additions ([ADR 0005](../../../adr/0005-req001-pre-implementation-additions.md)):**
+  - D-57: ogen generates the server code and vacuum lints the spec. D-58: lumberjack rotates logs.
+  - D-59: Google Cloud Storage as a backup bucket; a generic Postgres adapter for platform sync (Supabase default, Cloud SQL by configuration); the future central service as a GCP proposal.
+  - D-60..D-62: fuzz targets on untrusted input, a race-detector CI job (the only cgo use), SLSA provenance and govulncheck.
+  - D-63: the repository is public (except one gitignored owner file); the docs set is the README, roadmap, HLD, LLD, user guide and developer guide.
