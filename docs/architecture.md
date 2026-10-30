@@ -55,7 +55,7 @@ One binary on the host. Consumers install nothing from local-server: they use a 
   - Funnel is "available for all plans", including the free Personal plan, but it is **in beta**. The Personal plan is non-commercial only (F-06, [Funnel docs](https://tailscale.com/docs/features/tailscale-funnel.md), [pricing](https://tailscale.com/pricing)).
 - **Caveats:**
   - Tagged nodes from another tailnet cannot reach shared machines ([tags](https://tailscale.com/kb/1068/tags), [sharing](https://tailscale.com/kb/1084/sharing), [Fly.io](https://tailscale.com/kb/1132/flyio)). So PA on Fly must be a user-owned node, or the consumer must be invited as a user (6 users on the free plan, non-commercial, [pricing](https://tailscale.com/pricing)).
-  - `*.ts.net` names appear in public Certificate Transparency logs.
+  - `*.ts.net` names appear in public Certificate Transparency logs. ([Tailscale HTTPS](https://tailscale.com/kb/1153/enabling-https))
   - The passkey RP ID is bound to the host's hostname ([WebAuthn L3](https://www.w3.org/TR/webauthn-3/)).
 - **Admin listener:** localhost by default. A setting adds a listener on the host's tailnet address behind an admin login. It is never public.
 - **Rejected:** Cloudflare's HTTP proxy, because it terminates TLS ([DNS proxy](https://developers.cloudflare.com/dns/proxy-status/use-cases/)), and Cloudflare's TCP mode, because it needs a client helper ([arbitrary TCP](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/non-http/cloudflared-authentication/arbitrary-tcp/), [Spectrum](https://developers.cloudflare.com/spectrum/reference/configuration-options/)). Cloudflare Tunnel plus our own end-to-end encryption stays a seam behind the transport adapter.
@@ -148,6 +148,7 @@ One binary on the host. Consumers install nothing from local-server: they use a 
 - **Default (decentralised):**
   - An `OffHostSync` port takes whole-database snapshots: `VACUUM INTO` ([VACUUM](https://www.sqlite.org/lang_vacuum.html)) → compress → encrypt on the host.
   - Snapshots go to an S3-compatible bucket the host owns (R2 free tier, [R2 pricing](https://developers.cloudflare.com/r2/pricing/)).
+  - Scheduled backups can also go to a host-chosen local folder (D-28).
   - Interval: host-configurable, 5 min proposed. It always runs off the request path.
 - **Opt-in platform sync (per host):**
   - Encrypted change rows (`host_id, dataset, table, pk, version, ciphertext`) go to the platform admin's Supabase Postgres through the session pooler.
@@ -185,7 +186,7 @@ One binary on the host. Consumers install nothing from local-server: they use a 
   - **Default:** a per-user login service with no admin rights: macOS LaunchAgent, `systemd --user` with linger and a custom unit, or a Windows logon task.
   - **Optional:** a system service at boot, plus a user-session helper for notifications.
   - Both modes go through [kardianos/service](https://pkg.go.dev/github.com/kardianos/service) ([darwin](https://raw.githubusercontent.com/kardianos/service/v1.3.0/service_darwin.go), [systemd](https://raw.githubusercontent.com/kardianos/service/v1.3.0/service_systemd_linux.go)) behind a service interface ([launchd](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)).
-  - The default matches where Ollama runs ([Windows](https://docs.ollama.com/windows), [macOS](https://docs.ollama.com/macos), [Linux](https://docs.ollama.com/linux)).
+  - The default matches where Ollama runs on macOS and Windows, as a user app ([Windows](https://docs.ollama.com/windows), [macOS](https://docs.ollama.com/macos), [Linux](https://docs.ollama.com/linux)).
 - **Installers:** `curl … | sh` and PowerShell `irm … | iex`. They:
   - download the release binary and verify its SHA-256
   - install into a user folder on PATH
@@ -193,14 +194,14 @@ One binary on the host. Consumers install nothing from local-server: they use a 
   - detect Ollama and Tailscale and offer to install each
 
   Uninstall and upgrade are in the same script.
-- **Sleep lock:** a `Power` port: IOPM assertion / `caffeinate -i` on macOS ([QA1340](https://developer.apple.com/library/archive/qa/qa1340/_index.html), [caffeinate](https://ss64.com/mac/caffeinate.html)), [`SetThreadExecutionState`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate) on Windows, and a logind inhibitor on Linux ([inhibitor locks](https://systemd.io/INHIBITOR_LOCKS/), [native/power](https://pkg.go.dev/github.com/crgimenes/native/power)).
+- **Sleep lock:** a `Power` port: IOPM assertion / `caffeinate -i` on macOS ([QA1340](https://developer.apple.com/library/archive/qa/qa1340/_index.html), [caffeinate](https://ss64.com/mac/caffeinate.html)), [`SetThreadExecutionState`](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate) on Windows, and a logind inhibitor on Linux (best effort) ([inhibitor locks](https://systemd.io/INHIBITOR_LOCKS/), [native/power](https://pkg.go.dev/github.com/crgimenes/native/power)).
   - It is held only while sharing is on and not paused.
   - The UI warns that closing the lid and manual sleep can't be blocked.
 - **Gatekeeper (F-07):**
   - curl does not set the quarantine flag, so a curl-downloaded binary isn't checked by Gatekeeper. A browser download would be blocked, so the installers fetch with curl only ([Apple forums](https://developer.apple.com/forums/thread/788787), [Eclectic Light](https://eclecticlight.co/2020/10/29/quarantine-and-the-quarantine-flag/)).
   - Go's linker ad-hoc signs darwin/arm64 binaries ([go#42684](https://github.com/golang/go/issues/42684)), so the release pipeline never strips or alters a built darwin binary.
   - **Unsourced:** a LaunchAgent running it on macOS 15/26, and amd64 needing no signature. Test before the first release.
-- **Windows engine install (D-49, F-10):** after the host's yes, `OllamaSetup.exe /SILENT`. It shows a progress window, installs per user with no admin, and Ollama starts when it finishes ([ollama.iss](https://raw.githubusercontent.com/ollama/ollama/main/app/ollama.iss), [Inno Setup flags](https://jrsoftware.org/ishelp/topic_setupcmdline.htm)).
+- **Windows engine install (D-49, F-10):** after the host's yes, `OllamaSetup.exe /SILENT`. It shows a progress window, installs per user with no admin, and Ollama starts when it finishes ([ollama.iss](https://raw.githubusercontent.com/ollama/ollama/main/app/ollama.iss), [Inno Setup flags](https://jrsoftware.org/ishelp/topic_setupcmdline.htm)). **Unsourced:** the launch after a silent install was read from ollama.iss, not observed (D-49).
 
 ## Observability and maintainability (D-31)
 
@@ -218,7 +219,7 @@ One binary on the host. Consumers install nothing from local-server: they use a 
   - golden tests for the OpenAI-compatible contract
   - CI on 3 OSes
   - an architecture note per module
-- SLO targets are set at implementation.
+- SLO targets (gateway overhead, admission latency, receipt signing) are set in LLD (D-31). No LLD row sets them yet; they are owed before PLT-F-018 builds.
 - **Unsourced:** the OTel SDK's binary-size cost.
 
 ## API contract (D-32, D-33)

@@ -44,10 +44,10 @@ The user chose `/SILENT`.
 
 - No consumer gets an answer built on a silently cut prompt unless their host chose that for their grant, which keeps D-32's "never silently ignored".
 - local-server depends on undocumented Ollama request fields. The pinned version and contract test catch a break on Ollama upgrades.
-- Embedding can still error near the limit (Ollama #14186), so the adapter handles that error. Chunking is the client's job.
+- Embedding can still error near the limit (Ollama #14186), so the adapter handles that error.
 - The installers must fetch with curl, never through a browser, and the release pipeline must not alter built darwin binaries (F-07).
 - Funnel is beta and its bandwidth is unpublished, so public mode stays opt-in (D-24).
-- Still unsourced: LaunchAgent behaviour on macOS 15/26 for the unsigned binary. Test before the first release.
+- Still unsourced: LaunchAgent behaviour on macOS 15/26 for the unsigned binary, and whether Ollama starts after a silent install (read from the script, not observed). Test before the first release.
 
 ## Sources
 

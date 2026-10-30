@@ -7,7 +7,7 @@ The repo keeps decision traces from day one, so future legal questions can be an
 | Document | Status | Notes |
 |---|---|---|
 | [Licence](../../LICENSE) | In force | Apache-2.0 (ADR 0001, D-18) |
-| [Terms of Use](terms-of-use.md) | Placeholder | Drafted when the consumer sign-up page is built. Acceptance is recorded in `idn_consent` |
+| [Terms of Use](terms-of-use.md) | Placeholder | Drafted under PLT-C-002; the user approves it before the consumer-accounts ticket (PLT-F-027) builds. Acceptance is recorded in `idn_consent` |
 | [Privacy and consent](privacy-consent.md) | Placeholder | Covers sign-up privacy acceptance and sharing-grant consent. Acceptance is recorded in `idn_consent` |
 
 ## Where the decision traces are

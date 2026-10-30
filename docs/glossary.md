@@ -32,7 +32,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Embedded Tailscale | An optional build of local-server with Tailscale (tsnet) inside the binary, so the host installs only one thing. | — | D-23 |
 | Public mode | Opt-in, off by default. Exposes the consumer API on a public `*.ts.net` address through Tailscale Funnel, with TLS ending on the host machine. | Public access | D-24 |
 | Port / adapter | A port is an interface local-server's modules depend on (`Engine`, transport, storage, auth, notify, directory, `Policy`, `Notifier`, `Telemetry`, `HostMetrics`, `Power`, `OffHostSync`). An adapter is one implementation of it (e.g. the Ollama adapter). | — | D-21 |
-| Module | One internal part of local-server: gateway, control plane, scheduler, ledger, notifier, host-metrics. Each owns its tables. | — | D-21, D-28 |
+| Module | One internal part of local-server that owns its own tables and packages. D-21 names six top-level modules (gateway, control plane, scheduler, ledger, notifier, host-metrics). D-44's table prefixes (`hst_`, `idn_`, `grt_`, `req_`, `sch_`, `use_`, `ldg_`, `ntf_`, `aud_`, `syn_`, `plt_`, `ops_`) name the finer owners. The archcheck config lists every module with the packages it owns. | — | D-21, D-28, D-44 |
 | Listener | One of local-server's three network endpoints: consumer API, consumer web page, admin UI. | — | D-10, D-21 |
 | Service mode | How local-server runs in the background: *user* (starts at login, the default) or *system* (starts at boot). | Start at login / Start at boot | D-30 |
 | Unit of work | One database transaction a module opens. Other modules' rows (audit, domain events, sync changes, outbox) join it, so they commit or roll back together. | — | D-28, D-39 |
@@ -48,13 +48,14 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Invite | A one-time sign-up link the host sends so a person can create a consumer account. | Invite link | D-13 |
 | Share budget | Everything the host sets aside for all consumers together (models, memory, concurrency, tokens). | Share budget | req_001 §2 glossary |
 | Grant | One consumer's slice of the share budget: allowed models, quotas, context limit, output limit, concurrency, expiry and allowed request properties. | Your limits | req_001 §2 glossary |
+| Context limit | The largest context window, in tokens, a grant allows for one model; local-server sends it to Ollama as num_ctx. The decisions log and tickets call it *context cap* (ctx_cap in the schema). | Context limit | D-22, D-25 |
 | Request properties | Tags a consumer or client app attaches to a call (e.g. *background*), which the host's rules use to decide what the host machine does with it. | Request type | Q22, D-15 |
 | Context overflow | What happens when a prompt is longer than the grant's context limit. Each grant sets it to *refuse* (the default, an error) or *truncate* (the oldest messages are dropped). | If a prompt is too long | D-48 |
 | Background-work hours | A time window in which background requests run (e.g. 00:00–07:00), set per grant or for the whole host. Different from quiet hours. | Background hours | D-15 |
-| Pause sharing | A switch that stops the host serving all consumers immediately. Consumers see the host as *paused*. | Paused | D-06 |
+| Pause sharing | A switch that makes the host stop accepting new work from all consumers immediately; requests already running finish and queued jobs wait. Consumers see the host as *paused*. | Paused | D-06, D-26, D-38 |
 | Quiet hours | A schedule during which sharing is paused automatically. | Quiet hours | D-06 |
 | Host identity key | The Ed25519 key pair each install generates. Its public key is the host's global ID. | Host ID | D-25 |
-| Receipt-signing key | A rotating key, signed by the host identity key, that signs usage receipts and ledger checkpoints. | — | D-27 |
+| Receipt-signing key | A rotating key, signed by the host identity key, that signs usage receipts. | — | D-27 |
 | Policy rule | A versioned, declarative rule the host edits through a form (request properties, time windows, priority class, caps). Set per grant or globally. | Rule | D-25 |
 | Priority class | *Interactive* (someone is waiting) or *background* (can wait). Interactive runs first, and background ages up so it is never starved. | Interactive / Background | D-26 |
 | Quota | A grant's or key's token allowance for a period. Going over it returns `quota_exceeded`, and a near-limit notice is sent first. | Quota | D-25, D-29 |
@@ -67,7 +68,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Term | Meaning | Users see | Source |
 |---|---|---|---|
 | Resource request | A consumer asking the host for more (another model, a higher quota, …). The host approves or rejects it, and both sides can comment. | Request | req_001 §2 glossary |
-| Host status | The public health signal a client app checks: online, loaded models, queue depth, paused. | Host status | D-05 |
+| Host status | The health signal a client app checks with its access key: online, loaded models, queue depth, paused. | Host status | D-05 |
 | Usage ledger | The host's append-only, tamper-evident record of every metered request. | Usage history | D-16 |
 | Usage receipt | A record of one request's usage, signed by the host and returned with the response, so a consumer can check a bill independently. | Receipt | D-16 |
 | Audit log | The record of admin actions: keys issued or revoked, grants changed, requests decided. | Activity log | D-07 |

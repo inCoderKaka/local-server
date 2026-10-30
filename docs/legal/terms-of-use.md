@@ -2,7 +2,7 @@
 
 **Status:** placeholder, not drafted. No terms are in force.
 
-Drafted in phase_1 before the consumer sign-up page ships (req_001 D-13, D-45). The draft must cover at least:
+Drafted under PLT-C-002; the user approves it before PLT-F-027 (consumer sign-up) builds (req_001 D-13, D-45). The draft must cover at least:
 - **Roles:** what a host offers and what a consumer may do. Consumers may run inference only, never arbitrary code.
 - **Limits:** grants, quotas and resource requests.
 - **Usage records:** the ledger and signed receipts (D-16, D-27).

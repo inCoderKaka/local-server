@@ -2,7 +2,7 @@
 
 **Status:** placeholder, not drafted. No notice is in force.
 
-Drafted in phase_1 before the consumer sign-up page and sharing grants ship (req_001 D-43, D-45). The draft must cover at least:
+Drafted under PLT-C-002; the user approves it before PLT-F-027 (consumer sign-up) and PLT-F-047 (sharing grants) build (req_001 D-43, D-45). The draft must cover at least:
 - **Personal data:** what the host stores about a consumer, and erasure on deletion (D-40).
 - **Content:** prompt/response content is not logged or stored by default (D-31, D-40).
 - **Location:** where data lives. It is decentralised by default, and platform sync is opt-in per host (D-41).
