@@ -35,6 +35,9 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Module | One internal part of local-server: gateway, control plane, scheduler, ledger, notifier, host-metrics. Each owns its tables. | — | D-21, D-28 |
 | Listener | One of local-server's three network endpoints: consumer API, consumer web page, admin UI. | — | D-10, D-21 |
 | Service mode | How local-server runs in the background: *user* (starts at login, the default) or *system* (starts at boot). | Start at login / Start at boot | D-30 |
+| Unit of work | One database transaction a module opens. Other modules' rows (audit, domain events, sync changes, outbox) join it, so they commit or roll back together. | — | D-28, D-39 |
+| Domain event | A record that something happened (request decided, host paused, job done). It is written in the same unit of work as the change, then handed to subscribers such as notifications. | — | D-29 |
+| Doctor | The `local-server doctor` command, which checks the engine version, keychain, ports and Tailscale. | Doctor | D-14, D-23, D-48 |
 | Sleep lock | local-server keeps the host machine awake while sharing is on and not paused. | Keep awake | D-30 |
 
 ## Access and limits
@@ -54,6 +57,9 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Receipt-signing key | A rotating key, signed by the host identity key, that signs usage receipts and ledger checkpoints. | — | D-27 |
 | Policy rule | A versioned, declarative rule the host edits through a form (request properties, time windows, priority class, caps). Set per grant or globally. | Rule | D-25 |
 | Priority class | *Interactive* (someone is waiting) or *background* (can wait). Interactive runs first, and background ages up so it is never starved. | Interactive / Background | D-26 |
+| Quota | A grant's or key's token allowance for a period. Going over it returns `quota_exceeded`, and a near-limit notice is sent first. | Quota | D-25, D-29 |
+| Rate limit | The maximum number of requests a key may send per time window. Mandatory in public mode. | Rate limit | D-24 |
+| Retention rule | A setting saying how long one kind of record is kept before the retention worker deletes it. | How long we keep … | D-38, D-40 |
 | Setting owner | The one party (platform admin, host or consumer) that owns a configurable value. A lower party may tighten a value only within the higher party's bounds. | — | D-38 |
 
 ## Requests and records
