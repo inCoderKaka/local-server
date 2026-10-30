@@ -1,0 +1,135 @@
+1. What I think you're asking for
+
+A small app that runs on a host machine (to start with, your friend's Mac mini). It sits in front of a local model runtime and gives other people and apps authenticated, encrypted, metered access to AI models on that machine. The host gets an admin UI to:
+- set limits
+- issue keys
+- watch usage
+- approve or reject requests for more resources
+
+PA becomes the first client app.
+
+ME: exactly
+
+2. Proposed glossary (please confirm or rename)
+
+┌─────────────────────┬───────────────────────────────────────────────────────────────────────────────────────┬──────────────────────────┐
+│        Term         │                                        Meaning                                        │         Replaces         │
+├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────┤
+│ Host                │ The person who owns the machine and shares it                                         │ "host user"              │
+├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────┤
+│ Host machine / Node │ The computer running local-server (e.g. the Mac mini)                                 │                          │
+├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────┤
+│ Consumer            │ A person allowed to use a host's resources                                            │ "user user"              │
+├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────┤
+│ Client app          │ Software that calls the host for a consumer (e.g. PA)                                 │                          │
+├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────┤
+│ Access key          │ A credential the host issues to a consumer                                            │ "API key" (fine to keep) │
+├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────┤
+│ Share budget        │ What the host sets aside for consumers in total (models, memory, concurrency, tokens) │ "reserved resources"     │
+├─────────────────────┼─────────────────────────────────────────────────────────────┼──────────────────────────┤
+│ Grant               │ One consumer's portion: allowed models, quotas, context     │                          │
+├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────┤
+│ Resource request    │ A consumer asking for more; the host approves or reject     │                          │
+├─────────────────────┼───────────────────────────────────────────────────────────────────────────────────────┼──────────────────────────┤
+│ Engine              │ The model runtime underneath (Ollama, llama.cpp, MLX)       │                          │
+└─────────────────────┴───────────────────────────────────────────────────────────────────────────────────────┴──────────────────────────┘
+
+ME: yes, good enough
+
+3. What's possible, what's not, and what I'd recommend
+
+Feasible as written:
+- Choosing allowed models, preloading or unloading them, keeping them in memory
+- Context-length cap per model and per key
+- Max output tokens, concurrency, rate limits and token quotas per key
+- Usage per request, rolled up over time
+- Showing "used by other apps vs. reserved for sharing" on every page
+- Keys that can be created, revoked and set to expire
+- The request, approve/reject and comment flow
+
+Not truly enforceable on macOS:
+- Hard caps on RAM, CPU or GPU. macOS has no cgroups, and Apple Silicon's unified memory can't be partitioned per process. I can enforce the share budget indirectly instead:
+  - Refuse to load a model if its weights plus context-cache estimate exceed th
+  - Cap concurrency and queue length
+  - Lower the app's CPU priority
+
+  It would be reported as a budget, not a hard wall. On Linux, real hard caps a
+- GPU utilisation on Apple Silicon. Reading it needs sudo powermetrics. Memory and CPU are easy to read; GPU would be optional or best-effort.
+
+ME: ignore the not truly enforceable things for now. Make it such that it is OS agnostic. It should be installable easily either through brew, winget or through simple git clone and adding to PATH etc. Ask me more questions to confirm all things around this.
+
+Biggest hidden problem: reachability. The Mac mini sits behind a home router, and PA in production is on Fly. Something has to connect them. Options:
+- (a) Tailscale. WireGuard, encrypted end-to-end, free tier, works with Fly.
+- (b) Cloudflare Tunnel. Free, gives a public HTTPS URL. But Cloudflare decrypts traffic at its edge, so prompts are visible to them.
+- (c) Port forwarding plus a certificate. Fragile, and it exposes the friend's
+- (d) Our own relay server. Heavy, and an extra service to run.
+
+→ Recommendation: put the transport behind an adapter. Default to Tailscale for "very secure"; offer Cloudflare Tunnel as the easy option for consumers who aren't on Tailscale.
+
+ME: go with the recommendation except the fact that we need no compromise in the security... so Cloudfare should be ruled out, if there isn't anyway we can secure the cloudfare ourselves. Build for possible future own relay server.
+
+Recommended building blocks:
+- Don't write our own inference. Wrap an engine through an adapter. Ollama is taks it); MLX or llama.cpp later.
+- Lightweight: a single Go binary, with SQLite for storage and the admin web UI built into the binary and served only on localhost. No Electron. The admin UI is never reachable from
+  outside; only the consumer API is.
+- Make it usable by "any application": expose an OpenAI-compatible API (/v1/chat/completions, /v1/embeddings, /v1/models) plus a /v1/capabilities endpoint that reports context limits.
+  Almost every AI SDK already speaks this.
+- Security:
+  - Keys stored only as hashes, scoped to models, with expiry and revocation
+  - Prompt and response content not logged by default
+  - Consumers can only run inference, never arbitrary code
+
+Not recommended for Phase 1:
+- Sharing general compute (running code, files, CPU jobs). That's a different, risky product.
+- A public marketplace where anyone can find any host. It needs a central serving and legal terms.
+
+ME: recommendation for phase 1 is good... build in a way for potential future public marketplace to find any host.
+
+Proposed Phase 1: a private network where the host invites known people.
+
+4. Assumptions (correct any that are wrong)
+
+- A1: Phase 1 shares only AI inference (chat/completions plus embeddings, since
+- A2: The host invites consumers. There's no public discovery and no central server.
+- A3: The first host machine is Apple Silicon macOS; Linux follows, Windows com
+- A4: A consumer has no account. Their identity is the access key the host gave them, delivered out-of-band (e.g. pasted into WhatsApp).
+- A5: The resource-request flow is part of local-server's consumer API, and PA
+- A6: Usage is recorded per request (key, model, tokens in/out, latency, queue wait, status) and kept as rollups: per minute for 7 days, per hour for 90 days, per day indefinitely.
+
+ME: A2 (build for public discovery and central server in the future), A3 (build for Apple, Windows in phase 1). A4 (consumer can have account + consumer can be individual user/application user, consumer can also just be API key)... All the rest of the assumptions are good.
+
+5. Open questions (answer by number; "your call" is fine)
+
+- Q1. Which PA environment uses the Mac mini? Local dev, production on Fly, or both? Production on Fly forces the reachability decision (Tailscale on Fly, or a tunnel) and affects PA's provider fallback to Gemini.
+ME: all envs
+- Q2. Transport: do you accept Tailscale as the default, and are you OK with Cloudflare seeing plaintext in the tunnel option, or should that option be dropped?
+ME: I'm not okay with Cloudfare able to read plaintex... if there's a way we can encrypt and decrypt such that Cloudfare isn't able to read anything that's also good. It should be behind an adapter. Tailscale for now is fine.
+
+- Q3. Resource scope: inference only (A1), or do you expect sharing of CPU, stome point? It changes how generic the core model needs to be.
+ME: make it as generic as possible but only build for inference for now which the personal-assistant app can utilize.
+
+- Q4. Discovery: private invites only (A2), or should consumers eventually browse hosts? If the latter, I'd still defer it, but design identity so it can be added.
+ME: eventually latter. initially private invites only.
+
+- Q5. Request flow when the host is offline: a request queued on the host machithe machine is up. Is that acceptable, or does the host need notifications(email, Telegram, push) when a request arrives?
+ME: for personal-assistant app, request shouldn't be queued if its not a backgroud AI work otherwise, the user experience will be bad. In such cases, use a fallback when the host is offline. regarding the other background requests, when the request is queued, allow user to set preferences on how he would like to be notified of incoming requests or limits increase requests etc. In the some way, if the host declines the request, the consumer should be using some fallback if configured else wait for the host to be up in the future.
+- Q6. Stack: do you accept Go plus a built-in web UI, or do you want Python/Fasor you to read, heavier to run)? Do you want a macOS menu-bar app in Phase 1?
+ME: Simplest in terms of lightweightness, easier to download and use but extensible capabilities are some of the main considerations (yes, this can require potential future servers), even the website can be lightweight to run locally at first but in future pluggable to hosted servers etc..
+
+- Q7. Logging content: should the host ever be able to see consumer prompts and responses (e.g. opt-in per key for debugging), or never?
+ME: Yes, this can be a potential future capability... the data sharing contracts can be drafted for these in the future so we have to do all as legally correct as possible. and it can be costed upon etc so make it extensible in features, scalable etc... we have to use best decisions from HLD, LLD perspective.
+
+- Q8. Billing or credits: are quotas just limits, or will hosts ever charge coner usage records need to be ledger-grade.
+ME: Yes, we are definitely building with that possiblity
+
+- Q9. License: MIT (simplest), Apache-2.0 (adds a patent grant; my pick) or AGPL-3.0 (stops closed hosted forks)?
+ME: Explain each later
+
+- Q10. PA side: PA's rules say only you open a phase, and platform/phase_2 doestruction you opening it? Should PA's req_001.md also be written at the end ofthis conversation, or in a separate PA session using its own req-ingest/req-formalize flow?
+ME: for now, simply write the whole context of this app, decent standards of compatibility with all such others apps as well but for now focus on the pa integration. and refer the req files in this repo. write the requirements from this app's perspective as well.
+
+- Q11. How PA plugs in: a new RemoteHostProvider (OpenAI-compatible) in PA, or with an auth header? I'd recommend the new provider: cleaner, and it shows hostquotas and "request more" properly.
+ME: we can discuss this later as well.
+
+- Q12. Repo creation: should I create inCoderKaka/local-server (public) at the requirements file, or only when implementation starts?
+ME: you dont have to create that, your responsibility is just to create a req001_formal.txt

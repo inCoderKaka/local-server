@@ -1,0 +1,22 @@
+this directory (~/files/Projects/local-server) should be a new git repository called 'local-server' on git in my account 'inCoderKaka'.
+created under open source license.
+The purpose of this repository will be to turn my localhost into a server that any application can use for AI work.
+
+I want to create an application from scratch in which any person can turn their PC into a server of resources others can use.
+User can either use the resources hosted by others, or host its own machine's resources.
+
+This application should be very light weight.
+
+The user who is hosting its own resources should be able to tune the amount of resources he wants to share, create API keys for other users to consume the host's resources. monitor any user's usage with good enough granularity over time. monitor current usage as well as usage over time. At all the pages, it should show the amount of resources used by other apps and the amount of resources reserved by this application to share with others.
+
+This should be done over very secure, encrypted channels.
+
+The main purpose is to allow my friend who owns a mac mini to share some resources to any user in my application (~/files/Projects/personal-assistant). We have to make updates to that application as well (for which create a requirement file in the platform module's phase 2(~/files/Projects/personal-assistant/docs/tracks/platform/phase_2/requirements/req_001.md)). Refer to this exact project as well. Both of these apps should be well compatible.
+
+We have to make everything as dynamically configurable as possible. The whole software should be well extensible for any potential future features.
+
+The host user can host the local server for loading huge AI models (as allowed by the user) into the memory. Use that for making AI calls to the host server by the users he's allowed. Not just that but also, the context windows' length limit etc can be set by the host
+
+The communication should also be very easy. In this, the users can ask the host for more resources that the host can approve or reject. this can have comments etc.
+
+Create a glossary because I myself am getting confused saying some words like host user (one who has the machine to host), user user (one who consumes the resources).

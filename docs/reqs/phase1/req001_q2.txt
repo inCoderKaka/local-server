@@ -1,0 +1,40 @@
+Questions, round 2
+
+Install and running
+- Q13. Do you want Linux support in Phase 1 as well? With Go it costs almost nothing extra.
+- Q14. Should the installer also install the AI engine (Ollama), or detect it and show setup steps if it's missing?
+- Q15. Should it run as a background service that starts at login or boot (launchd on Mac, a Windows service), and stop the machine sleeping while sharing is on?
+- Q16. Two smaller install questions:
+  - Should it update itself, or only update through brew/winget?
+  - Is a one-line install script (curl … | sh on Mac, PowerShell on Windows) acceptable alongside brew/winget? "git clone and add to PATH" would need Go installed to build, so the script or a prebuilt download is friendlier.
+- Q17. Code signing costs money. Without signing, macOS and Windows show "unidentified developer" warnings, although brew installs mostly avoid this on Mac. Signing costs about $99/yr for Apple and roughly $100–300/yr for a Windows certificate. Unsigned for Phase 1, or budget for signing?
+
+Using it day to day
+- Q18. Is the Mac mini usually headless or away from your friend? If so, shoulde it remotely over the private Tailscale network, with an admin login? Or should the admin UI stay localhost-only, managed through Screen Sharing?
+- Q19. Do consumers get their own web page (log in, see their usage and limits,s), or is everything done through client apps like PA via the API?
+- Q20. How are consumer accounts created?
+  - (a) The host creates them.
+  - (b) The consumer signs up through an invite link.
+  - (c) Both.
+
+  And what's the login: username/password, or a passkey/magic link? Email links.
+- Q21. Which notification channels are needed in Phase 1? Options:
+  - in the app
+  - desktop/OS notifications
+  - webhooks (PA can receive these)
+  - email (through the host's own email settings)
+  - Telegram
+- Q22. Should the host run two priority levels, so interactive requests always jump ahead of background ones in the queue? And should the host be able to set hours when background work
+  is allowed (e.g. overnight only)?
+
+Building for billing later
+- Q23. Should usage records be signed by the host so the consumer can check them independently? This matters for billing disputes later. Or is it enough for the host to keep tamper-evident records that can't be edited after the fact?
+                                                                                                                                                                                          usekeeping
+- Q24. File name: you first said req1_formal.txt, then req001_formal.txt. Which one? Also, PA's own rules say requirement files are always committed (git commit only, no push). Should I commit PA's req_001.md when I write it?
+
+Answers:
+Q13: okay, Q14: Sure,
+  Q15: sure, 16: users should be able to select the option for auto update as a background option to select at ui startup when not enabled dissapearing soon. curl commands to install
+  also good.. no code signing as of yet. 20: both, 19: yes, 18: whatever's cheapest to implement for now, scoped for remote management, 21: all, 22: not just the host, but also the
+  consumer should be able to make different types of request (with maybe something called request properties/tags etc) defining what the host machine should do based on what's allowed
+  for the consumer. 23: i dont understand this question will let the future chat ask me this... 24, just write the file, dont commit for now.

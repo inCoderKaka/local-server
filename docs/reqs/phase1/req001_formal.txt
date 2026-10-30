@@ -1,0 +1,294 @@
+REQ-001 (FORMAL) — local-server, Phase 1
+===========================================================================
+
+Sources (the only sources of this file; nothing here is new information):
+  [R]  docs/reqs/phase1/req1.txt            — the original requirement
+  [Q]  docs/reqs/phase1/req1_Qs.txt         — the user's answers ("ME:") to the
+                                              first analysis round
+  [C]  Chat answers of 2026-10-30            — the user's answers to round-2
+                                              questions Q13–Q24
+
+This file restructures the sources into a formal form for product delivery in
+the next chat. It does not add, remove or change information. Where a source
+leaves something undecided, it is listed under section 13 (Open items), not
+decided here. Each item cites its source in brackets.
+
+---------------------------------------------------------------------------
+1. GLOSSARY  (confirmed: "yes, good enough" [Q])
+---------------------------------------------------------------------------
+Host                 The person who owns the machine and shares it.
+                     (Replaces "host user".)
+Host machine / Node  The computer running local-server (e.g. the Mac mini).
+Consumer             A person allowed to use a host's resources.
+                     (Replaces "user user".) A consumer may also be an
+                     application user or just an access key — see FR-CON-1.
+Client app           Software that calls the host for a consumer (e.g. PA).
+Access key           A credential the host issues to a consumer.
+                     ("API key" is fine to keep.)
+Share budget         What the host sets aside for consumers in total (models,
+                     memory, concurrency, tokens). (Replaces "reserved
+                     resources".)
+Grant                One consumer's portion: allowed models, quotas, context
+                     limit, expiry.
+Resource request     A consumer asking for more; the host approves or rejects
+                     it, with comments.
+Engine               The model runtime underneath (Ollama, llama.cpp, MLX).
+PA                   The personal-assistant application at
+                     ~/files/Projects/personal-assistant.
+
+The glossary is itself a deliverable [R]: "Create a glossary because I myself
+am getting confused saying some words like host user ... user user ...".
+
+---------------------------------------------------------------------------
+2. PRODUCT PURPOSE
+---------------------------------------------------------------------------
+P-1  Turn a localhost into a server that any application can use for AI work. [R]
+P-2  An application, built from scratch, with which any person can turn their
+     PC into a server of resources others can use. A user can either use the
+     resources hosted by others, or host their own machine's resources. [R]
+P-3  Main purpose: allow the user's friend, who owns a Mac mini, to share some
+     resources with any user of PA. [R]
+P-4  Confirmed summary [Q, "exactly"]: a small app that runs on a host machine
+     (to start with, the friend's Mac mini). It sits in front of a local model
+     runtime and gives other people and apps authenticated, encrypted, metered
+     access to AI models on that machine. The host gets an admin UI to set
+     limits, issue keys, watch usage, and approve or reject requests for more
+     resources. PA becomes the first client app.
+
+---------------------------------------------------------------------------
+3. REPOSITORY AND LICENCE
+---------------------------------------------------------------------------
+REPO-1  The directory ~/files/Projects/local-server is to be a new git
+        repository called 'local-server' in the GitHub account 'inCoderKaka'. [R]
+REPO-2  Created under an open source licence. [R] The specific licence is not
+        yet chosen — see OPEN-1.
+REPO-3  Creating the GitHub repository is not part of the requirements-writing
+        task. [Q12]
+
+---------------------------------------------------------------------------
+4. SCOPE — PHASE 1 BUILD vs. FUTURE-READY DESIGN
+---------------------------------------------------------------------------
+SCOPE-1  Resource scope: "make it as generic as possible but only build for
+         inference for now which the personal-assistant app can utilize." [Q3]
+SCOPE-2  Accepted assumption A1: Phase 1 shares only AI inference
+         (chat/completions plus embeddings, since PA uses embeddings). [Q]
+SCOPE-3  Discovery: initially private invites only; eventually consumers
+         browse hosts. [Q4] Phase 1 is a private network where the host invites
+         known people. [Q]
+SCOPE-4  Build in a way that allows a future public marketplace to find any
+         host. [Q] Build for public discovery and a central server in the
+         future (correction to assumption A2). [Q]
+SCOPE-5  Not recommended for Phase 1, and accepted [Q]:
+         - sharing general compute (running code, files, CPU jobs);
+         - a public marketplace where anyone can find any host.
+SCOPE-6  "Ignore the not truly enforceable things for now" [Q] — i.e. hard
+         caps on RAM, CPU or GPU, and GPU-utilisation readings on Apple
+         Silicon, are not Phase 1 requirements.
+
+---------------------------------------------------------------------------
+5. FUNCTIONAL REQUIREMENTS — HOST
+---------------------------------------------------------------------------
+FR-HOST-1  The host can tune the amount of resources they want to share. [R]
+FR-HOST-2  The host can create API (access) keys for other users to consume
+           the host's resources. [R]
+FR-HOST-3  The host can monitor any user's usage with good enough granularity
+           over time; monitor current usage as well as usage over time. [R]
+FR-HOST-4  On all pages, show the amount of resources used by other apps and
+           the amount of resources reserved by this application to share with
+           others. [R]
+FR-HOST-5  The host can host the local server for loading huge AI models (as
+           allowed by the host) into memory, and use that for AI calls to the
+           host server by the users they have allowed. [R]
+FR-HOST-6  The host can set the context windows' length limit, etc. [R]
+FR-HOST-7  Confirmed feasible items [Q, section 3]:
+           - choosing allowed models, preloading or unloading them, keeping
+             them in memory;
+           - context-length cap per model and per key;
+           - max output tokens, concurrency, rate limits and token quotas per
+             key;
+           - usage per request, rolled up over time;
+           - showing "used by other apps vs. reserved for sharing" on every
+             page;
+           - keys that can be created, revoked and set to expire;
+           - the request, approve/reject and comment flow.
+FR-HOST-8  Remote management: "whatever's cheapest to implement for now,
+           scoped for remote management." [C18]
+
+---------------------------------------------------------------------------
+6. FUNCTIONAL REQUIREMENTS — CONSUMERS, ACCOUNTS, REQUESTS, NOTIFICATIONS
+---------------------------------------------------------------------------
+FR-CON-1  A consumer can have an account; a consumer can be an individual user
+          or an application user; a consumer can also be just an API key.
+          (Correction to assumption A4.) [Q]
+FR-CON-2  Consumer accounts are created both ways: by the host, and by the
+          consumer signing up through an invite link. [C20]
+FR-CON-3  Consumers get their own web page (log in, see their usage and
+          limits, submit and follow requests). [C19]
+FR-REQ-1  Communication should be very easy: consumers can ask the host for
+          more resources; the host approves or rejects; requests can have
+          comments, etc. [R]
+FR-REQ-2  Accepted assumption A5: the resource-request flow is part of
+          local-server's consumer API, and PA gets a UI for it. [Q]
+FR-REQ-3  Request types: not only the host but also the consumer can make
+          different types of request (e.g. via "request properties" / "tags")
+          defining what the host machine should do, based on what is allowed
+          for the consumer. [C22]
+FR-REQ-4  Host offline / queuing behaviour [Q5]:
+          - For PA, a request must not be queued if it is not background AI
+            work (otherwise the user experience is bad); in such cases a
+            fallback is used when the host is offline.
+          - Background requests may be queued.
+          - If the host declines a request, the consumer uses a fallback if
+            configured, else waits for the host to be up in the future.
+FR-NOTIF-1 When requests are queued, users can set preferences on how they
+           would like to be notified of incoming requests, limit-increase
+           requests, etc. [Q5]
+FR-NOTIF-2 Notification channels in Phase 1: all of — in-app, desktop/OS
+           notifications, webhooks, email (through the host's own email
+           settings), Telegram. [C21]
+
+---------------------------------------------------------------------------
+7. NON-FUNCTIONAL REQUIREMENTS
+---------------------------------------------------------------------------
+NFR-LIGHT-1  The application should be very lightweight. [R]
+NFR-LIGHT-2  Main stack considerations: simplest in terms of lightweightness,
+             easy to download and use, and extensible capabilities (this can
+             require potential future servers). The website can be
+             lightweight to run locally at first but pluggable to hosted
+             servers etc. in the future. [Q6]
+NFR-SEC-1    Everything is done over very secure, encrypted channels. [R]
+NFR-SEC-2    No compromise in security. [Q]
+NFR-SEC-3    Accepted security building blocks [Q, section 3]:
+             - keys stored only as hashes, scoped to models, with expiry and
+               revocation;
+             - prompt and response content not logged by default;
+             - consumers can only run inference, never arbitrary code.
+NFR-CFG-1    Make everything as dynamically configurable as possible. [R]
+NFR-EXT-1    The whole software should be well extensible for any potential
+             future features. [R]
+NFR-EXT-2    Extensible in features and scalable; use the best decisions from
+             an HLD and LLD perspective. [Q7]
+NFR-OS-1     OS agnostic. [Q]
+NFR-OS-2     Phase 1 builds for Apple (macOS) and Windows [Q, correction to A3],
+             and Linux [C13].
+NFR-INST-1   Easily installable through brew, winget, or a simple git clone
+             and adding to PATH, etc. [Q]
+NFR-INST-2   curl commands to install are also good. [C16]
+NFR-INST-3   The installer also installs the AI engine (Ollama). [C14, in reply
+             to: "Should the installer also install the AI engine (Ollama), or
+             detect it and show setup steps if it's missing?" — "Sure"]
+NFR-INST-4   Runs as a background service that starts at login or boot
+             (launchd on Mac, a Windows service), and stops the machine
+             sleeping while sharing is on. [C15, "sure"]
+NFR-INST-5   Auto-update: users can select auto-update as a background option,
+             offered at UI startup when not enabled, with that prompt
+             disappearing soon. [C16]
+NFR-INST-6   No code signing as of yet. [C17]
+
+---------------------------------------------------------------------------
+8. ARCHITECTURE AND BUILDING BLOCKS
+   (recommendations presented in the analysis; the user's response to that
+   section: "recommendation for phase 1 is good" [Q])
+---------------------------------------------------------------------------
+ARCH-1  Do not write our own inference. Wrap an engine through an adapter.
+        Ollama is the default (PA already speaks it); MLX or llama.cpp later.
+ARCH-2  Lightweight: a single Go binary, with SQLite for storage and the admin
+        web UI built into the binary and served only on localhost. No
+        Electron. The admin UI is never reachable from outside; only the
+        consumer API is. (See OPEN-4 on the stack, and FR-HOST-8 / FR-CON-3,
+        which add remote management and a consumer web page.)
+ARCH-3  Usable by "any application": expose an OpenAI-compatible API
+        (/v1/chat/completions, /v1/embeddings, /v1/models) plus a
+        /v1/capabilities endpoint that reports context limits.
+
+---------------------------------------------------------------------------
+9. NETWORKING / TRANSPORT
+---------------------------------------------------------------------------
+NET-1  Reachability problem (from the analysis): the Mac mini sits behind a
+       home router, and PA in production is on Fly; something has to connect
+       them.
+NET-2  Put the transport behind an adapter. [Q, Q2]
+NET-3  Tailscale is the default ("Tailscale for now is fine"). [Q, Q2]
+NET-4  Cloudflare must not be able to read plaintext. Cloudflare is ruled out
+       unless there is a way we can secure it ourselves — i.e. encrypt and
+       decrypt so that Cloudflare is not able to read anything; that is also
+       acceptable. It must be behind an adapter. [Q, Q2]
+NET-5  Build for a possible future own relay server. [Q]
+NET-6  All PA environments (local dev and production on Fly) use the host
+       machine. [Q1, "all envs"]
+
+---------------------------------------------------------------------------
+10. DATA, USAGE RECORDS AND FUTURE COMMERCIAL / LEGAL CAPABILITIES
+---------------------------------------------------------------------------
+DATA-1  Accepted assumption A6: usage is recorded per request (key, model,
+        tokens in/out, latency, queue wait, status) and kept as rollups: per
+        minute for 7 days, per hour for 90 days, per day indefinitely. [Q]
+DATA-2  Host visibility of consumer prompts and responses is a potential
+        future capability. Data-sharing contracts can be drafted for this in
+        the future, so everything is to be done as legally correct as
+        possible; it can be costed, etc. — make it extensible in features and
+        scalable. [Q7]
+DATA-3  Billing / credits: definitely building with the possibility that hosts
+        charge consumers. [Q8]
+
+---------------------------------------------------------------------------
+11. PERSONAL-ASSISTANT (PA) INTEGRATION AND CROSS-PROJECT DELIVERABLE
+---------------------------------------------------------------------------
+PA-1  PA (~/files/Projects/personal-assistant) has to be updated as well. [R]
+PA-2  Create a requirement file for PA in the platform module's phase 2:
+      ~/files/Projects/personal-assistant/docs/tracks/platform/phase_2/
+      requirements/req_001.md. [R]
+PA-3  Refer to the PA project as well; both apps should be well compatible. [R]
+PA-4  Content of PA's req_001.md [Q10]: write the whole context of this app,
+      with decent standards of compatibility with all such other apps, but for
+      now focus on the PA integration; refer to the requirement files in this
+      repo; write the requirements from this app's (local-server's)
+      perspective as well.
+PA-5  PA behaviour when the host is offline or declines: see FR-REQ-4.
+PA-6  How PA plugs in (new RemoteHostProvider vs. reusing PA's Ollama adapter
+      with an auth header) is to be discussed later — see OPEN-2.
+
+---------------------------------------------------------------------------
+12. ACCEPTED ASSUMPTIONS (final form)
+---------------------------------------------------------------------------
+A1  Phase 1 shares only AI inference (chat/completions plus embeddings). [Q]
+A2  (corrected) The host invites consumers in Phase 1; build for public
+    discovery and a central server in the future. [Q]
+A3  (corrected) Build for Apple and Windows in Phase 1 [Q]; Linux too [C13].
+A4  (corrected) A consumer can have an account; can be an individual user or
+    an application user; can also be just an API key. [Q]
+A5  The resource-request flow is part of local-server's consumer API, and PA
+    gets a UI for it. [Q]
+A6  Usage recording and retention as in DATA-1. [Q]
+
+---------------------------------------------------------------------------
+13. OPEN ITEMS (carried to the next chat; not decided by this file)
+---------------------------------------------------------------------------
+OPEN-1  Licence choice. MIT / Apache-2.0 / AGPL-3.0 were explained; the user
+        has not chosen. [Q9]
+OPEN-2  How PA plugs in: a new RemoteHostProvider (OpenAI-compatible) vs.
+        reusing PA's Ollama adapter with an auth header — "we can discuss
+        this later". [Q11]
+OPEN-3  Whether usage records should be signed by the host so the consumer
+        can check them independently (relevant to billing disputes), or
+        tamper-evident host records are enough — "will let the future chat ask
+        me this". [Q23]
+OPEN-4  The concrete language/stack (Go was recommended) was not explicitly
+        confirmed in the answer to Q6; the answer gave the criteria in
+        NFR-LIGHT-2.
+OPEN-5  Consumer login method (username/password vs. passkey / magic link)
+        was asked in Q20 but not answered.
+OPEN-6  Whether the host can set hours when background work is allowed (e.g.
+        overnight only) was asked in Q22; the answer addressed request types
+        (FR-REQ-3) but not allowed hours.
+OPEN-7  The round-2 proposals for NET-4 (Tailscale Funnel; an end-to-end
+        encryption layer with a local "consumer mode" helper) were not
+        answered; NET-4 states only the requirement.
+
+---------------------------------------------------------------------------
+14. PROCESS NOTES FOR THE DELIVERY CHAT
+---------------------------------------------------------------------------
+PROC-1  Requirements were finalised through a back-and-forth; nothing was
+        implemented in this session. [user instruction]
+PROC-2  PA's requirement file (PA-2) is to be written; do not commit for now.
+        [C24]
