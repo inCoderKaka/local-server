@@ -85,7 +85,7 @@ One binary on the host. Consumers install nothing from local-server: they use a 
 ## Usage ledger and receipts (D-27)
 
 - **Ledger:** a Merkle-tree log in SQLite using RFC 6962 math ([RFC 6962](https://www.rfc-editor.org/rfc/rfc6962.html), [RFC 9162](https://www.rfc-editor.org/rfc/rfc9162.html)) via [`x/mod/sumdb/tlog`](https://pkg.go.dev/golang.org/x/mod/sumdb/tlog). Signed checkpoints use [C2SP tlog-checkpoint](https://c2sp.org/tlog-checkpoint). It gives inclusion and consistency proofs. Witness co-signing ([tlog-witness](https://c2sp.org/tlog-witness)) can come later.
-- **Receipts:** JWS with the fully specified `Ed25519` alg ([RFC 9864](https://www.rfc-editor.org/rfc/rfc9864.html), [RFC 8037](https://www.rfc-editor.org/rfc/rfc8037.html), [RFC 7515](https://www.rfc-editor.org/rfc/rfc7515.html)). They go in the `LS-Receipt` header, or in the final SSE event when streaming, and carry their checkpoint.
+- **Receipts:** JWS with the fully specified `Ed25519` alg ([RFC 9864](https://www.rfc-editor.org/rfc/rfc9864.html), [RFC 8037](https://www.rfc-editor.org/rfc/rfc8037.html), [RFC 7515](https://www.rfc-editor.org/rfc/rfc7515.html)). They go in the `LS-Receipt` header, or in the final SSE event when streaming, and carry their `leaf_index` and the tree size that leaf creates. The covering checkpoint and inclusion proof are fetched later from `/v1/usage/{id}/proof` (D-52).
 - **Write path:** the usage record and ledger entry are appended synchronously at request end through one batched writer. Minute/hour/day rollups are computed asynchronously.
 - **Keys:** the host identity key signs a rotating receipt-signing subkey. Public keys are published at `/v1/keys` ([crypto/ed25519](https://pkg.go.dev/crypto/ed25519)).
 - **Why not a plain hash chain:** it shows tampering only to someone who audits it and keeps old heads ([Crosby & Wallach 2009](https://www.usenix.org/legacy/event/sec09/tech/full_papers/crosby.pdf)).
@@ -276,7 +276,7 @@ Terminal states are never reopened, so audit and billing history stays linear.
   6. `Engine.Chat` calls native `/api/chat` with `num_ctx`=cap, `num_predict` and `keep_alive`, under first-token, idle and total timeouts.
   7. The answer streams back as OpenAI SSE. A client disconnect cancels the call.
   8. One `BEGIN IMMEDIATE` batch writes the usage record, ledger leaf/hashes and sync change. Then the JWS receipt is sent.
-  9. If metering fails it is retried. If it keeps failing, the answer is still returned and the failure is logged and alerted (experience first, user-confirmed).
+  9. If metering fails it is retried. If it keeps failing, the answer is still returned and the failure is logged and alerted (experience first, user-confirmed). The response then carries a signed receipt marked `unmetered`, with token counts and no ledger index (D-51).
 
   An engine that's down returns 503 `engine_unavailable`.
 - **Context overflow (D-48, F-09):**
