@@ -6,7 +6,7 @@ Last updated: 2026-10-30 · Last verified: 2026-10-30
 req_001 is at stage 5 (`design-close`), not started. Next chat: `/orchestrate-design platform 1 1` → starts `design-close platform 1 1 discussion` (then `design-close platform 1 1 design-review`; the `ai-architecture` stage did not run, D-20).
 
 Resume notes (from the session that ended after `design-lld`; the log is the source of truth):
-- Stage 5 (`design-close`) must also create `docs/glossary.md`, which clears the 2 uncovered lines in the coverage matrix (the glossary line and the §2 glossary line). It should use `capture-executive-input` for the decision traces (D-45).
+- Stage 5 (`design-close`) must also create `docs/glossary.md`, which clears the 2 uncovered lines in the coverage matrix (the glossary line and the §2 glossary line). It should use `capture-executive-input` for the decision traces (D-45) and start `docs/legal/` (D-45; legal requirements are discussed for the current phase only).
 - Before stage 6: create the PA requirement file per D-17 at `personal-assistant/docs/tracks/platform/phase_2/requirements/req_001.md` (outside this repo, not committed; F-05 says its `phase_2/` folder does not exist yet).
 - Unsourced checks to verify before `ticketize`: Tailscale Funnel on the Personal plan; macOS Gatekeeper with an unsigned curl-downloaded binary; per-OS keychain APIs; Ollama prompt truncation beyond `num_ctx`; `OllamaSetup.exe` silent flags.
 - Then stage 6 (`ticketize`).
