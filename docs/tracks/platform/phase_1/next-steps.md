@@ -11,7 +11,7 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 
 1. S1 **PLT-C-001** Go module scaffold, CI on 3 OSes and module-boundary check (deps: —) **gate it**
 2. S2 **PLT-F-001** OpenAPI 3.1 contract v1 (consumer, consumer self-service and admin) with generated server code (deps: PLT-C-001) **gate it**  ∥  S3 **PLT-F-002** Storage foundation: single writer, cross-module unit of work, migrations, change capture, data catalog (deps: PLT-C-001) **gate it**  ∥  S4 **PLT-F-003** Telemetry port: slog JSON, redaction, Prometheus metrics, request id, log rotation (deps: PLT-C-001)
-3. S5 **PLT-F-004** Runtime settings with owners and bounds, plus retention registry (deps: PLT-F-002) **gate it**
+3. S5 **PLT-F-004** Runtime settings with owners, plus retention registry (deps: PLT-F-002) **gate it**
 4. S6 **PLT-F-005** Host identity, signing subkeys and sealed secrets (deps: PLT-F-002, PLT-F-004) **gate it**
 
 ### B2 — Core domain

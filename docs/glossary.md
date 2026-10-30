@@ -61,7 +61,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Quota | A grant's or key's token allowance for a period. Going over it returns `quota_exceeded`, and a near-limit notice is sent first. | Quota | D-25, D-29 |
 | Rate limit | The maximum number of requests a key may send per time window. Mandatory in public mode. | Rate limit | D-24 |
 | Retention rule | A setting saying how long one kind of record is kept before the retention worker deletes it. | How long we keep … | D-38, D-40 |
-| Setting owner | The one party (platform admin, host or consumer) that owns a configurable value. A lower party may tighten a value only within the higher party's bounds. | — | D-38 |
+| Setting owner | The one party (platform admin, host or consumer) responsible for a configurable value. It sets the value freely; there is no bounds hierarchy between parties. | — | D-38, D-54 |
 
 ## Requests and records
 

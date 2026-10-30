@@ -51,3 +51,8 @@ The HLD and LLD closed on 2026-10-30, recorded in [ADR 0002](../../../adr/0002-r
   - Windows installs Ollama with `/SILENT` after the host's yes.
   - Still to test before release: LaunchAgent with an unsigned binary on macOS 15/26.
 - **Receipts (D-51, D-52):** when metering fails, the response still carries a signed receipt, marked `unmetered`. Otherwise a receipt carries its leaf index and tree size, and the covering checkpoint and proof are fetched later.
+- **Pre-implementation confirmations ([ADR 0004](../../../adr/0004-req001-pre-implementation-confirmations.md)):**
+  - D-53: type tables reference `idn_principal`.
+  - D-54 (supersedes D-38): no bounds hierarchy for settings.
+  - D-55: SLO targets are measured, then you approve them.
+  - D-56: auto-update comes in a later phase.

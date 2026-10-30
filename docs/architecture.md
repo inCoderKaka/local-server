@@ -219,7 +219,7 @@ One binary on the host. Consumers install nothing from local-server: they use a 
   - golden tests for the OpenAI-compatible contract
   - CI on 3 OSes
   - an architecture note per module
-- SLO targets (gateway overhead, admission latency, receipt signing) are set in LLD (D-31). No LLD row sets them yet; they are owed before PLT-F-018 builds.
+- SLO targets (gateway overhead, admission latency, receipt signing): the gateway ticket measures them on the fake engine and proposes values, and the user approves them as a decision row before its review gate (D-31, D-55).
 - **Unsourced:** the OTel SDK's binary-size cost.
 
 ## API contract (D-32, D-33)
@@ -241,7 +241,7 @@ One binary on the host. Consumers install nothing from local-server: they use a 
 - **Judgement:** explicit rejection, additive-only versioning, and headers over body fields.
 - **Unsourced:** how SDKs and proxies handle unknown body fields.
 
-## State machines (D-38)
+## State machines (D-38, now D-54)
 
 Terminal states are never reopened, so audit and billing history stays linear.
 
@@ -262,8 +262,8 @@ Terminal states are never reopened, so audit and billing history stays linear.
 
 **Configurability:**
 - Every time, retention, TTL, retry and threshold value is a stored setting with a default, editable at runtime by the party that owns it. Nothing is hard-coded.
-- Owners: the platform admin owns platform-target settings and minimums, the host owns host data, and the consumer owns its own preferences.
-- A lower party can tighten a value only within the higher party's bounds.
+- Owners: the platform admin owns platform-target sync settings, the host owns host data, and the consumer owns its own preferences.
+- There is no bounds hierarchy. Each party sets its own values freely (D-54).
 
 ## Call flows (D-39)
 
