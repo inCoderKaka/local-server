@@ -1,14 +1,15 @@
 # platform / phase_1 — implementation status
 
-Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-workflow-skills/agents/implementation-status-reporter.md`). Requirement: `requirements/req_001.md` · log: `requirements/req_001.decisions.md` · ADR 0001, 0002, 0003. Last updated 2026-10-30.
+Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-workflow-skills/agents/implementation-status-reporter.md`). Requirement: `requirements/req_001.md` · log: `requirements/req_001.decisions.md` · ADR 0001, 0002, 0003, 0004. Last updated 2026-10-30.
 
 ## Position + next action
-- **Position:** req_001 is fully ticketized (52 tickets: PLT-F-001..PLT-F-048 and PLT-C-001..PLT-C-004, all designed) and nothing is built: no code exists, all 52 are `idea (designed)`/`designed`, none shipped. Design and ticketization are committed (6e8f4eb tickets, 5915e8a PLT-C-005 worklog row). 6 commits are unpushed (`git log origin/main..HEAD`). req_001 has no open question (Open and Deferred empty in its log), so it is not blocked (D-17). It is the phase's only requirement.
+- **Position:** req_001 is the phase's only requirement and is fully ticketized: 52 tickets (PLT-F-001..PLT-F-048, PLT-C-001..PLT-C-004), all designed, none started, plus chore PLT-C-005 (design close-out and ticketization, done). Nothing is built: the repo holds only docs (no `go.mod`, `cmd/` or `internal/`). Design work is committed through 2e5e2bd (tickets 6e8f4eb, PLT-C-005 worklog row 5915e8a, review-gate fixes 6520214, D-51/D-52 fdea028, D-53..D-56 and ADR 0004 2e5e2bd). 11 commits are unpushed (`git log origin/main..HEAD`). req_001 has no open question (Open and Deferred are empty in its log), so it is not blocked (D-17). Three pre-build confirmations still live only in ticket Notes, not as log rows: PLT-F-016 (which key signs checkpoints), PLT-F-030 (default for consumer webhook targets on private and tailnet addresses) and PLT-F-018 (SLO approval, D-55, before its gate).
 - **Next action:** build **PLT-C-001** (B1/S1, Sonnet, gate it): Go module scaffold, CI on 3 OSes and the module-boundary check. It has no dependencies and gates the rest of B1; then B1/S2-S4 (PLT-F-001, PLT-F-002, PLT-F-003) run in parallel, per `next-steps.md`. PLT-C-002 (legal drafts, B4/S28) and PLT-F-006 can fill a free builder slot early.
 
 ## Progress table
 | Batch | Slice | Ticket | Status | Owner | Model | Gate-covered |
 |---|---|---|---|---|---|---|
+| — | — | PLT-C-005 | done | Claude | Sonnet | yes (6520214, docs only) |
 | B1 | S1 | PLT-C-001 | designed | Claude | Sonnet | no |
 | B1 | S2 | PLT-F-001 | idea (designed) | Claude | Opus | no |
 | B1 | S3 | PLT-F-002 | idea (designed) | Claude | Sonnet | no |
@@ -63,22 +64,26 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | B10 | S52 | PLT-C-004 | designed | Claude | Sonnet | no |
 
 ## Gate ledger
-- Commits since the last review gate: no review gate has run yet (no gate commit in `git log`, nothing built). 6 commits sit on main beyond origin/main, all docs/chore (`docs(platform): ...`); no `feat(`/`fix(` commit exists. Uncommitted paths: 0. Earlier gate runs: none.
-- Shared contracts touched so far: `docs/tracks/README.md` (ticket schema and format spec, added in 6e8f4eb) and `.claude/context/CONTEXT.md` (session context). Nothing under `ops/bin/**`, `apps/api/app/platform/**`, migrations, public API routes or `docs/tools/sdlc-workflow-skills/**` (none of these paths exist in this repo).
-- Next gate: not due — no code exists yet, so there is nothing to review; the first gate falls on PLT-C-001 (module layout, archcheck rules), the first ticket marked "gate it" in `next-steps.md`.
+- Last review gate: 6520214 (`docs(platform): review-gate fixes over req_001 design close-out and ticketization`, 29 approved findings plus the glossary Module row), a docs-only gate over the design and tickets, not over code. Its two deferred findings (#7 receipt on the metering-failure path, #9 which checkpoint a receipt cites) were decided afterwards in fdea028 (D-51, D-52). Since 6520214: 4 commits (fdea028, 7bb1d49, f7da149, 2e5e2bd), all `docs(platform):`, no `feat(`/`fix(`. They carry design decisions D-51..D-56, ADR 0004, a verbatim session record and design-status/design.md notes; those decisions were not gate-reviewed. Uncommitted paths: 0. Earlier gate runs: none.
+- Shared contracts touched since the last gate: none. `git diff --name-only 6520214..HEAD` lists only `docs/adr/**`, `docs/architecture.md`, `docs/glossary.md`, `docs/legal/README.md`, `docs/tracks/platform/phase_1/**` and `execetive_inputs/**`. Nothing under `docs/tracks/README.md`, `ops/bin/**`, `apps/api/app/platform/**`, migrations, public API routes, `docs/tools/sdlc-workflow-skills/**` or `.claude/**` (several of these paths do not exist in this repo). Ticket text for the future shared contracts PLT-F-001, PLT-F-004, PLT-F-015, PLT-F-016 and PLT-F-018 was edited (D-51, D-52, D-54, D-55) but no contract exists yet.
+- Next gate: not due — no code exists and no shared contract file changed since 6520214; the first gate falls on PLT-C-001 (module layout, archcheck rules), the first ticket marked "gate it" in `next-steps.md`.
 
 ## Drift & bugs inbox
-- uncaptured — `design-status.md` still says req_001 stage 6 (`ticketize`) is "not started" and "Next: run `ticketize platform 1 1`", but 52 tickets exist (6e8f4eb); its stage 6 row and Position need updating.
-- uncaptured — PLT-F-006 Notes say "Can start as soon as T01 is done" and PLT-F-045 Notes say "Can start once T06 is done": T01/T06 are stale draft ticket numbers, not ids in this backlog (T01 presumably means PLT-C-001; T06 cannot be resolved, and PLT-F-045's Depends On is PLT-F-002 and PLT-F-005).
+- uncaptured — `design-status.md` still says req_001 stage 6 (`ticketize`) is "not started" and "Next: run `ticketize platform 1 1`", but 52 tickets exist (6e8f4eb); its stage 6 row and Position need updating. (now fixed: stage 6 is `done`, verified 2026-10-30)
+- uncaptured — PLT-F-006 Notes say "Can start as soon as T01 is done" and PLT-F-045 Notes say "Can start once T06 is done": T01/T06 are stale draft ticket numbers, not ids in this backlog (T01 presumably means PLT-C-001; T06 cannot be resolved, and PLT-F-045's Depends On is PLT-F-002 and PLT-F-005). (now fixed: the Notes name PLT-C-001 and PLT-F-005)
+- uncaptured — `design-status.md` predates 2e5e2bd: its stage 3 row lists D-38 as a live LLD row (D-54 supersedes it) and omits D-53..D-56; its Artifacts line omits ADR 0004 and `execetive_inputs/26-10-30_platform_req_001_pre-implementation.md` (design.md already carries D-53..D-56).
+- uncaptured — PLT-F-016 Notes say which key signs ledger checkpoints is undecided (D-27 (4) covers receipts only) and a D-NN row is needed before building, but the log's Open section is empty, so the D-17 gate does not see it.
+- uncaptured — PLT-F-030 Notes say the default for consumer webhook endpoints targeting private (RFC 1918, ULA) or tailnet addresses must be confirmed by the user before the ticket builds; no log row records the question.
+- uncaptured — `worklog.md` has one row (PLT-C-005, Ref up to 6e8f4eb): the review-gate fixes (6520214), D-51/D-52 (fdea028), the verbatim session record (f7da149) and D-53..D-56 with ADR 0004 (2e5e2bd) are not logged, and the PLT-C-005 row does not name the gate that ran over it.
 - No rows in `bugs.md` (empty). `ops/bin/ticket-drift` does not exist in this repo, so no automated drift check ran.
 
 ## Token ledger
 | Ticket | Model | Input | Output | Cache (write / read) | Attribution |
 |---|---|---|---|---|---|
-| — | claude-opus-5-5 | n/a | n/a | n/a | n/a — multi-ticket span (16 replies) |
-| — | claude-haiku-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (16 replies) |
-| — | claude-opus-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (10 replies) |
-| — | claude-sonnet-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (28 replies) |
+| — | claude-opus-5-5 | n/a | n/a | n/a | n/a — multi-ticket span (49 replies) |
+| — | claude-haiku-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (67 replies) |
+| — | claude-opus-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (20 replies) |
+| — | claude-sonnet-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (61 replies) |
 
 ## Requirement coverage
 
@@ -93,7 +98,7 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | The application should be very lightweight | PLT-C-001 (D-09, D-21) |
 | The host can tune the amount of resources they share | PLT-F-014, PLT-F-024 (D-26) |
 | The host can create API keys for other users to consume the host's resources | PLT-F-010, PLT-F-025, PLT-F-033 (D-25) |
-| The host can monitor any user's usage with good granularity over time | PLT-F-023, PLT-F-035 (D-31) |
+| The host can monitor any user's usage with good granularity over time | PLT-F-023, PLT-F-035 (D-27, D-40) |
 | The host can monitor current usage as well as usage over time | PLT-F-023, PLT-F-013, PLT-F-032 (D-31, D-40) |
 | Every page shows resources used by other apps and resources reserved by this app for sharing | PLT-F-013, PLT-F-024, PLT-F-032 (D-31) |
 | Done over very secure, encrypted channels | PLT-F-038, PLT-F-039, PLT-F-040 (D-12, D-23, D-24) |
@@ -117,7 +122,7 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | §3 Feasible › request, approve/reject and comment flow | PLT-F-028, PLT-F-035, PLT-F-037 (D-32, D-38, D-39) |
 | §3 Not enforceable on macOS (hard RAM/CPU/GPU caps; GPU reading needs sudo) › indirect budget enforcement — ME: ignore for now | PLT-F-014, PLT-F-013 (D-26, D-31) |
 | ME: make it OS agnostic | PLT-C-001, PLT-F-041, PLT-F-042, PLT-C-003 (D-30, D-31) |
-| ME: easily installable via brew, winget, or git clone + add to PATH | PLT-C-003, PLT-F-043, PLT-C-004 (D-04, D-30) |
+| ME: easily installable via brew, winget, or git clone + add to PATH | PLT-C-003, PLT-F-043, PLT-C-004 (D-04 (2): brew and winget moved to a later phase; git clone + build from source in PLT-C-004; D-30) |
 | §3 Reachability: Mac mini behind a home router, PA prod on Fly; options Tailscale / Cloudflare Tunnel / port forwarding / own relay; recommendation: transport adapter, default Tailscale | PLT-F-038, PLT-F-039 (D-12, D-23, D-24) |
 | ME: go with the recommendation, but no compromise on security; Cloudflare ruled out unless we can secure it ourselves | PLT-F-038, PLT-F-039 (D-12, D-23, D-24) |
 | ME: build for a possible future own relay server | PLT-C-001 (D-02, D-23, D-24) |
@@ -153,18 +158,18 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | Q13: Linux support in Phase 1 — okay | PLT-F-041, PLT-C-003, PLT-F-043 (D-04, D-30) |
 | Q14: installer installs / detects the AI engine (Ollama) — "Sure" | PLT-F-043 (D-14, D-30) |
 | Q15: background service at login/boot (launchd, Windows service); prevent sleep while sharing — sure | PLT-F-041, PLT-F-042 (D-30) |
-| Q16: auto-update as a background option offered at UI startup when not enabled, the prompt disappearing soon; curl install commands also good | no ticket, decision only (D-04, D-30) |
+| Q16: auto-update as a background option offered at UI startup when not enabled, the prompt disappearing soon; curl install commands also good | no ticket, decision only (D-04 (3): auto-update moved to a later phase, overriding the round-2 answer 16; D-30) |
 | Q17: no code signing yet | PLT-C-003 (D-30) |
 | Q18: remote management — whatever's cheapest to implement now, scoped for remote management | PLT-F-038 (D-10) |
 | Q19: consumers get their own web page (log in, usage, limits, requests) — yes | PLT-F-036, PLT-F-037 (D-04, D-10, D-32) |
 | Q20: consumer accounts created both by the host and by invite-link sign-up (login method not answered) | PLT-F-025, PLT-F-027 (D-13, D-25) |
-| Q21: notification channels in Phase 1 — all (in-app, desktop/OS, webhooks, email via the host's settings, Telegram) | PLT-F-029, PLT-F-030, PLT-F-031 (D-04, D-29) |
+| Q21: notification channels in Phase 1 — all (in-app, desktop/OS, webhooks, email via the host's settings, Telegram) | PLT-F-029, PLT-F-030, PLT-F-031 (D-04 (1): email and Telegram moved to a later phase, overriding the round-2 answer "21: all"; D-29) |
 | Q22: host and consumer can make different request types (request properties/tags) defining what the host machine does, within what's allowed for the consumer | PLT-F-011, PLT-F-026, PLT-F-034 (D-15, D-25, D-26, D-33) |
 | Q23: signed vs. tamper-evident usage records — not understood; ask in a future chat | PLT-F-015, PLT-F-016 (D-16, D-27) |
 | Q24: just write the (PA) file; don't commit for now | no ticket, decision only (D-17) |
 | (added) Host status endpoint `/v1/health` (online, loaded models, queue depth) | PLT-F-021 (D-05) |
 | (added) Pause-sharing switch + quiet hours | PLT-F-012, PLT-F-032, PLT-F-042 (D-06) |
 | (added) Audit log of admin actions | PLT-F-008, PLT-F-035 (D-07) |
-| (added) Records survive loss of the host disk: host-encrypted off-host sync (Supabase default, R2 optional), adapter, migration traces, export/import tooling | PLT-F-002, PLT-F-044, PLT-F-045, PLT-F-046 (D-41, D-44) |
+| (added) Records survive loss of the host disk: host-encrypted off-host sync (host-owned bucket snapshots by default, opt-in platform sync to Supabase; D-41), adapter, migration traces, export/import tooling | PLT-F-002, PLT-F-044, PLT-F-045, PLT-F-046 (D-41, D-44) |
 | (added) Platform admin role can see a host's data per dataset, time-boxed, only on that host's approval | PLT-F-046, PLT-F-047, PLT-F-048 (D-43, D-44) |
 | (added) Future-scoping direction (docs/reqs/phase1/req001_future_scoping.txt): categorized users for subscriptions, consented data and profiles, host benchmarking and smart host selection, party-to-party trace sharing, decentralized by default, classifiable and billable data, legal decision traces | PLT-C-001, PLT-F-007, PLT-F-021, PLT-F-047 (D-41, D-42, D-43, D-44, D-45) |
