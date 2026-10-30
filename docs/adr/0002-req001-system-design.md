@@ -5,7 +5,7 @@
 **Extends:** [ADR 0001](0001-req001-scope-and-product-decisions.md)
 **Requirement:** `docs/tracks/platform/phase_1/requirements/req_001.md`
 **Decisions:** D-21..D-33, D-38..D-45 in [`req_001.decisions.md`](../tracks/platform/phase_1/requirements/req_001.decisions.md). D-34..D-37 are superseded by D-41..D-44. The log is the source; this ADR summarises it.
-**executive_inputs_reference:** execetive_inputs/26-10-30_platform_req_001_design-review.md
+**executive_inputs_reference:** execetive_inputs/26-10-30_platform_req_001_design-review.md, execetive_inputs/26-10-30_platform_req_001_design-sessions-verbatim.md (your exact prompts and answers, both design sessions)
 
 ## Context
 

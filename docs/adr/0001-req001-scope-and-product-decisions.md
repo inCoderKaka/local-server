@@ -4,7 +4,7 @@
 **Date:** 2026-10-30
 **Requirement:** `docs/tracks/platform/phase_1/requirements/req_001.md`
 **Decisions:** D-01..D-19 in [`req_001.decisions.md`](../tracks/platform/phase_1/requirements/req_001.decisions.md). The log is the source; this ADR summarises it.
-**executive_inputs_reference:** execetive_inputs/26-10-30_platform_req_001_discussion.md
+**executive_inputs_reference:** execetive_inputs/26-10-30_platform_req_001_discussion.md, execetive_inputs/26-10-30_platform_req_001_design-sessions-verbatim.md (your exact prompts and answers, both design sessions)
 
 ## Context
 
