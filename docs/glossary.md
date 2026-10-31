@@ -45,8 +45,8 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Sleep lock | local-server keeps the host machine awake while sharing is on and not paused. | Keep awake | D-30 |
 | Unattributed | Host resource use local-server cannot assign to a process because the OS won't report it; shown separately, never guessed. | Unattributed | D-31 |
 | Tailnet | The private Tailscale network the host machine and its consumers' nodes share. | — | D-10, D-12 |
-| Share-budget slice | The host resources local-server's sharing is using now: the local-server process, the Ollama processes and the loaded models. It is measured, not reserved. Other apps is host use outside it. | — | D-31 |
-| Other apps | Host resource use outside the share-budget slice: total host use minus local-server, Ollama and loaded models (free memory is not counted). | Other apps | D-31 |
+| Share-budget slice | The host resources local-server's sharing is using now: the local-server process, the Ollama processes and the loaded models. Its memory is local-server's RSS plus the larger of Ollama's RSS and the loaded models' host RAM, so weights are never counted twice. It is measured, not reserved. Other apps is host use outside it. | — | D-31, D-91 |
+| Other apps | Host resource use outside the share-budget slice: total host use minus local-server, Ollama and loaded models (free memory is not counted). | Other apps | D-31, D-92 |
 
 ## Access and limits
 

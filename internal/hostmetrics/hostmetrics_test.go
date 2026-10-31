@@ -147,7 +147,8 @@ func TestSliceAndOther(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := e.sample(t)
-	if want := gib/2 + 2*gib + gib; r.Slice.Memory.Value != want {
+	// The fake engine reports the model fully on the accelerator, so Ollama's RSS is the larger.
+	if want := gib/2 + 2*gib; r.Slice.Memory.Value != want {
 		t.Fatalf("slice memory = %d, want %d", r.Slice.Memory.Value, want)
 	}
 	if r.Slice.Memory.Value > r.Host.MemoryTotal.Value || r.Slice.Clamped {
@@ -420,5 +421,23 @@ func TestRealProbeSmoke(t *testing.T) {
 	}
 	if got.Slice.Memory.Value > got.Host.MemoryTotal.Value || got.Other.Memory.Value < 0 {
 		t.Fatalf("slice %d total %d other %d", got.Slice.Memory.Value, got.Host.MemoryTotal.Value, got.Other.Memory.Value)
+	}
+}
+
+func TestSliceMemoryNoDoubleCount(t *testing.T) {
+	const gib = int64(1 << 30)
+	for _, c := range []struct {
+		name                      string
+		ls, rss, size, vram, want int64
+	}{
+		{"weights inside Ollama RSS", gib, 5 * gib, 4 * gib, 0, 6 * gib},
+		{"weights outside Ollama RSS", gib, gib, 4 * gib, 0, 5 * gib},
+		{"model on the accelerator", gib, 2 * gib, 4 * gib, 4 * gib, 3 * gib},
+		{"partly offloaded", gib, gib, 4 * gib, 3 * gib, 2 * gib},
+		{"accelerator above size", gib, gib, gib, 2 * gib, 2 * gib},
+	} {
+		if got := sliceMemory(c.ls, c.rss, c.size, c.vram); got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
+		}
 	}
 }

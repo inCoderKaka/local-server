@@ -71,7 +71,10 @@ type Slice struct {
 	LoadedAccelerator  Bytes
 	LocalServerCPU     Percent
 	OllamaCPU          Percent
-	// Memory and CPU are the sums, never above the host total. Clamped says they were cut down.
+	// Memory is local-server's RSS plus the larger of Ollama's RSS and the loaded models' host
+	// RAM (their size minus their accelerator memory), so a model already in Ollama's RSS is not
+	// counted twice (D-91). CPU is the sum. Neither is above the host total; Clamped says they
+	// were cut down.
 	Memory  Bytes
 	CPU     Percent
 	Clamped bool
@@ -221,7 +224,7 @@ func (r *Reader) Read(ctx context.Context) (Reading, error) {
 		}
 	}
 
-	sliceMem := s.LocalServerMemory.Value + s.OllamaMemory.Value + s.LoadedModelsMemory.Value
+	sliceMem := sliceMemory(s.LocalServerMemory.Value, s.OllamaMemory.Value, s.LoadedModelsMemory.Value, s.LoadedAccelerator.Value)
 	if sliceMem > out.Host.MemoryTotal.Value {
 		sliceMem, s.Clamped = out.Host.MemoryTotal.Value, true
 	}
@@ -250,4 +253,12 @@ func clampPct(v float64) float64 { return min(max(v, 0), 100) }
 // normalName lowercases a process name and drops a Windows ".exe" suffix.
 func normalName(n string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(n)), ".exe")
+}
+
+// sliceMemory is local-server's RSS plus the larger of Ollama's RSS and the loaded models' host
+// RAM. Model weights may or may not sit in Ollama's RSS (mmap, CPU inference), so taking the
+// larger never counts them twice and never reports less than either measure (D-91).
+func sliceMemory(localServer, ollamaRSS, modelsSize, modelsAccelerator int64) int64 {
+	modelsRAM := max(modelsSize-modelsAccelerator, 0)
+	return localServer + max(ollamaRSS, modelsRAM)
 }

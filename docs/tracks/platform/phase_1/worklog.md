@@ -40,3 +40,4 @@ Work ledger for the platform track. Convention: `docs/tracks/README.md`. A ticke
 | PLT-B-020, PLT-B-021 | bug | Broken policy rule fails closed silently (D-73); stale metric series on /metrics (D-74) | reported | 2026-10-31 | — | bugs.md | confirmed; B-020 lands with F-018 and F-026 |
 | PLT-F-070 | feat | Opt-in macOS GPU helper (D-75) | backlog | 2026-10-31 | — | backlog.md | spin-off of PLT-F-013 |
 | PLT-C-005 | chore | Up-front decision round D-73..D-90: PLT-B-001, B-007..B-016, B-018, B-019, PLT-F-054, F-055 decided | done | 2026-10-31 | 2026-10-31 | 4d957ec | no verify line |
+| PLT-F-012, PLT-F-013 | feat | Set D code gate, host part: 12 fixes (paused event key, tzdata, ErrNoHost, empty zone, unavailable process CPU, serialised Read, accelerator gauge); slice memory per D-91 | done | 2026-10-31 | 2026-10-31 | ac8a183 | verify: pass (`CGO_ENABLED=0 go test ./...`); set D gate complete; D-91, D-92 decided |

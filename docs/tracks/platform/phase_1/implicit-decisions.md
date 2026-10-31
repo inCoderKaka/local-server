@@ -6,9 +6,9 @@ Software choices the AI made that no ticket, design doc or requirement decision 
 |---|---|---|---|---|---|---|
 | I-135 | 2026-10-31 | scope | PLT-F-013 | Host settings `host.metrics.sample_interval` (15s; zero or less disables sampling), `host.metrics.retention` (168h), `host.metrics.ollama_process_names` (`ollama`, comma-separated, case and `.exe` ignored). | Revert or amend `9a2d64a`: edit the Defs. | unreviewed |
 | I-134 | 2026-10-31 | design | PLT-F-013 | Sample interval defaults to 15 s (D-40 says only "every N s"). | Revert or amend `9a2d64a`: change the Def default. | unreviewed |
-| I-133 | 2026-10-31 | design | PLT-F-013 | Other apps = memory in use − slice, clamped at 0. | Revert or amend `9a2d64a`: use `MemoryTotal` as the base in `Read`. | unreviewed |
+| I-133 | 2026-10-31 | design | PLT-F-013 | Other apps = memory in use − slice, clamped at 0. | Revert or amend `9a2d64a`: use `MemoryTotal` as the base in `Read`. | accepted |
 | I-132 | 2026-10-31 | design | PLT-F-013 | The local-server slice is clamped to the host total and flagged `Clamped`. | Revert or amend `9a2d64a`: remove the clamp. | unreviewed |
-| I-131 | 2026-10-31 | design | PLT-F-013 | Slice memory = local-server RSS + Ollama RSS + loaded models' `SizeBytes`; this can double-count a model held in Ollama's RSS. | Revert or amend `9a2d64a`: use max(Ollama RSS, loaded size). | unreviewed |
+| I-131 | 2026-10-31 | design | PLT-F-013 | Slice memory = local-server RSS + Ollama RSS + loaded models' `SizeBytes`; this can double-count a model held in Ollama's RSS. | Revert or amend `9a2d64a`: use max(Ollama RSS, loaded size). | reverted |
 | I-130 | 2026-10-31 | design | PLT-F-013 | Process CPU is a share of the whole host (per-core percent ÷ cores), clamped to the host CPU. | Revert or amend `9a2d64a`: drop the division. | unreviewed |
 | I-129 | 2026-10-31 | scope | PLT-F-013 | GPU totals are reported as `unavailable` with a reason; loaded models' VRAM is reported separately, labelled `engine_loaded` (the opt-in helper is PLT-F-070, D-75). | Revert or amend `9a2d64a`: add a probe. | unreviewed |
 | I-128 | 2026-10-31 | design | PLT-F-013 | The `measures` column is a JSON map, one key per value. | Revert or amend `9a2d64a`: split into columns in a new migration. | unreviewed |
