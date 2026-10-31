@@ -1,0 +1,15 @@
+{
+  "data": [
+    {
+      "embedding": "9P2UPka2M79wEgM+HC+dPg==",
+      "index": 0,
+      "object": "embedding"
+    }
+  ],
+  "model": "fake-embed",
+  "object": "list",
+  "usage": {
+    "prompt_tokens": 1,
+    "total_tokens": 1
+  }
+}

@@ -1,2 +1,48 @@
-// Package gateway is part of the gateway module; see docs/modules/gateway.md. Its port and adapters are added by PLT-F-018, PLT-F-019.
+// Package gateway is the gateway module; see docs/modules/gateway.md. It serves the consumer
+// API (req_001 D-10, D-32, D-33): the OpenAI-compatible POST /v1/chat/completions and
+// POST /v1/embeddings (not streamed; streaming is PLT-F-019), and the ledger endpoints GET
+// /v1/keys, GET /v1/ledger/checkpoint and GET /v1/usage/{usage_id}/proof. Every other /v1
+// operation answers 501 until its ticket lands.
+//
+// # Pipeline
+//
+// F1 (req_001 D-39), in this order, for chat and embeddings:
+//
+//  1. auth: limits.CheckLockout, auth.Authenticate, limits.AuthResult, limits.LimitBody and
+//     limits.Check run in the ogen security handler, so before the body is read;
+//  2. policy: Policy.Evaluate with the request properties, model, time and grant (req_001 D-79);
+//  3. validate: fields the engine port cannot carry are refused (never silently ignored,
+//     D-32), max_tokens is capped, the prompt size is pre-checked against the context cap
+//     (context_too_long unless the grant's on_context_overflow is truncate, D-48);
+//  4. scheduler.Admit with the grant's concurrency limit, then limits.CountAdmitted (D-100);
+//  5. the engine call;
+//  6. one metering transaction (ledger.Record: usage_record, ledger leaf, sync_change) and the
+//     signed receipt in the LS-Receipt header. If metering keeps failing the answer is still
+//     returned with the signed unmetered receipt, the failure is logged and counted, and a
+//     metering.failed event is emitted (D-39 step 9, D-51).
+//
+// # Errors
+//
+// Every error uses the OpenAI error envelope (api/openapi.yaml). Request decoding errors,
+// unknown paths, wrong methods and panics are mapped to it too, and none of them quotes a byte
+// of the request except a field name that passed a strict character check (PLT-B-003). The
+// handler serves /v1 only: an /admin/v1 path answers 404 in the envelope (PLT-B-005).
+//
+// # Policy rule failures
+//
+// A rule that fails to parse fails the request closed. The gateway logs it, counts it
+// (RuleFailures) and emits policy.rule_invalid, at most once per rule per
+// gateway.rule_invalid_event_interval (req_001 D-73). Disabling a broken rule in storage is
+// not done here.
+//
+// # Settings
+//
+// Every limit, time and threshold is a host-owned runtime setting (Defs, req_001 D-38). The
+// three service-level targets of req_001 D-31, D-55 are settings too: the SLO tests read them,
+// and the gateway counts each call whose own time misses the overhead target.
+//
+// # Content
+//
+// Prompts and responses live in request-scoped memory only. Nothing here logs or stores them;
+// error text is fixed and never carries request bytes (req_001 D-31, D-40).
 package gateway

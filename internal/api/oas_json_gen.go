@@ -5512,13 +5512,38 @@ func (s *ErrorDetail) encodeFields(e *jx.Encoder) {
 		e.FieldStart("code")
 		s.Code.Encode(e)
 	}
+	{
+		if s.RuleID.Set {
+			e.FieldStart("rule_id")
+			s.RuleID.Encode(e)
+		}
+	}
+	{
+		if s.RuleName.Set {
+			e.FieldStart("rule_name")
+			s.RuleName.Encode(e)
+		}
+	}
+	{
+		if s.Properties != nil {
+			e.FieldStart("properties")
+			e.ArrStart()
+			for _, elem := range s.Properties {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfErrorDetail = [4]string{
+var jsonFieldsNameOfErrorDetail = [7]string{
 	0: "message",
 	1: "type",
 	2: "param",
 	3: "code",
+	4: "rule_id",
+	5: "rule_name",
+	6: "properties",
 }
 
 // Decode decodes ErrorDetail from json.
@@ -5573,6 +5598,45 @@ func (s *ErrorDetail) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"code\"")
+			}
+		case "rule_id":
+			if err := func() error {
+				s.RuleID.Reset()
+				if err := s.RuleID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rule_id\"")
+			}
+		case "rule_name":
+			if err := func() error {
+				s.RuleName.Reset()
+				if err := s.RuleName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rule_name\"")
+			}
+		case "properties":
+			if err := func() error {
+				s.Properties = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.Properties = append(s.Properties, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"properties\"")
 			}
 		default:
 			return d.Skip()

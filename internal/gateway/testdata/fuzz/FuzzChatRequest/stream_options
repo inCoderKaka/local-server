@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"model\":\"m\",\"messages\":[{\"role\":\"user\",\"content\":\"x\"}],\"stream\":false,\"stream_options\":{\"include_usage\":true}}")

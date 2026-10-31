@@ -36,8 +36,9 @@ type Limiter struct {
 	now func() time.Time
 	log *slog.Logger
 
-	rate  *buckets
-	fails *tracker
+	rate   *buckets
+	fails  *tracker
+	admits *admitted
 
 	mu    sync.Mutex
 	noted map[noteKey]int64 // quota.near_limit already raised: window start (ms) per subject
@@ -50,7 +51,7 @@ func New(cfg Config) (*Limiter, error) {
 	if cfg.DB == nil || cfg.Identity == nil || cfg.Grants == nil || cfg.Events == nil || cfg.Settings == nil {
 		return nil, errors.New("limits: DB, Identity, Grants, Events and Settings are required")
 	}
-	l := &Limiter{cfg: cfg, now: cfg.Clock, log: cfg.Logger, rate: newBuckets(), fails: newTracker(), noted: map[noteKey]int64{}}
+	l := &Limiter{cfg: cfg, now: cfg.Clock, log: cfg.Logger, rate: newBuckets(), fails: newTracker(), admits: newAdmitted(), noted: map[noteKey]int64{}}
 	if l.now == nil {
 		l.now = time.Now
 	}
@@ -174,8 +175,8 @@ type quota struct {
 
 // quotas returns the quotas that apply to id, each with its use in the current window. The
 // key's own narrowing and the grant version's figure are read separately, because
-// auth.Identity.Limits holds only the smaller of the two. Request quotas count use_record rows
-// in the same fixed window as token quotas (req_001 D-98).
+// auth.Identity.Limits holds only the smaller of the two. Request quotas count admitted calls
+// in the same fixed window as token quotas (req_001 D-98, D-100).
 func (l *Limiter) quotas(ctx context.Context, id *auth.Identity, key identity.AccessKey, now time.Time) ([]quota, error) {
 	var keyLimit, keyReqLimit *int64
 	if key.NarrowingJSON != nil {
@@ -231,13 +232,13 @@ func (l *Limiter) quotas(ctx context.Context, id *auth.Identity, key identity.Ac
 }
 
 // used returns the tokens (UnitTokens) or the number of calls (UnitRequests) that finished in
-// [from, to), read through the usage module.
+// [from, to), read through the usage module. Calls count every call the gateway admitted
+// (req_001 D-100), metered or not, and at least the metered records.
 func (l *Limiter) used(ctx context.Context, unit string, by usage.By, value string, from, to time.Time) (int64, error) {
-	read := usage.Tokens
 	if unit == UnitRequests {
-		read = usage.Count
+		return l.requestsUsed(ctx, by, value, from, to)
 	}
-	n, err := read(ctx, l.cfg.DB.Reader(), by, value, from, to)
+	n, err := usage.Tokens(ctx, l.cfg.DB.Reader(), by, value, from, to)
 	if err != nil {
 		return 0, fmt.Errorf("limits: read usage: %w", err)
 	}

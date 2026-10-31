@@ -43,6 +43,9 @@ info:
     Any other field, including OpenAI fields local-server does not support (for example `n`,
     `logit_bias`, `tool_choice`, `user`, `logprobs`), is rejected with `400` and code
     `unsupported_parameter`, with `param` naming the field. Nothing is silently ignored (D-32).
+    A field this file lists but the host's engine cannot carry yet (for example `tools`,
+    `temperature` and `response_format` other than `text`) is rejected the same way, and so
+    is `stream: true` on a host whose gateway does not stream yet.
 
     ## Errors
 
@@ -58,6 +61,9 @@ info:
     | `context_too_long` | 400 | `invalid_request_error` | no | The prompt exceeds the grant's context limit and the grant's context overflow is `refuse` |
     | `engine_unavailable` | 503 | `server_error` | no | The engine (Ollama) is not reachable |
     | `over_budget` | 422 | `invalid_request_error` | no | The model and the request's context can never fit the host's memory budget; retrying the same request does not help |
+    | `policy_denied` | 403 | `invalid_request_error` | no | A policy rule denies the request, or the request carries a property the grant does not allow (D-79). The error names the rule (`rule_id`, `rule_name`) and the properties (`properties`) |
+    | `outside_time_window` | 429 | `requests` | yes | A policy rule allows the request only inside time windows and none is open now; `Retry-After` is the time until the rule's next window opens (D-79). The error names the rule |
+    | `invalid_request_properties` | 400 | `invalid_request_error` | no | The `LS-Request-Properties` header is malformed or over the host's limits (D-79) |
     | `unsupported_parameter` | 400 | `invalid_request_error` | no | A request field is not supported (OpenAI's code) |
     | `invalid_api_key` | 401 | `invalid_request_error` | no | Missing, unknown, expired or revoked credential (OpenAI's code) |
     | `rate_limit_exceeded` | 429 | `requests` | yes | Rate limit or lockout after failed attempts (OpenAI's code) |
@@ -2530,8 +2536,19 @@ components:
           description: The request field the error is about, if any.
         code:
           type: [string, 'null']
-          description: A typed code (`quota_exceeded`, `host_paused`, `model_not_granted`, `context_too_long`, `queue_full`, `engine_unavailable`, `over_budget`), an OpenAI code, or null.
-          examples: [quota_exceeded, host_paused, model_not_granted, context_too_long, queue_full, engine_unavailable, over_budget]
+          description: A typed code (`quota_exceeded`, `host_paused`, `model_not_granted`, `context_too_long`, `queue_full`, `engine_unavailable`, `over_budget`, `policy_denied`, `outside_time_window`, `invalid_request_properties`), an OpenAI code, or null.
+          examples: [quota_exceeded, host_paused, model_not_granted, context_too_long, queue_full, engine_unavailable, over_budget, policy_denied, outside_time_window, invalid_request_properties]
+        rule_id:
+          type: string
+          description: On `policy_denied` and `outside_time_window`, the id of the policy rule that refused the request, so the caller can adapt its request (D-79).
+        rule_name:
+          type: string
+          description: On `policy_denied` and `outside_time_window`, the name of that rule (D-79).
+        properties:
+          type: array
+          description: On `policy_denied`, the request properties the refusal is about (D-79). Names only, never values.
+          items:
+            type: string
 
     # -------------------------------------------------------------- OpenAI chat
     ChatCompletionRequest:

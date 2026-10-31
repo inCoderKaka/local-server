@@ -24,11 +24,12 @@ const (
 	PlatformSyncFailed     Type = "platform_sync.failed"
 	AccessKeyRevoked       Type = "access_key.revoked"
 	GrantChanged           Type = "grant.changed"
+	PolicyRuleInvalid      Type = "policy.rule_invalid"
 )
 
 // Types lists every defined event type.
 func Types() []Type {
-	return []Type{HostPaused, QuotaNearLimit, ResourceRequestCreated, ResourceRequestDecided, JobDone, MeteringFailed, PlatformSyncFailed, AccessKeyRevoked, GrantChanged}
+	return []Type{HostPaused, QuotaNearLimit, ResourceRequestCreated, ResourceRequestDecided, JobDone, MeteringFailed, PlatformSyncFailed, AccessKeyRevoked, GrantChanged, PolicyRuleInvalid}
 }
 
 // Known reports whether t is a defined event type.

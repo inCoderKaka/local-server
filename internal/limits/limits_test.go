@@ -272,6 +272,72 @@ func TestGrantRequestQuotaCountsAllKeysOfConsumer(t *testing.T) {
 	}
 }
 
+// req_001 D-100: the request quota counts every admitted call, metered or not.
+func TestRequestQuotaCountsUnmeteredAdmittedCalls(t *testing.T) {
+	e := setup(t, nil)
+	k := e.issue(auth.Narrowing{QuotaRequestsPerDay: i64(3)})
+	other := e.issue(auth.Narrowing{})
+	for i := 1; i <= 3; i++ {
+		if err := e.lim.Check(ctx(), k.id); err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+		if err := e.lim.CountAdmitted(ctx(), k.id); err != nil { // admitted, never metered: no use_record
+			t.Fatal(err)
+		}
+	}
+	var qe *limits.QuotaError
+	err := e.lim.Check(ctx(), k.id)
+	if !errors.As(err, &qe) || qe.Unit != limits.UnitRequests || qe.Used != 3 || qe.Limit != 3 {
+		t.Fatalf("request 4: %v, want the request quota used up by unmetered calls", err)
+	}
+	// The consumer's calls are counted for the grant too, whichever key made them; a key with
+	// no quota of its own is unaffected by another key's key-scoped count.
+	if err := e.lim.Check(ctx(), other.id); err != nil {
+		t.Fatalf("other key: %v", err)
+	}
+	e.advance(14 * time.Hour)
+	if err := e.lim.Check(ctx(), k.id); err != nil {
+		t.Fatalf("new window: %v", err)
+	}
+}
+
+// A counter starts from the metered records on record (the restart floor), and a metered record
+// is not counted twice.
+func TestRequestCounterIsSeededFromMeteredRecords(t *testing.T) {
+	e := setup(t, nil)
+	k := e.issue(auth.Narrowing{QuotaRequestsPerDay: i64(4)})
+	e.use(k, 1)
+	e.use(k, 1) // two metered calls before this process admitted anything
+	if err := e.lim.CountAdmitted(ctx(), k.id); err != nil {
+		t.Fatal(err)
+	}
+	e.use(k, 1) // the admitted call is then metered: still one call, not two
+	var qe *limits.QuotaError
+	if err := e.lim.Check(ctx(), k.id); err != nil {
+		t.Fatalf("3 calls of 4: %v", err)
+	}
+	if err := e.lim.CountAdmitted(ctx(), k.id); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.lim.Check(ctx(), k.id); !errors.As(err, &qe) || qe.Used != 4 {
+		t.Fatalf("4 calls of 4: %v", err)
+	}
+}
+
+func TestGrantRequestQuotaCountsAdmittedCallsOfAllKeys(t *testing.T) {
+	e := setupGrant(t, nil, i64(2))
+	a, b := e.issue(auth.Narrowing{}), e.issue(auth.Narrowing{})
+	for _, k := range []key{a, b} {
+		if err := e.lim.CountAdmitted(ctx(), k.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var qe *limits.QuotaError
+	if err := e.lim.Check(ctx(), a.id); !errors.As(err, &qe) || qe.Scope != limits.ScopeGrant || qe.Unit != limits.UnitRequests {
+		t.Fatalf("request 3: %v", err)
+	}
+}
+
 func TestNoQuotaMeansNoQuotaError(t *testing.T) {
 	e := setup(t, nil)
 	k := e.issue(auth.Narrowing{})

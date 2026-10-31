@@ -2739,8 +2739,16 @@ type ErrorDetail struct {
 	// The request field the error is about, if any.
 	Param NilString `json:"param"`
 	// A typed code (`quota_exceeded`, `host_paused`, `model_not_granted`, `context_too_long`,
-	// `queue_full`, `engine_unavailable`, `over_budget`), an OpenAI code, or null.
+	// `queue_full`, `engine_unavailable`, `over_budget`, `policy_denied`, `outside_time_window`,
+	// `invalid_request_properties`), an OpenAI code, or null.
 	Code NilString `json:"code"`
+	// On `policy_denied` and `outside_time_window`, the id of the policy rule that refused the request, so
+	// the caller can adapt its request (D-79).
+	RuleID OptString `json:"rule_id"`
+	// On `policy_denied` and `outside_time_window`, the name of that rule (D-79).
+	RuleName OptString `json:"rule_name"`
+	// On `policy_denied`, the request properties the refusal is about (D-79). Names only, never values.
+	Properties []string `json:"properties"`
 }
 
 // GetMessage returns the value of Message.
@@ -2763,6 +2771,21 @@ func (s *ErrorDetail) GetCode() NilString {
 	return s.Code
 }
 
+// GetRuleID returns the value of RuleID.
+func (s *ErrorDetail) GetRuleID() OptString {
+	return s.RuleID
+}
+
+// GetRuleName returns the value of RuleName.
+func (s *ErrorDetail) GetRuleName() OptString {
+	return s.RuleName
+}
+
+// GetProperties returns the value of Properties.
+func (s *ErrorDetail) GetProperties() []string {
+	return s.Properties
+}
+
 // SetMessage sets the value of Message.
 func (s *ErrorDetail) SetMessage(val string) {
 	s.Message = val
@@ -2781,6 +2804,21 @@ func (s *ErrorDetail) SetParam(val NilString) {
 // SetCode sets the value of Code.
 func (s *ErrorDetail) SetCode(val NilString) {
 	s.Code = val
+}
+
+// SetRuleID sets the value of RuleID.
+func (s *ErrorDetail) SetRuleID(val OptString) {
+	s.RuleID = val
+}
+
+// SetRuleName sets the value of RuleName.
+func (s *ErrorDetail) SetRuleName(val OptString) {
+	s.RuleName = val
+}
+
+// SetProperties sets the value of Properties.
+func (s *ErrorDetail) SetProperties(val []string) {
+	s.Properties = val
 }
 
 // ErrorStatusCodeWithHeaders wraps Error with status code and response headers.

@@ -15,6 +15,7 @@
 //   - Limiter.Check after auth: rate limit, then a fresh check that the key and consumer are
 //     still active, then quotas. A refusal is a *RateLimitError, *QuotaError, or one of
 //     auth.ErrRevoked, auth.ErrExpired and auth.ErrConsumerNotActive;
+//   - Limiter.CountAdmitted when the scheduler has admitted the call (the request counter, D-100);
 //   - Limiter.Record after the metering transaction has committed, to raise quota.near_limit.
 //
 // # Quotas
@@ -24,12 +25,14 @@
 // limits.quota_window, one day by default). Usage is the sum of use_record.total_tokens of
 // calls that finished in the current fixed window, aligned to whole multiples of the window length counted from 0001-01-01 UTC (midnight UTC for lengths that divide 24h),
 // so Retry-After is the time to the end of the window. A request quota
-// (quota_requests_per_day, req_001 D-98) is the same figure per request: Check counts the
-// use_record rows of that window against it, with the same scope rules and the same
-// quota_exceeded refusal (QuotaError.Unit says which). Until the gateway's admission counter
-// exists (req_001 D-100, PLT-F-018), the request quota counts use_record rows, so unmetered
-// calls are not yet counted, and calls in flight can overshoot it as they do token quotas.
-// D-100 makes it count every admitted call. The key's quota counts that key's
+// (quota_requests_per_day, req_001 D-98) is the same figure per request, with the same scope
+// rules and the same quota_exceeded refusal (QuotaError.Unit says which). It counts every call
+// the gateway admitted, metered or not (req_001 D-100): the gateway calls Limiter.CountAdmitted
+// once per admitted call, which raises an in-memory counter per subject and window, and Check
+// reads the larger of that counter and the use_record rows of the window. After a restart a
+// counter starts from the metered rows on record (they are the floor), so unmetered calls made
+// before the restart are forgotten. Calls in flight can overshoot the quota as they do token
+// quotas. The key's quota counts that key's
 // records; the grant's quota counts all records of the grant's consumer. Check does not count
 // tokens of calls still running, so concurrent calls can overshoot a quota by what is in flight.
 //

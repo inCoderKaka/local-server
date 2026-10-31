@@ -1,0 +1,30 @@
+{
+  "data": [
+    {
+      "embedding": [
+        0.291,
+        -0.702,
+        0.12800002,
+        0.30700004
+      ],
+      "index": 0,
+      "object": "embedding"
+    },
+    {
+      "embedding": [
+        -0.875,
+        0.99,
+        -0.028999984,
+        0.011000037
+      ],
+      "index": 1,
+      "object": "embedding"
+    }
+  ],
+  "model": "fake-embed",
+  "object": "list",
+  "usage": {
+    "prompt_tokens": 3,
+    "total_tokens": 3
+  }
+}

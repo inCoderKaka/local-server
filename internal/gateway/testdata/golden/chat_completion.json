@@ -1,0 +1,21 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "this is a deterministic reply from the fake engine",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1,
+  "id": "chatcmpl-00000000-0000-0000-0000-000000000000",
+  "model": "fake-chat",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 9,
+    "prompt_tokens": 2,
+    "total_tokens": 11
+  }
+}
