@@ -24,7 +24,7 @@ The first implementation plan found two dependencies no decision had named: the 
 - **D-65:** a dedicated checkpoint-signing key, signed by the host identity key and rotated rarely, signs ledger checkpoints.
 - **D-66:** webhooks to private or tailnet addresses are denied by default, and the host can allow them.
 - **D-67:** the host is alerted when platform sync has failed for longer than a threshold it owns.
-- **D-68:** after a restore, queued jobs that lost their payload to minimization fail with `payload_minimized`.
+- **D-68:** after a restore, jobs not yet finished (queued or running) that lost their payload to minimization fail with `payload_minimized`.
 - **D-69:** a table can be minimized only when every table that references it is minimized too.
 
 ## Alternatives considered
@@ -44,7 +44,7 @@ The first implementation plan found two dependencies no decision had named: the 
 
 D-64..D-69 settle the questions the review gate of this session deferred to the owner.
 
-- **Tickets (D-64..D-69):** PLT-F-005, F-016, F-030, F-044 and F-046.
+- **Tickets (D-64..D-69):** PLT-F-005, F-016, F-022, F-030, F-044 and F-046.
 - **Tickets:** PLT-F-001, F-003, F-010, F-011, F-016, F-018, F-044, F-045, F-046 and PLT-C-001, C-003, C-004 carry the new artifacts and verify lines.
 - **cgo:** the race job is the only place cgo is used. The release matrix stays pure Go.
 - **Fuzzing:** each fuzz target's seed corpus becomes part of the regression suite.

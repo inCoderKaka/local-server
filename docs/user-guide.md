@@ -46,7 +46,7 @@ The dashboard shows current use and use over time: per person, per app and per m
 
 ### Backups
 
-Turn on backups to a folder or to a storage bucket you own (Cloudflare R2 or Google Cloud Storage). Backups are encrypted on your computer before they leave it. You choose what goes in: by default, background-job content and login sessions are left out, and you can keep or leave out any kind of data. If background-job content was left out of a backup, jobs that were still waiting when it was taken come back as failed after a restore, so apps send them again. Keep the **recovery code** you are shown; it is the only way to restore.
+Turn on backups to a folder or to a storage bucket you own (Cloudflare R2 or Google Cloud Storage). Backups are encrypted on your computer before they leave it. You choose what goes in: by default, background-job content and login sessions are left out, and you can keep or leave out any kind of data, with one limit: you can leave a kind of data out only if everything that depends on it is left out too. If you try otherwise, local-server refuses the change and names the data involved. If background-job content was left out of a backup, jobs that were still waiting or running when it was taken come back as failed after a restore, so apps send them again. Keep the **recovery code** you are shown; it is the only way to restore.
 
 ## For consumers
 

@@ -87,8 +87,8 @@ curl -X POST https://<host>/v1/jobs \
 # → 202 {"id": "...", "status": "queued"}
 ```
 
-- **Duplicates:** sending the same `Idempotency-Key` again returns the existing job, so a retry after a timeout never runs or bills twice.
-- **Getting the result:** poll `GET /v1/jobs/{id}`, or register a webhook for `job.done`.
+- **Duplicates:** sending the same `Idempotency-Key` again returns the existing job, so a retry after a timeout never runs or bills twice. The exception is a job that ended `failed` with reason `host_restart` (the host restarted while it ran) or `payload_minimized` (the host restored a backup that left job content out). Send the same key again to start a new attempt.
+- **Getting the result:** poll `GET /v1/jobs/{id}`, or register a webhook for `job.done`. `job.done` is sent when a job succeeds. A job that ends `failed`, `cancelled` or `expired` shows its status and reason on `GET /v1/jobs/{id}`.
 - **The result is deleted when you fetch it** (or after the job-result time you set, 24 hours by default). Store it yourself.
 
 ### Verifying receipts
