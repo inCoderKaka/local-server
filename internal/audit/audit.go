@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
+	"github.com/inCoderKaka/local-server/internal/telemetry"
 )
 
 // KeyListPageSize is the setting holding the page size List uses when the filter gives none (D-38).
@@ -50,35 +52,6 @@ type Stored struct {
 // Clock returns the current time.
 type Clock func() time.Time
 
-// forbidden are detail keys (compared lower-case) that name content or secrets. Record refuses
-// an event carrying one anywhere in its detail, so a careless caller fails loudly (D-31, D-40).
-var forbidden = map[string]bool{
-	"prompt": true, "response": true, "completion": true, "messages": true, "content": true,
-	"secret": true, "password": true, "token": true, "api_key": true, "access_key": true,
-	"private_key": true, "authorization": true,
-}
-
-func checkDetail(v any) error {
-	switch x := v.(type) {
-	case map[string]any:
-		for k, e := range x {
-			if forbidden[strings.ToLower(k)] {
-				return fmt.Errorf("%w: detail key %q may hold content or a secret", ErrInvalidEvent, k)
-			}
-			if err := checkDetail(e); err != nil {
-				return err
-			}
-		}
-	case []any:
-		for _, e := range x {
-			if err := checkDetail(e); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 // encodeDetail returns the JSON text of detail after checking it is an object without
 // forbidden keys.
 func encodeDetail(detail any) (string, error) {
@@ -93,8 +66,8 @@ func encodeDetail(detail any) (string, error) {
 	if err := json.Unmarshal(b, &obj); err != nil || obj == nil {
 		return "", fmt.Errorf("%w: detail must be a JSON object", ErrInvalidEvent)
 	}
-	if err := checkDetail(obj); err != nil {
-		return "", err
+	if k, found := telemetry.FindContentKey(obj); found {
+		return "", fmt.Errorf("%w: detail key %q may hold content or a secret", ErrInvalidEvent, k)
 	}
 	return string(b), nil
 }
@@ -137,7 +110,7 @@ func nullable(s string) any {
 // Defs are the audit settings; register them with settings.Store.Register.
 func Defs() []settings.Def {
 	return []settings.Def{{Key: KeyListPageSize, Kind: settings.Int, Default: "50", Owner: settings.Host,
-		Description: "How many audit events a list returns when the caller does not ask for a number."}}
+		Description: "The most audit events one list page returns, and the page size when the caller does not ask for a number."}}
 }
 
 // Filter selects events. Zero fields do not filter. Newest events come first.
@@ -147,7 +120,7 @@ type Filter struct {
 	TargetID string
 	Since    time.Time // inclusive; zero means no lower bound
 	Until    time.Time // exclusive; zero means no upper bound
-	// Limit is the page size; 0 uses the audit.list_page_size setting.
+	// Limit is the page size; 0 uses the audit.list_page_size setting, which also caps it.
 	Limit int
 	// Cursor is the NextCursor of the previous page; empty starts at the newest event.
 	Cursor string
@@ -176,15 +149,19 @@ func (l *Log) List(ctx context.Context, rd *storage.Reader, f Filter) (Page, err
 	if limit < 0 {
 		return Page{}, fmt.Errorf("%w: negative limit", ErrInvalidEvent)
 	}
-	if limit == 0 {
-		n, err := l.settings.Int(ctx, KeyListPageSize, "")
-		if err != nil {
-			return Page{}, err
-		}
-		limit = int(n)
+	n, err := l.settings.Int(ctx, KeyListPageSize, "")
+	if err != nil {
+		return Page{}, err
 	}
-	if limit < 1 {
-		limit = 1
+	if n < 1 {
+		n = 1
+	}
+	if n > int64(math.MaxInt-1) {
+		n = int64(math.MaxInt - 1)
+	}
+	max := int(n)
+	if limit == 0 || limit > max {
+		limit = max
 	}
 	q := `SELECT id, action, actor_id, target_id, detail, created_at FROM aud_event WHERE 1=1`
 	var args []any

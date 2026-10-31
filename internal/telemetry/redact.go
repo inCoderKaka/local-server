@@ -3,6 +3,7 @@ package telemetry
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 )
 
 // RedactedText is what a Redacted value shows everywhere.
@@ -45,3 +46,42 @@ func (Redacted) MarshalText() ([]byte, error) { return []byte(RedactedText), nil
 
 // MarshalJSON implements json.Marshaler.
 func (Redacted) MarshalJSON() ([]byte, error) { return []byte(`"` + RedactedText + `"`), nil }
+
+// contentKeys are normalised JSON object keys (see ContentKey) that name content or secrets.
+var contentKeys = map[string]bool{
+	"prompt": true, "response": true, "completion": true, "messages": true, "content": true,
+	"secret": true, "password": true, "token": true, "apikey": true, "accesskey": true,
+	"privatekey": true, "authorization": true, "accesstoken": true, "refreshtoken": true,
+}
+
+// ContentKey reports whether a JSON object key names content or a secret (D-31, D-40). The key is
+// lower-cased and stripped of "_" and "-" before an exact lookup, so api_key, apiKey and Api-Key
+// all match while token_count and request_id do not.
+func ContentKey(k string) bool {
+	k = strings.ToLower(k)
+	k = strings.NewReplacer("_", "", "-", "").Replace(k)
+	return contentKeys[k]
+}
+
+// FindContentKey walks a value decoded by encoding/json (map[string]any, []any, scalars) and
+// returns the first key, at any depth, for which ContentKey is true.
+func FindContentKey(v any) (string, bool) {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, e := range x {
+			if ContentKey(k) {
+				return k, true
+			}
+			if found, ok := FindContentKey(e); ok {
+				return found, true
+			}
+		}
+	case []any:
+		for _, e := range x {
+			if found, ok := FindContentKey(e); ok {
+				return found, true
+			}
+		}
+	}
+	return "", false
+}

@@ -65,6 +65,8 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Host identity key | The Ed25519 key pair each install generates. Its public key is the host's global ID. | Host ID | D-25 |
 | Receipt-signing key | A rotating key, signed by the host identity key, that signs usage receipts. | — | D-27 |
 | Checkpoint-signing key | A rarely rotated key, signed by the host identity key, that signs ledger checkpoints. Separate from the receipt-signing keys. | — | D-65 |
+| Host master key | The key that seals every secret local-server keeps at rest (private keys, the host data key, credentials). It lives in the OS keychain, or in a user-only file where there is no keychain, and never in the database. | — | D-40 |
+| Host data key | The key that encrypts queued job content, job results and backup snapshots. It is sealed with the host master key and shown once, at setup, as the recovery code. | — | D-40, D-41 |
 | Policy rule | A versioned, declarative rule the host edits through a form (request properties, time windows, priority class, caps). Set per grant or globally. | Rule | D-25 |
 | Priority class | *Interactive* (someone is waiting) or *background* (can wait). Interactive runs first, and background ages up so it is never starved. | Interactive / Background | D-26 |
 | Quota | A grant's or key's token allowance for a period. Going over it returns `quota_exceeded`, and a near-limit notice is sent first. | Quota | D-25, D-29 |

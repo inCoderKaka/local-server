@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
@@ -60,14 +62,14 @@ func TestSubscriberRunsAfterCommitAndSeesRow(t *testing.T) {
 	bus.Subscribe("s", func(ctx context.Context, ev events.Event) error {
 		got = ev
 		return db.Reader().QueryRow(ctx, `SELECT count(*) FROM ntf_event WHERE id = ?`, ev.ID).Scan(&seen)
-	}, events.RequestCreated)
+	}, events.ResourceRequestCreated)
 	other := 0
 	bus.Subscribe("other", func(context.Context, events.Event) error { other++; return nil }, events.JobDone)
 
 	err := bus.Write(context.Background(), db, func(tx *storage.Tx) error {
 		inUnit = true
 		_, err := bus.Emit(tx, events.Event{
-			Type: events.RequestCreated, ActorPrincipalID: "p1", TargetPrincipalID: "p2",
+			Type: events.ResourceRequestCreated, ActorPrincipalID: "p1", TargetPrincipalID: "p2",
 			Payload: json.RawMessage(`{"request_id":"r1"}`),
 		})
 		if got.ID != "" {
@@ -117,11 +119,15 @@ func TestFailingSubscriberDoesNotAffectCommit(t *testing.T) {
 func TestEmitValidation(t *testing.T) {
 	db, bus := open(t), events.New()
 	for name, ev := range map[string]events.Event{
-		"unknown type": {Type: "made.up"},
-		"not object":   {Type: events.HostPaused, Payload: json.RawMessage(`[1]`)},
-		"prompt key":   {Type: events.HostPaused, Payload: json.RawMessage(`{"Prompt":"hi"}`)},
-		"secret key":   {Type: events.HostPaused, Payload: json.RawMessage(`{"secret":"x"}`)},
-		"invalid json": {Type: events.HostPaused, Payload: json.RawMessage(`{`)},
+		"unknown type":  {Type: "made.up"},
+		"not object":    {Type: events.HostPaused, Payload: json.RawMessage(`[1]`)},
+		"prompt key":    {Type: events.HostPaused, Payload: json.RawMessage(`{"Prompt":"hi"}`)},
+		"secret key":    {Type: events.HostPaused, Payload: json.RawMessage(`{"secret":"x"}`)},
+		"nested prompt": {Type: events.HostPaused, Payload: json.RawMessage(`{"meta":{"prompt":"x"}}`)},
+		"authorization": {Type: events.HostPaused, Payload: json.RawMessage(`{"authorization":"x"}`)},
+		"apiKey":        {Type: events.HostPaused, Payload: json.RawMessage(`{"apiKey":"x"}`)},
+		"in array":      {Type: events.HostPaused, Payload: json.RawMessage(`{"a":[{"secret":1}]}`)},
+		"invalid json":  {Type: events.HostPaused, Payload: json.RawMessage(`{`)},
 	} {
 		err := bus.Write(context.Background(), db, func(tx *storage.Tx) error {
 			_, err := bus.Emit(tx, ev)
@@ -137,20 +143,95 @@ func TestEmitValidation(t *testing.T) {
 	if err := bus.Subscribe("s", func(context.Context, events.Event) error { return nil }, "made.up"); err == nil {
 		t.Fatal("subscribe to unknown type accepted")
 	}
+	noop := func(context.Context, events.Event) error { return nil }
+	if err := bus.Subscribe("s", noop); err != nil {
+		t.Fatal(err)
+	}
+	if err := bus.Subscribe("s", noop); err == nil {
+		t.Fatal("duplicate subscriber name accepted")
+	}
 }
 
-func TestEmitOutsideWriteStoresRowWithoutDispatch(t *testing.T) {
+func TestEmitOutsideWriteIsRefused(t *testing.T) {
 	db, bus := open(t), events.New()
 	called := 0
 	bus.Subscribe("s", func(context.Context, events.Event) error { called++; return nil })
-	if err := db.Write(context.Background(), func(tx *storage.Tx) error {
+	err := db.Write(context.Background(), func(tx *storage.Tx) error {
 		_, err := bus.Emit(tx, events.Event{Type: events.HostPaused})
 		return err
-	}); err != nil {
+	})
+	if !errors.Is(err, events.ErrOutsideWrite) {
+		t.Fatalf("want ErrOutsideWrite, got %v", err)
+	}
+	if n := count(t, db); n != 0 || called != 0 {
+		t.Fatalf("rows=%d called=%d, want 0 and 0", n, called)
+	}
+}
+
+func TestPayloadIsCopiedByEmit(t *testing.T) {
+	db, bus := open(t), events.New()
+	var got events.Event
+	bus.Subscribe("s", func(_ context.Context, ev events.Event) error { got = ev; return nil })
+	buf := []byte(`{"request_id":"r1"}`)
+	err := bus.Write(context.Background(), db, func(tx *storage.Tx) error {
+		if _, err := bus.Emit(tx, events.Event{Type: events.HostPaused, Payload: buf}); err != nil {
+			return err
+		}
+		copy(buf, strings.Repeat("x", len(buf)))
+		return nil
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if count(t, db) != 1 || called != 0 {
-		t.Fatalf("rows=%d called=%d", count(t, db), called)
+	if string(got.Payload) != `{"request_id":"r1"}` {
+		t.Fatalf("payload changed after Emit: %s", got.Payload)
+	}
+}
+
+func TestConcurrentWritesDispatchOnlyCommittedUnits(t *testing.T) {
+	db, bus := open(t), events.New()
+	var mu sync.Mutex
+	seen := map[int]int{}
+	bus.Subscribe("s", func(_ context.Context, ev events.Event) error {
+		var p struct{ N int }
+		if err := json.Unmarshal(ev.Payload, &p); err != nil {
+			return err
+		}
+		mu.Lock()
+		seen[p.N]++
+		mu.Unlock()
+		return nil
+	})
+	boom := errors.New("boom")
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = bus.Write(context.Background(), db, func(tx *storage.Tx) error {
+				if _, err := bus.Emit(tx, events.Event{Type: events.HostPaused, Payload: json.RawMessage(fmt.Sprintf(`{"n":%d}`, i))}); err != nil {
+					return err
+				}
+				if i%2 == 1 {
+					return boom
+				}
+				return nil
+			})
+		}()
+	}
+	wg.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 10 {
+		t.Fatalf("received %d distinct values, want 10: %v", len(seen), seen)
+	}
+	for i := 0; i < 20; i += 2 {
+		if seen[i] != 1 {
+			t.Errorf("n=%d received %d times, want 1", i, seen[i])
+		}
+	}
+	if n := count(t, db); n != 10 {
+		t.Fatalf("rows=%d, want 10", n)
 	}
 }
 

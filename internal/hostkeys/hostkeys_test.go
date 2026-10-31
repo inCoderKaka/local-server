@@ -36,7 +36,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	master, _, err := LoadMasterKey(filepath.Join(t.TempDir(), "master.key"))
+	master, _, err := LoadMasterKey(filepath.Join(t.TempDir(), "master.key"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,15 @@ func TestSubkeysChainToIdentity(t *testing.T) {
 		}
 	}
 	// A key signed for another purpose, or by someone else, does not verify.
-	forged := pks[1]
+	var forged PublicKey
+	for _, pk := range pks {
+		if pk.Purpose == Receipt {
+			forged = pk
+		}
+	}
+	if forged.Purpose != Receipt || forged.Signature == nil {
+		t.Fatal("no certified receipt key to forge from")
+	}
 	forged.Purpose = Checkpoint
 	if VerifyKey(k.HostID(), forged) == nil {
 		t.Error("receipt certificate verified as a checkpoint key")
@@ -199,7 +207,7 @@ func TestSecretsNotStoredInTheClear(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)
 	dk := e.keys.DataKey()
-	for _, q := range []string{`SELECT data_key_sealed FROM hst_host`, `SELECT data_key_recovery FROM hst_host`, `SELECT private_sealed FROM hst_key`} {
+	for _, q := range []string{`SELECT data_key_sealed FROM hst_host`, `SELECT private_sealed FROM hst_key`} {
 		rows, err := e.db.Reader().Query(ctx, q)
 		if err != nil {
 			t.Fatal(err)
@@ -228,53 +236,113 @@ func TestRecoveryCodeShownOnce(t *testing.T) {
 	if len(e.code) == 0 || strings.Count(e.code, "-") != 12 {
 		t.Fatalf("recovery code %q is not 13 groups", e.code)
 	}
-	dk, err := e.keys.RecoverDataKey(ctx, strings.ToLower(e.code))
+	dk, err := RecoverDataKey(strings.ToLower(e.code))
 	if err != nil || !bytes.Equal(dk, e.keys.DataKey()) {
 		t.Fatalf("RecoverDataKey = %v", err)
 	}
-	if _, err := e.keys.RecoverDataKey(ctx, "AAAA-BBBB"); !errors.Is(err, ErrBadRecoveryCode) {
+	if _, err := RecoverDataKey("AAAA-BBBB"); !errors.Is(err, ErrBadRecoveryCode) {
 		t.Errorf("bad code = %v", err)
 	}
-	_, wrong, _ := newRecoveryCode()
-	if _, err := e.keys.RecoverDataKey(ctx, wrong); !errors.Is(err, ErrBadRecoveryCode) {
-		t.Errorf("wrong code = %v", err)
+	other, err := randomKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := RecoverDataKey(recoveryCodeOf(other)); err != nil || bytes.Equal(got, e.keys.DataKey()) {
+		t.Errorf("a different valid code decoded to the data key (err %v)", err)
 	}
 	if _, code := e.open(t); code != "" {
 		t.Errorf("second Open returned a recovery code %q; it must be shown once", code)
 	}
-	// Neither the code nor its bytes are in the database.
-	rows, _ := e.db.Reader().Query(ctx, `SELECT data_key_recovery FROM hst_host`)
+	// Neither the code nor the data key is in the database in the clear.
+	rows, err := e.db.Reader().Query(ctx, `SELECT data_key_sealed FROM hst_host`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer rows.Close()
-	raw, _ := parseRecoveryCode(e.code)
 	for rows.Next() {
 		var b []byte
-		_ = rows.Scan(&b)
-		if bytes.Contains(b, raw) || strings.Contains(string(b), e.code) {
-			t.Error("recovery code stored in the database")
+		if err := rows.Scan(&b); err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(b, e.keys.DataKey()) || strings.Contains(string(b), e.code) {
+			t.Error("recovery code or data key stored in the clear")
 		}
 	}
 }
 
-func TestMasterKeyInKeyring(t *testing.T) {
+func TestBootstrapped(t *testing.T) {
+	ctx := context.Background()
+	keyring.MockInit()
+	db, err := storage.Open(ctx, storage.DefaultConfig(filepath.Join(t.TempDir(), "t.db"), settings.Module(), host.Module()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if ok, err := Bootstrapped(ctx, db); err != nil || ok {
+		t.Fatalf("fresh database: Bootstrapped = %v, %v", ok, err)
+	}
+	master, err := randomKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := open(ctx, db, settings.New(db), master, time.Now); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := Bootstrapped(ctx, db); err != nil || !ok {
+		t.Fatalf("after open: Bootstrapped = %v, %v", ok, err)
+	}
+}
+
+func TestMasterKeyInKeychain(t *testing.T) {
 	keyring.MockInit()
 	path := filepath.Join(t.TempDir(), "master.key")
-	k1, src, err := LoadMasterKey(path)
-	if err != nil || src != SourceKeyring {
+	k1, src, err := LoadMasterKey(path, true)
+	if err != nil || src != SourceKeychain {
 		t.Fatalf("LoadMasterKey = %v, %v", src, err)
 	}
-	k2, src, err := LoadMasterKey(path)
-	if err != nil || src != SourceKeyring || !bytes.Equal(k1, k2) {
+	k2, src, err := LoadMasterKey(path, true)
+	if err != nil || src != SourceKeychain || !bytes.Equal(k1, k2) {
 		t.Fatalf("second load = %v, %v, same key %v", src, err, bytes.Equal(k1, k2))
 	}
 	if _, err := os.Stat(path); err == nil {
-		t.Error("a file was written although the keyring works")
+		t.Error("a file was written although the keychain works")
+	}
+}
+
+func TestMasterKeyNotRecreatedWhenKeychainLocked(t *testing.T) {
+	keyring.MockInit()
+	path := filepath.Join(t.TempDir(), "master.key")
+	if _, _, err := LoadMasterKey(path, true); err != nil {
+		t.Fatal(err)
+	}
+	keyring.MockInitWithError(errors.New("locked"))
+	_, _, err := LoadMasterKey(path, false)
+	if err == nil || !strings.Contains(err.Error(), "keychain") {
+		t.Fatalf("LoadMasterKey(create=false) with a locked keychain = %v; want a keychain error", err)
+	}
+	if _, serr := os.Stat(path); !errors.Is(serr, os.ErrNotExist) {
+		t.Errorf("a key file was created for an existing install (stat: %v)", serr)
+	}
+}
+
+func TestMasterKeyNotCreatedWhenMissingForExistingInstall(t *testing.T) {
+	keyring.MockInit()
+	path := filepath.Join(t.TempDir(), "master.key")
+	if _, _, err := LoadMasterKey(path, false); err == nil {
+		t.Fatal("LoadMasterKey(create=false) with no key anywhere succeeded")
+	}
+	if _, err := keyring.Get(keychainService, keychainUser); !errors.Is(err, keyring.ErrNotFound) {
+		t.Errorf("the keychain was written to: %v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a key file was created (stat: %v)", err)
 	}
 }
 
 func TestMasterKeyFileFallback(t *testing.T) {
 	keyring.MockInitWithError(errors.New("no secret service"))
 	path := filepath.Join(t.TempDir(), "sub", "master.key")
-	k1, src, err := LoadMasterKey(path)
+	k1, src, err := LoadMasterKey(path, true)
 	if err != nil || src != SourceFile {
 		t.Fatalf("LoadMasterKey = %v, %v; want file fallback", src, err)
 	}
@@ -285,7 +353,7 @@ func TestMasterKeyFileFallback(t *testing.T) {
 	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("fallback file mode = %o; want 600", fi.Mode().Perm())
 	}
-	k2, src, err := LoadMasterKey(path)
+	k2, src, err := LoadMasterKey(path, true)
 	if err != nil || src != SourceFile || !bytes.Equal(k1, k2) {
 		t.Fatalf("reload = %v, %v", src, err)
 	}
@@ -293,22 +361,22 @@ func TestMasterKeyFileFallback(t *testing.T) {
 		if err := os.Chmod(path, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := LoadMasterKey(path); err == nil {
+		if _, _, err := LoadMasterKey(path, true); err == nil {
 			t.Error("a group/other-readable master key file was accepted")
 		}
 	}
 }
 
-func TestMasterKeyFileKeptWhenKeyringReturns(t *testing.T) {
+func TestMasterKeyFileKeptWhenKeychainReturns(t *testing.T) {
 	keyring.MockInitWithError(errors.New("down"))
 	path := filepath.Join(t.TempDir(), "master.key")
-	k1, _, err := LoadMasterKey(path)
+	k1, _, err := LoadMasterKey(path, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	keyring.MockInit() // keyring now works but holds nothing
-	k2, src, err := LoadMasterKey(path)
+	keyring.MockInit() // keychain now works but holds nothing
+	k2, src, err := LoadMasterKey(path, true)
 	if err != nil || src != SourceFile || !bytes.Equal(k1, k2) {
-		t.Fatalf("after keyring returns: %v, %v, same key %v", src, err, bytes.Equal(k1, k2))
+		t.Fatalf("after keychain returns: %v, %v, same key %v", src, err, bytes.Equal(k1, k2))
 	}
 }

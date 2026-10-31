@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -14,14 +15,17 @@ import (
 )
 
 // Handler receives a committed event. A returned error or panic is logged and does not
-// affect the committed action or the other subscribers.
+// affect the committed action or the other subscribers. It must be safe for concurrent use.
 type Handler func(ctx context.Context, ev Event) error
+
+// ErrOutsideWrite is returned by Emit for a unit of work that Write did not run.
+var ErrOutsideWrite = errors.New("events: Emit needs a unit of work run by this Notifier's Write")
 
 // Notifier is the port other modules emit domain events through (D-29, D-39).
 type Notifier interface {
 	// Emit writes ev to ntf_event inside the unit of work tx and returns it with ID and
-	// OccurredAt filled. Subscribers are called only if tx's unit of work commits, and only
-	// when the unit was run through Write.
+	// OccurredAt filled. Subscribers are called only if tx's unit of work commits. It returns
+	// ErrOutsideWrite unless tx belongs to a unit run by Write.
 	Emit(tx *storage.Tx, ev Event) (Event, error)
 	// Write runs fn as one unit of work (storage.DB.Write) and, once it has committed,
 	// calls the subscribers of the events fn emitted. If fn or the commit fails, no event
@@ -83,6 +87,12 @@ func (b *Bus) Subscribe(name string, h Handler, types ...Type) error {
 		}
 	}
 	b.mu.Lock()
+	for _, s := range b.subs {
+		if s.name == name {
+			b.mu.Unlock()
+			return fmt.Errorf("events: subscriber %q already registered", name)
+		}
+	}
 	b.subs = append(b.subs, subscription{name: name, h: h, types: set})
 	b.mu.Unlock()
 	return nil
@@ -90,6 +100,12 @@ func (b *Bus) Subscribe(name string, h Handler, types ...Type) error {
 
 // Emit implements Notifier.
 func (b *Bus) Emit(tx *storage.Tx, ev Event) (Event, error) {
+	b.mu.Lock()
+	_, inWrite := b.pending[tx]
+	b.mu.Unlock()
+	if !inWrite {
+		return Event{}, ErrOutsideWrite
+	}
 	if !ev.Type.Known() {
 		return Event{}, fmt.Errorf("events: unknown event type %q", ev.Type)
 	}
@@ -166,10 +182,11 @@ func (b *Bus) dispatch(ctx context.Context, evs []Event) {
 func (b *Bus) call(ctx context.Context, s subscription, ev Event) {
 	defer func() {
 		if p := recover(); p != nil {
-			b.log.Error("event subscriber panicked", "subscriber", s.name, "event_id", ev.ID, "event_type", string(ev.Type))
+			b.log.ErrorContext(ctx, "event subscriber panicked", "subscriber", s.name, "event_id", ev.ID, "event_type", string(ev.Type),
+				"panic_type", fmt.Sprintf("%T", p), "stack", string(debug.Stack()))
 		}
 	}()
 	if err := s.h(ctx, ev); err != nil {
-		b.log.Error("event subscriber failed", "subscriber", s.name, "event_id", ev.ID, "event_type", string(ev.Type), "err", err)
+		b.log.ErrorContext(ctx, "event subscriber failed", "subscriber", s.name, "event_id", ev.ID, "event_type", string(ev.Type), "err", err)
 	}
 }

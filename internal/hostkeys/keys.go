@@ -72,6 +72,7 @@ type Keys struct {
 	identityPub ed25519.PublicKey
 	dataKey     []byte
 
+	rotMu   sync.Mutex // serializes rotations: the DB write and the in-memory signer update happen in the same order
 	mu      sync.RWMutex
 	signers map[Purpose]signer
 }
@@ -154,11 +155,12 @@ func (k *Keys) mintKey(hostID string, p Purpose, identity ed25519.PrivateKey, cr
 
 const insertKey = `INSERT INTO hst_key (id, host_id, purpose, public_key, private_sealed, signature, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
 
-// bootstrap creates the host on the first run. It returns the recovery code, or "".
-func (k *Keys) bootstrap(ctx context.Context) (string, error) {
-	rows, err := k.db.Reader().Query(ctx, `SELECT count(*) FROM hst_host`)
+// Bootstrapped reports whether this database already holds the host. Startup passes
+// !Bootstrapped as create to LoadMasterKey, so an existing install never gets a new master key.
+func Bootstrapped(ctx context.Context, db *storage.DB) (bool, error) {
+	rows, err := db.Reader().Query(ctx, `SELECT count(*) FROM hst_host`)
 	if err != nil {
-		return "", err
+		return false, err
 	}
 	var n int
 	if rows.Next() {
@@ -168,9 +170,18 @@ func (k *Keys) bootstrap(ctx context.Context) (string, error) {
 		err = errors.Join(rows.Err(), cerr)
 	}
 	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// bootstrap creates the host on the first run. It returns the recovery code, or "".
+func (k *Keys) bootstrap(ctx context.Context) (string, error) {
+	done, err := Bootstrapped(ctx, k.db)
+	if err != nil {
 		return "", err
 	}
-	if n > 0 {
+	if done {
 		return "", nil
 	}
 
@@ -196,22 +207,20 @@ func (k *Keys) bootstrap(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	raw, code, err := newRecoveryCode()
-	if err != nil {
-		return "", err
-	}
-	wrapKey, err := recoveryWrapKey(raw)
-	if err != nil {
-		return "", err
-	}
-	dataWrapped, err := Seal(wrapKey, dataKey, dataKeyAAD(hostID))
-	if err != nil {
-		return "", err
-	}
+	code := recoveryCodeOf(dataKey)
+	raced := false
 	err = k.db.Write(ctx, func(tx *storage.Tx) error {
-		// A second process that raced us wins; the unique host row makes ours fail whole.
-		if _, err := tx.Exec(`INSERT INTO hst_host (id, created_at, data_key_sealed, data_key_recovery) VALUES (?, ?, ?, ?)`,
-			hostID, ms(created), dataSealed, dataWrapped); err != nil {
+		// Re-check inside the unit: an Open that raced us may already have created the host; then ours is discarded.
+		var n int
+		if err := tx.QueryRow(`SELECT count(*) FROM hst_host`).Scan(&n); err != nil {
+			return err
+		}
+		if n > 0 {
+			raced = true
+			return nil
+		}
+		if _, err := tx.Exec(`INSERT INTO hst_host (id, created_at, data_key_sealed) VALUES (?, ?, ?)`,
+			hostID, ms(created), dataSealed); err != nil {
 			return err
 		}
 		for _, nk := range []struct {
@@ -230,6 +239,9 @@ func (k *Keys) bootstrap(ctx context.Context) (string, error) {
 	})
 	if err != nil {
 		return "", err
+	}
+	if raced {
+		return "", nil
 	}
 	return code, nil
 }
@@ -336,6 +348,13 @@ func (k *Keys) Rotate(ctx context.Context, p Purpose) (string, error) {
 	if p != Receipt && p != Checkpoint {
 		return "", ErrNotSigningPurpose
 	}
+	k.rotMu.Lock()
+	defer k.rotMu.Unlock()
+	return k.rotate(ctx, p)
+}
+
+// rotate does the work of Rotate; the caller holds rotMu.
+func (k *Keys) rotate(ctx context.Context, p Purpose) (string, error) {
 	var nk newKey
 	err := k.db.Write(ctx, func(tx *storage.Tx) error {
 		var idID string
@@ -391,13 +410,17 @@ func (k *Keys) EnsureCurrent(ctx context.Context) ([]Purpose, error) {
 		if err != nil {
 			return rotated, err
 		}
+		k.rotMu.Lock()
 		k.mu.RLock()
 		created := k.signers[c.p].created
 		k.mu.RUnlock()
 		if every <= 0 || k.now().Sub(created) < every {
+			k.rotMu.Unlock()
 			continue
 		}
-		if _, err := k.Rotate(ctx, c.p); err != nil {
+		_, err = k.rotate(ctx, c.p)
+		k.rotMu.Unlock()
+		if err != nil {
 			return rotated, err
 		}
 		rotated = append(rotated, c.p)
@@ -453,32 +476,6 @@ func VerifyKey(hostID string, pk PublicKey) error {
 	return nil
 }
 
-// RecoverDataKey returns the host data key from the one-time recovery code, for a restore.
-// It reads the wrapped copy stored in hst_host; the code itself is not stored anywhere.
-func (k *Keys) RecoverDataKey(ctx context.Context, code string) ([]byte, error) {
-	raw, err := parseRecoveryCode(code)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := k.db.Reader().Query(ctx, `SELECT data_key_recovery FROM hst_host WHERE id = ?`, k.hostID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var wrapped []byte
-	if !rows.Next() {
-		return nil, errors.New("hostkeys: no host row")
-	}
-	if err := rows.Scan(&wrapped); err != nil {
-		return nil, err
-	}
-	wk, err := recoveryWrapKey(raw)
-	if err != nil {
-		return nil, err
-	}
-	dk, err := Unseal(wk, wrapped, dataKeyAAD(k.hostID))
-	if err != nil {
-		return nil, ErrBadRecoveryCode
-	}
-	return dk, nil
-}
+// RecoverDataKey returns the host data key from the recovery code, which is that key (D-41). It
+// needs no master key and no database, so a restore on a new machine can decrypt a snapshot with it.
+func RecoverDataKey(code string) ([]byte, error) { return parseRecoveryCode(code) }

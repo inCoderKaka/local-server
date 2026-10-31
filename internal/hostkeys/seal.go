@@ -3,9 +3,7 @@ package hostkeys
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/hkdf"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base32"
 	"errors"
 	"fmt"
@@ -69,21 +67,17 @@ func randomKey() ([]byte, error) {
 
 var codeEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
 
-// newRecoveryCode returns a random recovery code as secret bytes and as text: 52 base32
-// characters in groups of four.
-func newRecoveryCode() ([]byte, string, error) {
-	raw, err := randomKey()
-	if err != nil {
-		return nil, "", err
-	}
-	s := codeEncoding.EncodeToString(raw)
+// recoveryCodeOf returns the recovery code for the host data key: its 52 base32 characters in
+// groups of four (D-41).
+func recoveryCodeOf(dataKey []byte) string {
+	s := codeEncoding.EncodeToString(dataKey)
 	var parts []string
 	for len(s) > 0 {
 		n := min(4, len(s))
 		parts = append(parts, s[:n])
 		s = s[n:]
 	}
-	return raw, strings.Join(parts, "-"), nil
+	return strings.Join(parts, "-")
 }
 
 // parseRecoveryCode accepts the text form with or without dashes, spaces and lower case.
@@ -96,11 +90,5 @@ func parseRecoveryCode(code string) ([]byte, error) {
 	return raw, nil
 }
 
-// recoveryWrapKey derives the key that wraps the host data key from the recovery code's
-// secret bytes. The code is 256 bits of randomness, so a plain HKDF (no slow hash) suffices.
-func recoveryWrapKey(raw []byte) ([]byte, error) {
-	return hkdf.Key(sha256.New, raw, nil, "local-server/host-data-key-recovery/v1", KeySize)
-}
-
 // ErrBadRecoveryCode is returned when a recovery code is malformed or does not match.
-var ErrBadRecoveryCode = errors.New("hostkeys: recovery code is not valid for this host")
+var ErrBadRecoveryCode = errors.New("hostkeys: recovery code is malformed")

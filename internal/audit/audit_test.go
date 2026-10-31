@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -205,8 +206,51 @@ func TestListFiltersAndCursor(t *testing.T) {
 	if p := list(audit.Filter{}); len(p.Events) != 2 || p.NextCursor == "" {
 		t.Fatalf("setting page size: %d events", len(p.Events))
 	}
+	// The setting also caps an explicit limit.
+	if p := list(audit.Filter{Limit: 10}); len(p.Events) != 2 || p.NextCursor == "" {
+		t.Fatalf("capped limit: %d events, cursor %q", len(p.Events), p.NextCursor)
+	}
 
 	if _, err := l.List(ctx, db.Reader(), audit.Filter{Cursor: "junk"}); !errors.Is(err, audit.ErrInvalidCursor) {
 		t.Fatalf("junk cursor: %v", err)
+	}
+}
+
+func TestCursorSameMillisecond(t *testing.T) {
+	db, l, _ := open(t)
+	ctx := context.Background()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return base }
+	var ids []string
+	for i := 0; i < 3; i++ {
+		if err := db.Write(ctx, func(tx *storage.Tx) error {
+			id, err := audit.RecordAt(tx, clock, audit.Event{Action: "x.done"})
+			ids = append(ids, id)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := append([]string(nil), ids...)
+	sort.Sort(sort.Reverse(sort.StringSlice(want)))
+
+	var got []string
+	pages, cursor := 0, ""
+	for {
+		p, err := l.List(ctx, db.Reader(), audit.Filter{Limit: 1, Cursor: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		pages++
+		for _, e := range p.Events {
+			got = append(got, e.ID)
+		}
+		if p.NextCursor == "" || pages > 10 {
+			break
+		}
+		cursor = p.NextCursor
+	}
+	if pages != 3 || strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("pages=%d got=%v want=%v", pages, got, want)
 	}
 }

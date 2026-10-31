@@ -1,20 +1,19 @@
 -- host module, migration 1: the host row and its signing keys (D-25, D-27, D-40, D-41, D-65).
 -- Private keys and the host data key are never stored in the clear: they are sealed with the host
 -- master key, which lives in the OS keychain or a user-only file and never in this database (D-40).
--- The host data key's recovery code is shown once and is not stored; only a copy of the data key
--- wrapped under the code is (D-41).
+-- The host data key is shown once as the recovery code (D-41); the code is not stored.
 
 CREATE TABLE hst_host (
   id                  TEXT PRIMARY KEY,
   created_at          INTEGER NOT NULL,
-  data_key_sealed     BLOB NOT NULL,
-  data_key_recovery   BLOB NOT NULL
+  data_key_sealed     BLOB NOT NULL
 ) STRICT;
+-- One host row per install.
+CREATE UNIQUE INDEX hst_host_one ON hst_host ((0));
 --@table hst_host classification=internal billable=false | This install's host: one row, whose id is the host's global id.
 --@column hst_host.id classification=public billable=false | The host's global id: the base64url text of the host identity public key (D-25).
 --@column hst_host.created_at classification=internal billable=false | When the host identity was created, Unix milliseconds UTC.
 --@column hst_host.data_key_sealed classification=sensitive billable=false | The host data key sealed with the host master key; it protects queued job content and off-host copies.
---@column hst_host.data_key_recovery classification=sensitive billable=false | The host data key wrapped under the one-time recovery code, so a restore can recover it; the code itself is never stored.
 
 CREATE TABLE hst_key (
   id             TEXT PRIMARY KEY,

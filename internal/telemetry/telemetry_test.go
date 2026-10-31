@@ -93,3 +93,16 @@ func TestNop(t *testing.T) {
 	_, sp := n.StartSpan(t.Context(), "s")
 	sp.End()
 }
+
+func TestContentKey(t *testing.T) {
+	for _, k := range []string{"api_key", "apiKey", "Api-Key", "privateKey", "Authorization"} {
+		if !ContentKey(k) {
+			t.Errorf("ContentKey(%q) = false, want true", k)
+		}
+	}
+	for _, k := range []string{"token_count", "request_id", "content_type"} {
+		if ContentKey(k) {
+			t.Errorf("ContentKey(%q) = true, want false", k)
+		}
+	}
+}
