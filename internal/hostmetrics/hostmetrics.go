@@ -3,6 +3,7 @@ package hostmetrics
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/inCoderKaka/local-server/internal/engine"
@@ -54,6 +55,7 @@ type Accelerator struct {
 type HostTotals struct {
 	MemoryTotal Bytes
 	MemoryUsed  Bytes
+	// CPUCores is 0 when the OS did not report it; per-process CPU is then unavailable.
 	CPUCores    int
 	CPU         Percent
 	Accelerator Accelerator
@@ -107,6 +109,7 @@ type Clock func() time.Time
 
 // Reader implements HostMetrics on a probe of the OS and the engine's loaded models.
 type Reader struct {
+	mu     sync.Mutex
 	probe  probe
 	loaded LoadedLister
 	pid    int32
@@ -125,15 +128,19 @@ func newReader(p probe, loaded LoadedLister, pid int32, clock Clock, ollamaNames
 }
 
 // Read implements HostMetrics. It fails only when the host memory cannot be read; every other
-// gap is reported in the reading as unavailable.
+// gap is reported in the reading as unavailable. Read is safe for concurrent use; calls are
+// serialised because each one advances the CPU windows.
 func (r *Reader) Read(ctx context.Context) (Reading, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	total, used, err := r.probe.Memory(ctx)
 	if err != nil {
 		return Reading{}, err
 	}
-	cores, _ := r.probe.CPUCores(ctx)
-	if cores < 1 {
-		cores = 1
+	cores, coresErr := r.probe.CPUCores(ctx)
+	coresKnown := coresErr == nil && cores >= 1
+	if !coresKnown {
+		cores = 0
 	}
 	out := Reading{At: r.clock()}
 	out.Host = HostTotals{
@@ -167,7 +174,9 @@ func (r *Reader) Read(ctx context.Context) (Reading, error) {
 	s.LocalServerMemory, s.LocalServerCPU = Bytes{Measure: MeasureUnavailable}, Percent{Measure: MeasureUnavailable}
 	if u, err := r.probe.Usage(ctx, r.pid); err == nil && u.RSS > 0 {
 		s.LocalServerMemory = Bytes{int64(u.RSS), MeasureProcessRSS}
-		s.LocalServerCPU = Percent{clampPct(u.CPU / float64(cores)), MeasureProcessRSS}
+		if coresKnown && !u.CPUUnavailable {
+			s.LocalServerCPU = Percent{clampPct(u.CPU / float64(cores)), MeasureProcessRSS}
+		}
 	} else {
 		out.Unattributed++
 	}
@@ -177,6 +186,7 @@ func (r *Reader) Read(ctx context.Context) (Reading, error) {
 		var rss uint64
 		var cpu float64
 		ok := false
+		cpuOK := coresKnown
 		for _, pid := range ollamaPIDs {
 			u, err := r.probe.Usage(ctx, pid)
 			if err != nil || u.RSS == 0 {
@@ -186,10 +196,15 @@ func (r *Reader) Read(ctx context.Context) (Reading, error) {
 			ok = true
 			rss += u.RSS
 			cpu += u.CPU
+			if u.CPUUnavailable {
+				cpuOK = false
+			}
 		}
 		if ok {
 			s.OllamaMemory = Bytes{int64(rss), MeasureProcessRSS}
-			s.OllamaCPU = Percent{clampPct(cpu / float64(cores)), MeasureProcessRSS}
+			if cpuOK {
+				s.OllamaCPU = Percent{clampPct(cpu / float64(cores)), MeasureProcessRSS}
+			}
 		}
 	}
 
@@ -215,6 +230,8 @@ func (r *Reader) Read(ctx context.Context) (Reading, error) {
 	if out.Host.CPU.Measure == MeasureHostTotal && sliceCPU > out.Host.CPU.Value {
 		// The process and host CPU windows differ, so a small overshoot is normal.
 		sliceCPU, s.Clamped = out.Host.CPU.Value, true
+	} else if sliceCPU > 100 {
+		sliceCPU, s.Clamped = 100, true
 	}
 	s.CPU = Percent{sliceCPU, MeasureDerived}
 

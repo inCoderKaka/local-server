@@ -121,6 +121,7 @@ func (s *Sampler) setGauges(r Reading) {
 	mem("local_server", r.Slice.LocalServerMemory)
 	mem("ollama", r.Slice.OllamaMemory)
 	mem("loaded_models", r.Slice.LoadedModelsMemory)
+	mem("loaded_accelerator", r.Slice.LoadedAccelerator)
 	mem("slice", r.Slice.Memory)
 	mem("other", r.Other.Memory)
 	cpu("host", r.Host.CPU)
@@ -131,17 +132,22 @@ func (s *Sampler) setGauges(r Reading) {
 	s.unattributed.Set(float64(r.Unattributed))
 }
 
-// measures is the JSON stored in hst_metric_minute.measures.
+// measures is the JSON stored in hst_metric_minute.measures. Keys without a _cpu suffix describe
+// memory; host_cpu covers cpu_percent and other_cpu covers other_cpu_percent. A value whose measure
+// is unavailable is stored as 0 and must not be trusted.
 func measures(r Reading) map[string]Measure {
 	return map[string]Measure{
-		"host_memory":   r.Host.MemoryUsed.Measure,
-		"host_cpu":      r.Host.CPU.Measure,
-		"accelerator":   r.Host.Accelerator.Measure,
-		"local_server":  r.Slice.LocalServerMemory.Measure,
-		"ollama":        r.Slice.OllamaMemory.Measure,
-		"loaded_models": r.Slice.LoadedModelsMemory.Measure,
-		"slice":         r.Slice.Memory.Measure,
-		"other":         r.Other.Memory.Measure,
+		"local_server_cpu": r.Slice.LocalServerCPU.Measure,
+		"ollama_cpu":       r.Slice.OllamaCPU.Measure,
+		"other_cpu":        r.Other.CPU.Measure,
+		"host_memory":      r.Host.MemoryUsed.Measure,
+		"host_cpu":         r.Host.CPU.Measure,
+		"accelerator":      r.Host.Accelerator.Measure,
+		"local_server":     r.Slice.LocalServerMemory.Measure,
+		"ollama":           r.Slice.OllamaMemory.Measure,
+		"loaded_models":    r.Slice.LoadedModelsMemory.Measure,
+		"slice":            r.Slice.Memory.Measure,
+		"other":            r.Other.Memory.Measure,
 	}
 }
 

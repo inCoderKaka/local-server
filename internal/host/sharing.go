@@ -77,9 +77,9 @@ func (s *SharingState) switchTo(ctx context.Context, by string, to State) (bool,
 	}
 	changed := false
 	err := s.bus.Write(ctx, s.db, func(tx *storage.Tx) error {
-		var hostID string
-		if err := tx.QueryRow(`SELECT id FROM hst_host`).Scan(&hostID); err != nil {
-			return fmt.Errorf("%w: %v", ErrNoHost, err)
+		hostID, err := oneString(tx.Query(`SELECT id FROM hst_host`))
+		if err != nil {
+			return err
 		}
 		at := s.clock()
 		res, err := tx.Exec(`UPDATE hst_host SET sharing_state = ?, sharing_state_changed_at = ? WHERE id = ? AND sharing_state = ?`,
@@ -106,7 +106,7 @@ func (s *SharingState) switchTo(ctx context.Context, by string, to State) (bool,
 		if to != Paused {
 			return nil
 		}
-		payload, err := json.Marshal(map[string]string{"host_id": hostID, "state": string(to)})
+		payload, err := json.Marshal(map[string]string{"host_id": hostID, "sharing_state": string(to)})
 		if err != nil {
 			return err
 		}
@@ -121,9 +121,9 @@ func (s *SharingState) switchTo(ctx context.Context, by string, to State) (bool,
 
 // StoredPaused reports the manual switch alone.
 func (s *SharingState) StoredPaused(ctx context.Context) (bool, error) {
-	var v string
-	if err := s.db.Reader().QueryRow(ctx, `SELECT sharing_state FROM hst_host`).Scan(&v); err != nil {
-		return false, fmt.Errorf("%w: %v", ErrNoHost, err)
+	v, err := oneString(s.db.Reader().Query(ctx, `SELECT sharing_state FROM hst_host`))
+	if err != nil {
+		return false, err
 	}
 	return v == string(Paused), nil
 }
@@ -153,4 +153,24 @@ func (s *SharingState) EffectiveAt(ctx context.Context, t time.Time) (State, err
 		return Quiet, nil
 	}
 	return Sharing, nil
+}
+
+// oneString reads the single text column of the first row, or returns ErrNoHost when there is
+// no row. (This package may not import database/sql, so it cannot test for sql.ErrNoRows.)
+func oneString(rows storage.Rows, err error) (string, error) {
+	if err != nil {
+		return "", fmt.Errorf("host: read hst_host: %w", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return "", fmt.Errorf("host: read hst_host: %w", err)
+		}
+		return "", ErrNoHost
+	}
+	var v string
+	if err := rows.Scan(&v); err != nil {
+		return "", fmt.Errorf("host: read hst_host: %w", err)
+	}
+	return v, nil
 }

@@ -34,17 +34,26 @@ type procInfo struct {
 type procUsage struct {
 	RSS uint64
 	CPU float64
+	// CPUUnavailable says the CPU figure could not be measured (the first reading of that process,
+	// or the OS refused); CPU is then 0.
+	CPUUnavailable bool
+}
+
+// procState is a cached Process object and whether its CPU window has been started.
+type procState struct {
+	p      *process.Process
+	primed bool
 }
 
 // gopsutilProbe reads the OS through gopsutil, which needs no cgo on macOS, Linux or Windows.
-// It keeps the Process objects it has read usage for: gopsutil computes CPU as the change since that
-// object's last call, so a fresh object would report the lifetime average instead.
+// gopsutil measures CPU as the change since the object's last call and returns 0 on the first call,
+// so the probe keeps each object and reports the first CPU figure as unavailable.
 type gopsutilProbe struct {
 	mu    sync.Mutex
-	procs map[int32]*process.Process
+	procs map[int32]*procState
 }
 
-func newGopsutilProbe() *gopsutilProbe { return &gopsutilProbe{procs: map[int32]*process.Process{}} }
+func newGopsutilProbe() *gopsutilProbe { return &gopsutilProbe{procs: map[int32]*procState{}} }
 
 func (*gopsutilProbe) Memory(ctx context.Context) (uint64, uint64, error) {
 	v, err := mem.VirtualMemoryWithContext(ctx)
@@ -90,23 +99,31 @@ func (g *gopsutilProbe) Processes(ctx context.Context) ([]procInfo, error) {
 
 func (g *gopsutilProbe) Usage(ctx context.Context, pid int32) (procUsage, error) {
 	g.mu.Lock()
-	p, ok := g.procs[pid]
+	st, ok := g.procs[pid]
 	if !ok {
-		var err error
-		if p, err = process.NewProcessWithContext(ctx, pid); err != nil {
+		p, err := process.NewProcessWithContext(ctx, pid)
+		if err != nil {
 			g.mu.Unlock()
 			return procUsage{}, err
 		}
-		g.procs[pid] = p
+		st = &procState{p: p}
+		g.procs[pid] = st
 	}
+	wasPrimed := st.primed
 	g.mu.Unlock()
-	mi, err := p.MemoryInfoWithContext(ctx)
+	mi, err := st.p.MemoryInfoWithContext(ctx)
 	if err != nil {
 		return procUsage{}, err
 	}
-	pct, err := p.PercentWithContext(ctx, 0)
-	if err != nil {
+	pct, err := st.p.PercentWithContext(ctx, 0)
+	if err == nil {
+		g.mu.Lock()
+		st.primed = true
+		g.mu.Unlock()
+	}
+	unavailable := err != nil || !wasPrimed
+	if unavailable {
 		pct = 0
 	}
-	return procUsage{RSS: mi.RSS, CPU: pct}, nil
+	return procUsage{RSS: mi.RSS, CPU: pct, CPUUnavailable: unavailable}, nil
 }

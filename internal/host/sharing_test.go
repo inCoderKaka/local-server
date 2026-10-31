@@ -83,7 +83,7 @@ func TestPauseAuditsAndEmitsOneEvent(t *testing.T) {
 		t.Fatalf("events = %d, delivered = %d", n, len(got))
 	}
 	var p map[string]string
-	if err := json.Unmarshal(got[0].Payload, &p); err != nil || p["host_id"] != "h1" || p["state"] != "paused" {
+	if err := json.Unmarshal(got[0].Payload, &p); err != nil || p["host_id"] != "h1" || p["sharing_state"] != "paused" {
 		t.Fatalf("payload = %s (%v)", got[0].Payload, err)
 	}
 	if s, err := e.sh.Effective(ctx); err != nil || s != host.Paused {
@@ -245,6 +245,11 @@ func TestInvalidScheduleKeepsPause(t *testing.T) {
 	e.set(t, host.KeyQuietTimeZone, "Not/AZone")
 	if _, err := e.sh.Effective(ctx); !errors.Is(err, host.ErrInvalidSchedule) {
 		t.Fatalf("zone err = %v", err)
+	}
+	e.set(t, host.KeyQuietStart, "22:00")
+	e.set(t, host.KeyQuietTimeZone, "")
+	if _, err := e.sh.Effective(ctx); !errors.Is(err, host.ErrInvalidSchedule) {
+		t.Fatalf("empty zone err = %v", err)
 	}
 	if _, err := e.sh.Pause(ctx, ""); err != nil {
 		t.Fatal(err)

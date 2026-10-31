@@ -24,11 +24,13 @@ type fakeProbe struct {
 	cpu         float64
 	procs       []procInfo
 	usage       map[int32]procUsage
+	coresErr    error
+	cpuErr      error
 }
 
 func (f *fakeProbe) Memory(context.Context) (uint64, uint64, error) { return f.total, f.used, nil }
-func (f *fakeProbe) CPUCores(context.Context) (int, error)          { return f.cores, nil }
-func (f *fakeProbe) CPUPercent(context.Context) (float64, error)    { return f.cpu, nil }
+func (f *fakeProbe) CPUCores(context.Context) (int, error)          { return f.cores, f.coresErr }
+func (f *fakeProbe) CPUPercent(context.Context) (float64, error)    { return f.cpu, f.cpuErr }
 func (f *fakeProbe) Processes(context.Context) ([]procInfo, error)  { return f.procs, nil }
 func (f *fakeProbe) Usage(_ context.Context, pid int32) (procUsage, error) {
 	u, ok := f.usage[pid]
@@ -182,6 +184,49 @@ func TestSliceClampedToTotal(t *testing.T) {
 	}
 }
 
+func TestUnknownCoresMakesProcessCPUUnavailable(t *testing.T) {
+	e := newEnv(t)
+	e.p.coresErr = errors.New("no cores")
+	r := e.sample(t)
+	if r.Host.CPUCores != 0 {
+		t.Fatalf("cores = %d, want 0", r.Host.CPUCores)
+	}
+	if r.Slice.LocalServerCPU.Measure != MeasureUnavailable || r.Slice.OllamaCPU.Measure != MeasureUnavailable {
+		t.Fatalf("cpu should be unavailable: %+v", r.Slice)
+	}
+	if r.Slice.LocalServerMemory.Measure != MeasureProcessRSS || r.Slice.OllamaMemory.Measure != MeasureProcessRSS {
+		t.Fatalf("memory should stay measured: %+v", r.Slice)
+	}
+}
+
+func TestUnprimedProcessCPUUnavailable(t *testing.T) {
+	e := newEnv(t)
+	e.p.usage[ownPID] = procUsage{RSS: uint64(gib / 2), CPUUnavailable: true}
+	r := e.sample(t)
+	if r.Slice.LocalServerCPU.Measure != MeasureUnavailable || r.Slice.LocalServerMemory.Measure != MeasureProcessRSS {
+		t.Fatalf("local-server: %+v", r.Slice)
+	}
+	if r.Slice.OllamaCPU.Measure != MeasureProcessRSS {
+		t.Fatalf("ollama cpu should be measured: %+v", r.Slice.OllamaCPU)
+	}
+	e.p.usage[200] = procUsage{RSS: uint64(2 * gib), CPUUnavailable: true}
+	r = e.sample(t)
+	if r.Slice.OllamaCPU.Measure != MeasureUnavailable || r.Slice.OllamaMemory.Measure != MeasureProcessRSS {
+		t.Fatalf("ollama: %+v", r.Slice)
+	}
+}
+
+func TestSliceCPUCappedWithoutHostCPU(t *testing.T) {
+	e := newEnv(t)
+	e.p.cpuErr = errors.New("no host cpu")
+	e.p.usage[ownPID] = procUsage{RSS: uint64(gib / 2), CPU: 400}
+	e.p.usage[200] = procUsage{RSS: uint64(2 * gib), CPU: 400}
+	r := e.sample(t)
+	if r.Slice.CPU.Value != 100 || !r.Slice.Clamped || r.Other.CPU.Measure != MeasureUnavailable {
+		t.Fatalf("slice cpu %v clamped %v other %+v", r.Slice.CPU.Value, r.Slice.Clamped, r.Other.CPU)
+	}
+}
+
 func TestUnreadableProcessIsUnattributed(t *testing.T) {
 	e := newEnv(t)
 	e.p.procs = append(e.p.procs, procInfo{PID: 400, Readable: false}, procInfo{PID: 500, Readable: false})
@@ -254,6 +299,9 @@ func TestPerMinuteUpsertAndRange(t *testing.T) {
 	if got[0].Measures["slice"] != MeasureDerived || got[0].Measures["host_memory"] != MeasureHostTotal {
 		t.Fatalf("measures: %v", got[0].Measures)
 	}
+	if _, ok := got[0].Measures["other_cpu"]; !ok {
+		t.Fatalf("other_cpu measure missing: %v", got[0].Measures)
+	}
 	one, _ := e.s.GetRange(ctx, start.Add(time.Minute), start.Add(2*time.Minute))
 	if len(one) != 1 {
 		t.Fatalf("range filter: %d", len(one))
@@ -304,6 +352,9 @@ func TestGauges(t *testing.T) {
 	}
 	if _, ok := mem.get("ollama", "process_rss"); !ok {
 		t.Fatal("ollama gauge missing")
+	}
+	if _, ok := mem.get("loaded_accelerator", "engine_loaded"); !ok {
+		t.Fatal("loaded_accelerator gauge missing")
 	}
 	if _, ok := mem.get("other", "derived"); !ok {
 		t.Fatal("other gauge missing")

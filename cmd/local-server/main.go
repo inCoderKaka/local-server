@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	// IANA zone data for host.quiet_hours.time_zone and policy windows on machines without a system zoneinfo database (Windows, minimal Linux).
+	_ "time/tzdata"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".

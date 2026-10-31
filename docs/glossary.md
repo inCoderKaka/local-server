@@ -45,7 +45,8 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Sleep lock | local-server keeps the host machine awake while sharing is on and not paused. | Keep awake | D-30 |
 | Unattributed | Host resource use local-server cannot assign to a process because the OS won't report it; shown separately, never guessed. | Unattributed | D-31 |
 | Tailnet | The private Tailscale network the host machine and its consumers' nodes share. | — | D-10, D-12 |
-| Other apps | Host resource use outside local-server's slice (total minus local-server, Ollama and loaded models). | Other apps | D-31 |
+| Share-budget slice | The host resources local-server's sharing is using now: the local-server process, the Ollama processes and the loaded models. It is measured, not reserved. Other apps is host use outside it. | — | D-31 |
+| Other apps | Host resource use outside the share-budget slice: total host use minus local-server, Ollama and loaded models (free memory is not counted). | Other apps | D-31 |
 
 ## Access and limits
 
@@ -54,14 +55,14 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Access key | A credential the host issues to a consumer to call the API. Shown once, can expire or be revoked. "API key" is an accepted synonym in conversation; docs and UI say *access key*. | Access key | req_001 §2 glossary |
 | Invite | A one-time sign-up link the host sends so a person can create a consumer account. | Invite link | D-13 |
 | Share budget | Everything the host sets aside for all consumers together (models, memory, concurrency, tokens). | Share budget | req_001 §2 glossary |
-| Grant | One consumer's slice of the share budget: allowed models, quotas, context limit, output limit, concurrency, expiry and allowed request properties. | Your limits | req_001 §2 glossary |
+| Grant | One consumer's part of the share budget: allowed models, quotas, context limit, output limit, concurrency, expiry and allowed request properties. | Your limits | req_001 §2 glossary |
 | Grant version | An immutable snapshot of a grant's limits. Each change creates a new version, and usage records name the version they ran under. | — | D-25, D-42 |
 | Context limit | The largest context window, in tokens, a grant allows for one model; local-server sends it to Ollama as num_ctx. The decisions log and tickets call it *context cap* (ctx_cap in the schema). | Context limit | D-22, D-25 |
 | Request properties | Tags a consumer or client app attaches to a call (e.g. *background*), which the host's rules use to decide what the host machine does with it. | Request type | Q22, D-15 |
 | Context overflow | What happens when a prompt is longer than the grant's context limit. Each grant sets it to *refuse* (the default, an error) or *truncate* (the oldest messages are dropped). | If a prompt is too long | D-48 |
 | Background-work hours | A time window in which background requests run (e.g. 00:00–07:00), set per grant or for the whole host. Different from quiet hours. | Background hours | D-15 |
 | Pause sharing | A switch that makes the host stop accepting new work from all consumers immediately; requests already running finish and queued jobs wait. Consumers see the host as *paused*. | Paused | D-06, D-26, D-38 |
-| Quiet hours | A schedule during which sharing is paused automatically. | Quiet hours | D-06 |
+| Quiet hours | A daily schedule during which the host stops serving automatically. The sharing state is *quiet*, separate from the manual *paused* state (a pause wins over quiet hours); consumers get the same paused error either way. | Quiet hours | D-06, D-54 |
 | Host identity key | The Ed25519 key pair each install generates. Its public key is the host's global ID. | Host ID | D-25 |
 | Receipt-signing key | A rotating key, signed by the host identity key, that signs usage receipts. | — | D-27 |
 | Checkpoint-signing key | A rarely rotated key, signed by the host identity key, that signs ledger checkpoints. Separate from the receipt-signing keys. | — | D-65 |

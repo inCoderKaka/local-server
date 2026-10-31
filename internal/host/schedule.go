@@ -85,6 +85,9 @@ func LoadSchedule(ctx context.Context, st *settings.Store) (Schedule, error) {
 	if err != nil {
 		return Schedule{}, err
 	}
+	if zone == "" {
+		return Schedule{}, fmt.Errorf("%w: time zone is empty; use an IANA name or Local", ErrInvalidSchedule)
+	}
 	loc, err := time.LoadLocation(zone)
 	if err != nil {
 		return Schedule{}, fmt.Errorf("%w: time zone %q: %v", ErrInvalidSchedule, zone, err)
