@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/inCoderKaka/local-server/internal/policy/rule_v1.schema.json",
+  "title": "local-server policy rule, format version 1",
+  "description": "One policy rule document (D-15, D-25). Stored in grt_policy_rule.body with format_version 1. The decoder in internal/policy/rule.go is the reference: it also refuses duplicate keys, null values, invalid UTF-8 and trailing data, and requires at least one effect (deny, windows, priority or caps), deny on its own, and windows together with time_zone.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format_version"],
+  "properties": {
+    "format_version": {
+      "description": "The rule format version this document is written in.",
+      "const": 1
+    },
+    "when": {
+      "description": "Which requests the rule applies to. Every condition given must hold. Leave it out to apply to every request the rule's scope covers.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "properties": {
+          "description": "Request properties (LS-Request-Properties) the request must carry with exactly these values. A bare header key is true. A string matches a token or a string of the same text.",
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^[a-z*][a-z0-9_.*-]*$" },
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "boolean" },
+              { "type": "integer", "minimum": -999999999999999, "maximum": 999999999999999 },
+              { "type": "string", "pattern": "^[\\x20-\\x7e]*$" }
+            ]
+          }
+        },
+        "models": {
+          "description": "Engine model names; the request's model must be one of them.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "deny": {
+      "description": "true refuses every matching request (policy_denied). Cannot be combined with windows, priority or caps.",
+      "type": "boolean"
+    },
+    "time_zone": {
+      "description": "The zone the windows are read in: an IANA name (Europe/Berlin), UTC, or Local for the host machine's zone. Required with windows, refused without.",
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9][A-Za-z0-9_+-]*){0,2}$"
+    },
+    "windows": {
+      "description": "Daily time windows, for example background-work hours. A matching request outside every window is refused (outside_time_window).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start", "end"],
+        "properties": {
+          "start": {
+            "description": "Start of the window, HH:MM in 24 hours, inclusive.",
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          },
+          "end": {
+            "description": "End of the window, HH:MM in 24 hours, exclusive. An end before the start means the window crosses midnight. Must differ from start.",
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          }
+        }
+      }
+    },
+    "priority": {
+      "description": "The priority class of matching requests. The first matching rule by position that sets one decides; with none a request is interactive.",
+      "enum": ["interactive", "background"]
+    },
+    "caps": {
+      "description": "Limits for matching requests. Each takes the smallest of the grant's value and every matching rule's, so a rule can only narrow.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "context_cap": { "description": "Largest context window in tokens.", "type": "integer", "minimum": 1 },
+        "max_output_tokens": { "description": "Most tokens to generate.", "type": "integer", "minimum": 1 },
+        "max_concurrency": { "description": "Most requests at once.", "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"format_version\":1,\"caps\":{\"context_cap\":4096,\"max_output_tokens\":512,\"max_concurrency\":1}}")

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"format_version\":1,\"when\":{\"properties\":{\"tier\":2,\"purpose\":\"summarize\",\"*x\":false}},\"priority\":\"interactive\"}")

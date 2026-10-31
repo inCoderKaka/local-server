@@ -1,0 +1,2 @@
+go test fuzz v1
+string("a=?0, b=-42, c=\"x \\\"y\\\" \\\\z\", d=tok/en:1, *e")

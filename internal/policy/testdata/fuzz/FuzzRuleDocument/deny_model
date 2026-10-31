@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"format_version\":1,\"when\":{\"models\":[\"llama3.1:8b\"]},\"deny\":true}")
