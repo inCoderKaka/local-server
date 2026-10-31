@@ -97,7 +97,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Backup minimization | The host's per-table backup choice: *minimize* (rows left out of the snapshot) or *keep as is*. Job content and sessions are minimized by default. A table can be minimized only when every table that references it is minimized too (D-69). | Leave out of backups | D-64, D-69 |
 | Platform sync | Opt-in per host. Encrypted change rows sent to the platform's database, needed only for platform features such as sharing grants. | Platform sync | D-41 |
 | Recovery code | The host data key, shown once at setup, needed to restore encrypted backups. | Recovery code | D-41 |
-| Module table prefix | The short prefix on every table name naming its owning module: `hst_` host, `idn_` identity, `grt_` grants, `req_` requests, `sch_` scheduler, `use_` usage, `ldg_` ledger, `ntf_` notify, `aud_` audit, `syn_` sync, `plt_` platform, `ops_` ops. | — | D-44 |
+| Module table prefix | The short prefix on every table name naming its owning module: `hst_` host (including host-local configuration such as `hst_setting`, D-70), `idn_` identity, `grt_` grants, `req_` requests, `sch_` scheduler, `use_` usage, `ldg_` ledger, `ntf_` notify, `aud_` audit, `syn_` sync, `plt_` platform, `ops_` ops. | — | D-44, D-70 |
 
 ## Retired names
 

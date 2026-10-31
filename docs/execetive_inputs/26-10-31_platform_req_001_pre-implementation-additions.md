@@ -1,4 +1,4 @@
-> **Provenance note.** Verbatim from the implementation-planning chat of 2026-10-30/31, before the first build. Round 1 came from the `/orchestrate-implement platform 1` plan call; round 2 followed the owner's private notes (not in the repo). Recorded as D-57..D-69. Rounds 3 and 4 settled the review gates' deferred findings.
+> **Provenance note.** Verbatim from the implementation-planning chat of 2026-10-30/31, before the first build. Round 1 came from the `/orchestrate-implement platform 1` plan call; round 2 followed the owner's private notes (not in the repo). Recorded as D-57..D-72. Rounds 3 to 5 settled the review gates' deferred findings.
 
 agent questions (round 1):
 1. "PLT-F-001 needs a code generator and spec linter for the OpenAPI 3.1 spec (D-32 says only 'spec-first, server interfaces generated'; no decision row names a tool). Which should the builder use? It will be recorded as a D-NN row."
@@ -62,3 +62,16 @@ agent questions (round 4):
 user response (round 4):
 1. "Fail them: payload_minimized (Recommended)"
 2. "Yes, record it (Recommended)"
+
+agent questions (round 5):
+1. "The settings table is named hst_setting, but in the table-prefix map (D-44) hst_ belongs to the host module, and the settings module has no prefix of its own. (Concept: naming conventions as enforced module ownership.) Which should it be?"
+   - Keep hst_setting (Recommended) · New prefix set_
+2. "D-69 (minimize a table only if every table referencing it is also minimized) is checked only when the host changes a setting. A later upgrade could add a kept table that references a minimized one, and the next backup's CASCADE would silently empty it. What should a backup do when it finds the rule broken?"
+   - Fail the run and alert (Recommended) · Keep the parent, warn
+3. "While fixing D-68, the gate wrote a new design sentence into the LLD: 'Restore runs before the host next starts, so the start-up host_restart pass finds those jobs already terminal.' In other words, payload_minimized takes precedence over host_restart for restored jobs. Accept it as a decision?"
+   - Accept (Recommended) · Remove it
+
+user response (round 5):
+1. "Keep hst_setting (Recommended)"
+2. "Fail the run and alert (Recommended)"
+3. "Accept (Recommended)"
