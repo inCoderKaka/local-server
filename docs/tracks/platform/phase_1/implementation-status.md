@@ -3,8 +3,8 @@
 Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-workflow-skills/agents/implementation-status-reporter.md`). Requirement: `requirements/req_001.md` · log: `requirements/req_001.decisions.md` · ADR 0001, 0002, 0003, 0004, 0005. Last updated 2026-10-31.
 
 ## Position + next action
-- **Position:** req_001 is the phase's only requirement; 60 ticket rows are tracked: 51 features (PLT-F-001..PLT-F-051, all `idea`; 48 of them designed), 8 chores and 1 bug. Done: design close-out PLT-C-005 and PLT-C-007 (docs, ADR 0005), PLT-C-001 (Go scaffold, 28 module skeletons, archcheck, CI and weekly fuzz workflow; `37c2603`, gate fixes `d588ee1`) and PLT-C-002 (legal drafts `terms-2026-10-v1` and `privacy-2026-10-v1`, not in force until the owner approves; `3cf4f3f`). No feature is built yet. PLT-C-001's CI has never run on GitHub (worklog). 27 commits are unpushed (`git log origin/main..HEAD`), and 9 paths are uncommitted (8 modified docs/track files plus untracked `implicit-decisions.md`). req_001 has no open question (Open and Deferred are empty in its log), so it is not blocked (D-17). Pre-build confirmations that remain: PLT-F-018 SLO approval as a D-NN row (D-55, before its gate) and PLT-F-001's ogen coverage spike (D-57); PLT-B-001 needs a D-row next to D-62 before PLT-C-003.
-- **Next action:** B1 slices S2, S3 and S4 in parallel, per `next-steps.md`: **PLT-F-001** (S2, Opus, gate it; start with the ogen spike), **PLT-F-002** (S3, Sonnet, gate it) and **PLT-F-003** (S4, Sonnet); all depend only on PLT-C-001, which is done. Then B1/S5 PLT-F-004 and S6 PLT-F-005. PLT-F-006 (B2/S7) can fill a free builder slot early.
+- **Position:** req_001 is the phase's only requirement; 69 ticket rows are tracked: 53 features (PLT-F-001..PLT-F-053), 10 chores and 6 bugs. Done (7): design close-out PLT-C-005 and PLT-C-007 (docs), PLT-C-001 (Go scaffold; `37c2603`, gate fixes `d588ee1`), PLT-C-002 (legal drafts, not in force until the owner approves; `3cf4f3f`), and the first three features, all built 2026-10-31 and awaiting their code gate (set B): PLT-F-001 OpenAPI contract and ogen server (`f00fa8a`), PLT-F-002 storage foundation (`6839035`), PLT-F-003 telemetry port (`ef86df3`). 50 features are `idea` (47 of them designed; PLT-F-049..053 are spin-offs), 4 chores are `idea` and 2 `designed` (PLT-C-003, PLT-C-004). PLT-C-001's CI has never run on GitHub (worklog). 31 commits are unpushed (`git log origin/main..HEAD`), and 9 paths are uncommitted (docs and track files only). req_001 has no open question (Open and Deferred are empty in its log), so it is not blocked (D-17). Pre-build confirmations that remain: PLT-F-018 SLO approval as a D-NN row (D-55, before its gate); PLT-B-001 needs a D-row next to D-62 before PLT-C-003. PLT-F-001's ogen coverage spike (D-57) was done in its build (worklog).
+- **Next action:** per `next-steps.md`, B1/S5 **PLT-F-004** (runtime settings with owners, plus retention registry; Sonnet, depends only on PLT-F-002, done; gate it), then B1/S6 **PLT-F-005**. The review gate (set B) over `f00fa8a..ef86df3` is owed and due before or alongside PLT-F-004. PLT-F-006 (B2/S7) can fill a free builder slot early.
 
 ## Progress table
 | Batch | Slice | Ticket | Status | Owner | Model | Gate-covered |
@@ -13,9 +13,11 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | — | — | PLT-C-007 | done | Claude | — | yes (d986f37 and earlier docs gates) |
 | B1 | S1 | PLT-C-001 | done | Claude | Sonnet | yes (d588ee1, gate set A) |
 | B1 | S1 | PLT-B-001 | reported | Claude | — | no |
-| B1 | S2 | PLT-F-001 | idea (designed) | Claude | Opus | no |
-| B1 | S3 | PLT-F-002 | idea (designed) | Claude | Sonnet | no |
-| B1 | S4 | PLT-F-003 | idea (designed) | Claude | Sonnet | no |
+| B1 | S2 | PLT-F-001 | done | Claude | Opus | no (code gate owed, set B) |
+| B1 | S3 | PLT-F-002 | done | Claude | Sonnet | no (code gate owed, set B) |
+| B1 | S4 | PLT-F-003 | done | Claude | Sonnet | no (code gate owed, set B) |
+| B1 | S4 | PLT-F-053 | idea | Claude | Sonnet | no |
+| B1 | S4 | PLT-B-002 | reported | Claude | Sonnet | no |
 | B1 | S5 | PLT-F-004 | idea (designed) | Claude | Sonnet | no |
 | B1 | S6 | PLT-F-005 | idea (designed) | Claude | Sonnet | no |
 | B2 | S7 | PLT-F-006 | idea (designed) | Claude | Sonnet | no |
@@ -36,7 +38,11 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | B3 | S22 | PLT-F-021 | idea (designed) | Claude | Sonnet | no |
 | B3 | S23 | PLT-F-022 | idea (designed) | Claude | Sonnet | no |
 | B3 | S24 | PLT-F-023 | idea (designed) | Claude | Sonnet | no |
+| B3 | S19 | PLT-B-003 | reported | Claude | Sonnet | no |
+| B3 | S20 | PLT-B-004 | reported | Claude | Sonnet | no |
+| B3 | — | PLT-F-052 | idea | Claude | Sonnet | no |
 | B4 | S25 | PLT-F-024 | idea (designed) | Claude | Sonnet | no |
+| B4 | S25 | PLT-B-005 | reported (P1) | Claude | Sonnet | no |
 | B4 | S26 | PLT-F-025 | idea (designed) | Claude | Sonnet | no |
 | B4 | S27 | PLT-F-026 | idea (designed) | Claude | Sonnet | no |
 | B4 | S28 | PLT-C-002 | done | Claude | Opus | yes (d588ee1, gate set A) |
@@ -69,11 +75,14 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | — | — | PLT-F-049 | idea | Claude | Sonnet | no |
 | — | — | PLT-C-006 | idea | — | — | no |
 | — | — | PLT-C-008 | idea | Claude | — | no |
+| — | — | PLT-B-006 | reported (upstream ogen, P3) | — | — | no |
+| — | — | PLT-C-009 | idea | Claude | — | no |
+| — | — | PLT-C-010 | idea | Claude | — | no |
 
 ## Gate ledger
-- Last review gate: d588ee1 (`fix(platform): review-gate fixes for 7454922..3cf4f3f (set A, PLT-C-001; req_001 D-21)`), a code and docs gate over PLT-C-001 (`37c2603`) and PLT-C-002 (`3cf4f3f`); it left PLT-B-001 deferred. Since d588ee1: 0 commits (HEAD is d588ee1). Uncommitted paths: 9 (docs and track files only: ROADMAP.md, docs/developer-guide.md, docs/glossary.md, docs/legal/README.md, the phase's backlog, bugs, next-steps, worklog and untracked implicit-decisions.md). Earlier gate runs: d986f37, def3ea8, 7bcd3c7 (docs fixes), 6520214 (design close-out and ticketization, 29 approved findings plus the glossary Module row).
-- Shared contracts touched since the last gate: none committed (`git diff --name-only d588ee1..HEAD` is empty); the uncommitted paths touch no code, migrations, `docs/tracks/README.md`, `.claude/**` or `docs/tools/sdlc-workflow-skills/**`. (`ops/bin/**` does not exist in this repo.) The shared contracts PLT-C-001 introduced (module layout, archcheck rules, CI workflows) were gated by d588ee1.
-- Next gate: not due — no `feat(`/`fix(` commit and no shared-contract change since d588ee1; the next gate falls on the first "gate it" feature slice (B1/S2 PLT-F-001 or S3 PLT-F-002).
+- Last review gate: d588ee1 (`fix(platform): review-gate fixes for 7454922..3cf4f3f (set A, PLT-C-001; req_001 D-21)`), a code and docs gate over PLT-C-001 (`37c2603`) and PLT-C-002 (`3cf4f3f`); it left PLT-B-001 deferred. Since d588ee1: 4 commits: `f00fa8a` feat PLT-F-001, `6839035` feat PLT-F-002, `ef86df3` feat PLT-F-003, `9853112` docs close-out of PLT-C-001/002; the three feat commits are the owed set B gate. Uncommitted paths: 9 (docs and track files only: ROADMAP.md, docs/design_docs/lld.md, docs/developer-guide.md, docs/glossary.md, and the phase's backlog, bugs, implicit-decisions, next-steps and worklog). Earlier gate runs: d986f37, def3ea8, 7bcd3c7 (docs fixes), 6520214 (design close-out and ticketization, 29 approved findings plus the glossary Module row).
+- Shared contracts touched since the last gate (`git diff --name-only d588ee1..HEAD`): public API contract `api/openapi.yaml` and the generated `internal/api/**` (PLT-F-001); migrations and the writer/unit-of-work in `internal/storage/**` (`migrations/0001_ops_tables.sql`, `0002_syn_change.sql`, PLT-F-002); telemetry port `internal/telemetry/**` (PLT-F-003); `go.mod`/`go.sum` (tool directives, new dependencies); module notes `docs/modules/{api,storage,telemetry}.md` and `docs/schema-reference.md`. Not touched: `docs/tracks/README.md`, `.github/**`, `.claude/**`, `docs/tools/sdlc-workflow-skills/**`. (`ops/bin/**` does not exist in this repo.)
+- Next gate: due — three `feat(` commits (PLT-F-001, PLT-F-002, PLT-F-003) and shared contracts (OpenAPI spec, migration layout and unit of work) changed with no gate over them; their backlog rows say "code gate owed (set B)".
 
 ## Drift & bugs inbox
 - uncaptured — `design-status.md` still says req_001 stage 6 (`ticketize`) is "not started" and "Next: run `ticketize platform 1 1`", but 52 tickets exist (6e8f4eb); its stage 6 row and Position need updating. (now fixed: stage 6 is `done`, verified 2026-10-30)
@@ -88,9 +97,17 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 - PLT-B-001 — reported (P2, review-gate): CI actions in `.github/workflows/ci.yml` and `fuzz.yml` use floating `@v7` tags with no SHA pins or update bot; needs a D-row next to D-62 (recommended: SHA-pin + dependabot, before PLT-C-003).
 - PLT-F-050, PLT-F-051 — spin-offs (Source `build`, idea 2026-10-31, from PLT-C-002): Ref has plan position `P1/B4` but no slice, and `next-steps.md` does not list them; PLT-F-051 is needs-scoping (an open owner question on re-acceptance of new Terms/Privacy versions). Not named as a next action.
 - PLT-C-008 — spin-off (Source `build`, idea 2026-10-31, P3): fuzz-failure issue opener; depends on PLT-C-001 (done) but has no plan position and is not in `next-steps.md`.
-- uncaptured — `implicit-decisions.md` is untracked and holds 15 `unreviewed` AI choices (I-001..I-015) awaiting owner review; PLT-C-002's drafts carry about 10 open legal points that the owner must settle before PLT-F-027 (`next-steps.md`).
+- uncaptured — `implicit-decisions.md` is untracked and holds 15 `unreviewed` AI choices (I-001..I-015) awaiting owner review; PLT-C-002's drafts carry about 10 open legal points that the owner must settle before PLT-F-027 (`next-steps.md`). (now tracked and modified: it holds I-001..I-040, with I-016..I-040 added by PLT-F-001..003; the added ones are also awaiting owner review)
 - uncaptured — PLT-C-001's CI workflows (`ci.yml`, `fuzz.yml`) have never run on GitHub (worklog row); the 3-OS matrix, race job and govulncheck are verified only locally.
-- `bugs.md` holds one open row (PLT-B-001). `ops/bin/ticket-drift` does not exist in this repo, so no automated drift check ran.
+- `bugs.md` holds six open rows (PLT-B-001..PLT-B-006, all `reported`). `ops/bin/ticket-drift` does not exist in this repo, so no automated drift check ran.
+- PLT-B-002 — reported (P2, build): archcheck does not guard the telemetry adapter (`internal/telemetry/slogprom`, `prometheus/client_golang`); found in PLT-F-003.
+- PLT-B-003 — reported (P2, build): ogen's default error handler does not write the OpenAI error envelope and decode errors can quote request bytes; PLT-F-018 and PLT-F-024 must install the handlers.
+- PLT-B-004 — reported (P2, build): the generated SSE response path does not flush; PLT-F-019 needs a flushing writer.
+- PLT-B-005 — reported (P1, build): one ogen `Server` carries both `/v1` and `/admin/v1`; each listener must mount only its own prefix (PLT-F-024).
+- PLT-B-006 — reported (P3, build): upstream ogen v1.24.0 panics on any `x-ogen-type` extension; the spec avoids it.
+- PLT-F-052, PLT-F-053, PLT-C-009, PLT-C-010 — spin-offs (Source `build`, idea 2026-10-31, P3) from PLT-F-001..003. PLT-F-053 carries plan position P1/B1/S4 and PLT-F-052 P1/B3 (no slice); none is listed in `next-steps.md`. Not named as a next action.
+- uncaptured — set B code gate over PLT-F-001, PLT-F-002, PLT-F-003 is owed (backlog Notes and worklog); the three rows are in `## Done but not shipped` with Code Rev. and Sec. Rev. `false`.
+- uncaptured — `next-steps.md` item 2 is marked done for S2..S4 but the three tickets are `done`, not `shipped`, and their Sec. Rev. is still `false`; PLT-F-001 and PLT-F-002 are tagged "gate it" in `next-steps.md`.
 
 ## Token ledger
 | Ticket | Model | Input | Output | Cache (write / read) | Attribution |

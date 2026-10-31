@@ -10,7 +10,7 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 ### B1 — Foundations
 
 1. ~~S1 **PLT-C-001** Go module scaffold, CI on 3 OSes and module-boundary check (deps: —) **gate it**~~ done 2026-10-31 (`37c2603`, `d588ee1`)
-2. S2 **PLT-F-001** OpenAPI 3.1 contract v1 (consumer, consumer self-service and admin) with generated server code (deps: PLT-C-001) **gate it**  ∥  S3 **PLT-F-002** Storage foundation: single writer, cross-module unit of work, migrations, change capture, data catalog (deps: PLT-C-001) **gate it**  ∥  S4 **PLT-F-003** Telemetry port: slog JSON, redaction, Prometheus metrics, request id, log rotation (deps: PLT-C-001)
+2. ~~S2 **PLT-F-001** OpenAPI 3.1 contract v1 (consumer, consumer self-service and admin) with generated server code (deps: PLT-C-001) **gate it**  ∥  S3 **PLT-F-002** Storage foundation: single writer, cross-module unit of work, migrations, change capture, data catalog (deps: PLT-C-001) **gate it**  ∥  S4 **PLT-F-003** Telemetry port: slog JSON, redaction, Prometheus metrics, request id, log rotation (deps: PLT-C-001)~~ built 2026-10-31, not shipped (`f00fa8a`, `6839035`, `ef86df3`; set B code gate owed)
 3. S5 **PLT-F-004** Runtime settings with owners, plus retention registry (deps: PLT-F-002) **gate it**
 4. S6 **PLT-F-005** Host identity, signing subkeys and sealed secrets (deps: PLT-F-002, PLT-F-004) **gate it**
 

@@ -57,7 +57,7 @@ The base URL's host name and port are the host's tailnet name and the port they 
 - **Context limits are enforced.** By default, an over-long prompt fails with `context_too_long` instead of being silently cut. The host can choose truncation for your grant instead.
 - **Extensions live in headers,** so the body stays standard:
   - `LS-Request-Properties` (request) tags the call with properties the host's policy rules understand. For example, a background call can be allowed only in background-work hours. The header's format is defined in the spec.
-  - `LS-Receipt` (response) carries the signed usage receipt. When streaming, the receipt also arrives in a final event before `[DONE]`, which standard SDKs skip.
+  - `LS-Receipt` (response) carries the signed usage receipt. When streaming, the receipt also arrives in an SSE comment line `: ls-receipt <JWS>` after the last chunk and before `data: [DONE]`, which standard SDKs skip.
 
 ### Errors and retries
 

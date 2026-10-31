@@ -253,7 +253,7 @@ sequenceDiagram
   G-->>C: OpenAI SSE chunks (a client disconnect cancels the engine call)
   G->>W: one BEGIN IMMEDIATE batch: use_record + ldg_leaf/ldg_hash + syn_change
   W-->>G: leaf_index, tree_size
-  G-->>C: LS-Receipt (JWS) or final SSE event before [DONE]
+  G-->>C: LS-Receipt (JWS) or SSE comment line before [DONE]
 ```
 
 Failure branches:
