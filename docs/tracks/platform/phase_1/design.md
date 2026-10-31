@@ -61,3 +61,4 @@ The HLD and LLD closed on 2026-10-30, recorded in [ADR 0002](../../../adr/0002-r
   - D-59: Google Cloud Storage as a backup bucket; a generic Postgres adapter for platform sync (Supabase default, Cloud SQL by configuration); the future central service as a GCP proposal.
   - D-60..D-62: fuzz targets on untrusted input, a race-detector CI job (the only cgo use), SLSA provenance and govulncheck.
   - D-63: the repository is public (except one gitignored owner file); the docs set is the README, roadmap, HLD, LLD, user guide and developer guide.
+  - D-64..D-67 (review-gate questions): backups minimize job content and sessions by default, a per-table host choice; a dedicated checkpoint-signing key; webhooks to private or tailnet addresses denied unless the host allows them; the host is alerted when platform sync keeps failing.

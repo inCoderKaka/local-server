@@ -50,7 +50,7 @@ flowchart LR
 |---|---|---|
 | G1 | **Light:** one static binary per OS, no runtime, no external database | A host installs it with one command and forgets it (D-09, D-21) |
 | G2 | **Secure by default:** encrypted transport, nothing admin-facing on the public internet, least-privilege keys | Hosts open their personal machine to others (D-10, D-24) |
-| G3 | **Private by default:** prompts and responses are not logged or stored by default; the only content at rest is queued background-job content and its result, encrypted and deleted at completion or on fetch (§8.2) | The host must not become a data processor by accident (D-31, D-40) |
+| G3 | **Private by default:** prompts and responses are not logged or stored by default; the only content at rest is queued background-job content and its result, encrypted and deleted at completion or on fetch, and left out of backups by default (§8.2) | The host must not become a data processor by accident (D-31, D-40) |
 | G4 | **Compatible:** standard OpenAI surfaces, unmodified | Every existing SDK and app works without a custom client (D-32) |
 | G5 | **Fair and controllable:** per-consumer grants, quotas, context caps, priorities, pause and quiet hours | The host stays in charge of their own machine (D-25, D-26, D-06) |
 | G6 | **Verifiable usage:** a tamper-evident ledger and a signed receipt for every response | Future billing disputes are settled with proofs, not trust (D-16, D-27) |
@@ -283,7 +283,7 @@ Each feature names what it does, how it works, the engineering ideas it rests on
 
 - **What:** the host's data stays on the host. Backups go to storage the host owns. Sharing with anyone else needs an explicit, time-boxed, revocable grant.
 - **How:**
-  - **Backups:** encrypted whole-database snapshots (`VACUUM INTO` → compress → encrypt) go to a local folder or the host's own S3-compatible bucket: Cloudflare R2 by default, or **Google Cloud Storage** through its XML API.
+  - **Backups:** encrypted database snapshots (`VACUUM INTO` → compress → encrypt) go to a local folder or the host's own S3-compatible bucket: Cloudflare R2 by default, or **Google Cloud Storage** through its XML API.
   - **Platform sync (opt-in):** encrypted change rows go to the platform admin's Postgres, through a **generic Postgres adapter**. Supabase is the default configuration, and Cloud SQL or AlloyDB works by configuration.
   - **Dataset keys:** each dataset (usage, audit, consumer directory) has its own key. A sharing grant **wraps** that key to the grantee's X25519 public key, and revoking or expiring the grant rotates the key.
   - **What goes into a backup is the host's choice, per table (D-64):** each table is either *minimized* (its rows are removed from the snapshot copy) or *kept as is*. By default, job content and login sessions are minimized and everything else is kept, so a fetched job result is gone from future backups too.
@@ -359,7 +359,7 @@ The [developer guide](../developer-guide.md) shows these from a client app's sid
 
 ### 8.2 Privacy
 
-- **Content:** prompts and responses are never written to disk or logs. Queued job content and job results are the only content at rest. Both are encrypted, and both are deleted at completion or on fetch.
+- **Content:** prompts and responses are never written to disk or logs. Queued job content and job results are the only content at rest. Both are encrypted, and both are deleted at completion or on fetch. Backups leave both out by default. A host who sets them to *keep as is* keeps a copy in each snapshot until that snapshot is pruned (D-64).
 - **Personal fields:** erased when a consumer is deleted. The row stays, so ledger references remain valid.
 - **Consent and classification:** consent records (`idn_consent`) and data classification exist from day one (D-40, D-44, D-45).
 
@@ -374,6 +374,7 @@ The [developer guide](../developer-guide.md) shows these from a client app's sid
 | Crash or restart | Running jobs become `failed(host_restart)` (Ollama can't resume a generation, **Judgement**). Terminal states never reopen, and idempotency keys prevent double runs |
 | Metering write fails repeatedly | The answer is still returned with an `unmetered` signed receipt. The failure is logged, counted and alerted (D-51) |
 | Webhook receiver down | Exponential backoff from the outbox. The endpoint is disabled after `410` or N failures |
+| Platform sync keeps failing (e.g. a paused Supabase project) | Retries continue with backoff. Past a host-owned threshold the host admin gets an in-app notification with no content, and `doctor` and the admin UI show the last successful sync (D-67) |
 | Disk loss | Restore from encrypted snapshots with the recovery code |
 
 ### 8.4 Scalability

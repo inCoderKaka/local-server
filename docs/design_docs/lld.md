@@ -74,11 +74,12 @@ type Telemetry interface {
     StartSpan(ctx context.Context, name string) (context.Context, Span) // no-op by default
 }
 
-// OffHostSync — D-41, D-59. Snapshot targets: local folder, S3-compatible (R2, GCS).
+// OffHostSync — D-41, D-59, D-64. Snapshot targets: local folder, S3-compatible (R2, GCS).
 // Platform sync: generic Postgres (Supabase, Cloud SQL, AlloyDB).
 type OffHostSync interface {
+    // SnapshotRef records which tables the snapshot minimized; RestoreReport lists them (D-64).
     Snapshot(ctx context.Context) (SnapshotRef, error)
-    Restore(ctx context.Context, ref SnapshotRef, recoveryCode string) error
+    Restore(ctx context.Context, ref SnapshotRef, recoveryCode string) (RestoreReport, error)
 }
 ```
 
@@ -120,7 +121,7 @@ erDiagram
   sch_job ||--o| sch_job_result : "produces"
   idn_access_key ||--o{ use_record : "is metered in"
   use_record ||--|| ldg_leaf : "is leaf"
-  hst_host ||--o{ hst_key : "identity root + receipt subkeys"
+  hst_host ||--o{ hst_key : "identity root + receipt subkeys + checkpoint key"
   plt_dataset_key ||--o{ plt_sharing_grant : "wrapped for"
 ```
 
@@ -327,7 +328,7 @@ sequenceDiagram
   participant Y as Sync worker
   participant PG as Platform Postgres (Supabase / Cloud SQL)
   B->>DB: VACUUM INTO temp file
-  B->>B: delete rows of tables set to minimize (default: job content, sessions)
+  B->>B: delete rows of tables set to minimize (default: job content, sessions), then VACUUM the copy
   B->>B: compress, encrypt (host data key)
   B->>S: multipart upload, verify, prune old snapshots
   Y->>DB: syn_change rows past syn_cursor (batch)
@@ -335,6 +336,8 @@ sequenceDiagram
   Y->>PG: upsert in one transaction
   Y->>DB: advance syn_cursor (backoff on failure)
 ```
+
+Minimization (D-64) runs on the temp copy, never on the live database. The setting is one `hst_setting` entry per table in `ops_data_catalog`; the catalog itself is rebuilt at startup (D-44) and holds no settings. Deletes run with `foreign_keys=ON`. A table can be set to minimize only when every table that references it is also minimized, so a kept table never holds a dangling reference and a CASCADE never empties a table the host chose to keep. After the deletes commit, the copy is vacuumed, so freed pages keep no deleted rows.
 
 ### F4, F7, F8, F9
 
@@ -369,8 +372,8 @@ Rules:
 | Data | Path | Kept |
 |---|---|---|
 | Prompt and response content | client → encrypted transport → gateway memory → Ollama on localhost → back | never on disk or in logs |
-| Queued job content | `sch_job_payload`, encrypted | until the terminal state; never synced |
-| Job result | `sch_job_result`, encrypted, only to its consumer | until fetched, or 24 h |
+| Queued job content | `sch_job_payload`, encrypted | until the terminal state; never synced; left out of backups by default (D-64) |
+| Job result | `sch_job_result`, encrypted, only to its consumer | until fetched, or 24 h; left out of backups by default (D-64) |
 | Access key secret | generated and shown once; only the prefix and hash are stored | never synced |
 | Credentials | argon2id hash or WebAuthn public key | never synced |
 | Consumer personal data | `idn_consumer`; erased on deletion, the row stays | synced encrypted (consumer-directory dataset) |
@@ -400,7 +403,7 @@ flowchart TB
   DK --> RC["Recovery code (shown once) for restore"]
 ```
 
-Checkpoints have their own signing key (D-65): stable, so verifiers and future witnesses can follow the log, and separate from the receipt subkeys, so a leaked receipt key cannot forge tree heads. All three public keys are published at `/v1/keys`.
+Checkpoints have their own signing key (D-65): stable, so verifiers and future witnesses can follow the log, and separate from the receipt subkeys, so a leaked receipt key cannot forge tree heads. The identity, receipt-signing and checkpoint-signing public keys, current and retired, are published at `/v1/keys`.
 
 ## 9. Error model
 

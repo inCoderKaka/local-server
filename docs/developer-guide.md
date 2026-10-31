@@ -109,6 +109,7 @@ Deliveries follow [Standard Webhooks](https://www.standardwebhooks.com/): the `w
 - **De-duplicate by `webhook-id`.** Delivery is at least once.
 - **Answer `410 Gone`** to stop deliveries to your endpoint.
 - **No content:** payloads never carry prompt or answer content.
+- **Private addresses:** a URL that resolves to a private (RFC 1918, IPv6 ULA) or tailnet (100.64.0.0/10) address gets no deliveries unless the host has allowed private targets. Loopback, link-local and the host's own addresses never do. The address is checked when each delivery is sent, and redirects are not followed.
 
 ### Versioning
 

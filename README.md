@@ -18,7 +18,7 @@ flowchart LR
 
 - **Use the hardware you already own.** A Mac mini or gaming PC that idles most of the day can serve friends and side projects.
 - **Stay in control.** Per-consumer grants (models, context length, quotas, concurrency), pause and quiet hours, and requests for more that you approve or reject.
-- **Keep it private.** Prompts and responses are not logged or stored by default; the only content kept is a queued background job and its result, encrypted, and deleted when the job ends or its result is fetched. Nothing admin-facing is ever public.
+- **Keep it private.** Prompts and responses are not logged or stored by default; the only content kept is a queued background job and its result, encrypted, and deleted when the job ends or its result is fetched, and it is left out of backups unless you choose to keep it. Nothing admin-facing is ever public.
 - **Trust the bill.** Receipts and inclusion proofs let a consumer verify usage independently. It is the same transparency-log idea that secures Certificate Transparency.
 
 ## Highlights for engineers
