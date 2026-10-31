@@ -9,6 +9,7 @@ The host machine's own state: sharing on, paused or quiet, its keys, and measure
 - Packages: `internal/host/`, `internal/hostkeys/`, `internal/hostmetrics/` (built by PLT-F-005, PLT-F-012, PLT-F-013).
 - Tables: `hst_*` (the settings module owns `hst_setting`; this module owns `hst_host`, `hst_key`), migrations in `internal/host/migrations/`, registered by `host.Module()`.
 - Port: `HostMetrics`.
+- Keys (`internal/hostkeys`): an Ed25519 identity key whose public key is the host id, and receipt and checkpoint subkeys that carry identity-signed certificates and rotate on host settings. Secrets are sealed with AES-256-GCM under the host data key, which is itself wrapped by the host master key. The master key is read from the OS keychain, then from a user-only file. Only a first run may create one, so an existing install whose keychain is locked or empty fails instead of starting with a new key. The recovery code is the data key itself, shown once at setup and never stored.
 
 ## Imports
 

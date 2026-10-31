@@ -7,7 +7,7 @@ The append-only audit trail written in the same unit of work as the change.
 ## Owns
 
 - Packages: `internal/audit/` (built by PLT-F-008).
-- Tables: `aud_*`, migrations in `internal/audit/migrations/`.
+- Tables: `aud_event` (triggers refuse updates and deletes), migrations in `internal/audit/migrations/`. Callers add a row with `audit.Record(tx, Event)` inside their own unit of work. `detail` refuses content-like keys at any depth, and list pages are capped by the host setting `audit.list_page_size`. Register after identity.
 - Port: none defined here.
 
 ## Imports

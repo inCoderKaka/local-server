@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Structured logs, metrics and request ids behind the Telemetry port (structured log, counter, gauge, histogram, span). Prompts and responses are never logged: content is wrapped in the `Redacted` type, which always logs as `[redacted]` (it holds the text behind a pointer, so even a `Redacted` in an unexported struct field prints no content), and metric labels named like content are refused (D-31, D-40). A metric asked for again with different label names panics, and the adapter opens the log file at start, so an unwritable path fails startup instead of dropping logs.
+Structured logs, metrics and request ids behind the Telemetry port (structured log, counter, gauge, histogram, span). Prompts and responses are never logged: content is wrapped in the `Redacted` type, which always logs as `[redacted]` (it holds the text behind a pointer, so even a `Redacted` in an unexported struct field prints no content), and metric labels named like content are refused (D-31, D-40). `FindContentKey` is the one shared check for content-like keys (prompt, response, content, secret, token, in any case or separator form), used by audit details and event payloads. A metric asked for again with different label names panics, and the adapter opens the log file at start, so an unwritable path fails startup instead of dropping logs.
 
 ## Owns
 

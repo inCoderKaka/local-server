@@ -11,13 +11,13 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 
 1. ~~S1 **PLT-C-001** Go module scaffold, CI on 3 OSes and module-boundary check (deps: —) **gate it**~~ done 2026-10-31 (`37c2603`, `d588ee1`)
 2. ~~S2 **PLT-F-001** OpenAPI 3.1 contract v1 (consumer, consumer self-service and admin) with generated server code (deps: PLT-C-001) **gate it**  ∥  S3 **PLT-F-002** Storage foundation: single writer, cross-module unit of work, migrations, change capture, data catalog (deps: PLT-C-001) **gate it**  ∥  S4 **PLT-F-003** Telemetry port: slog JSON, redaction, Prometheus metrics, request id, log rotation (deps: PLT-C-001)~~ built 2026-10-31, not shipped (`f00fa8a`, `6839035`, `ef86df3`; set B code gate ran, `2da4671`)
-3. ~~S5 **PLT-F-004** Runtime settings with owners, plus retention registry (deps: PLT-F-002) **gate it**~~ built 2026-10-31, not shipped (`5cd11e2`; set C code gate owed)
-4. S6 **PLT-F-005** Host identity, signing subkeys and sealed secrets (deps: PLT-F-002, PLT-F-004) **gate it**
+3. ~~S5 **PLT-F-004** Runtime settings with owners, plus retention registry (deps: PLT-F-002) **gate it**~~ built 2026-10-31, not shipped (`5cd11e2`; set C code gate ran, `fab7890`)
+4. ~~S6 **PLT-F-005** Host identity, signing subkeys and sealed secrets (deps: PLT-F-002, PLT-F-004) **gate it**~~ built 2026-10-31, not shipped (`939208f`, `fab7890`; set C code gate ran)
 
 ### B2 — Core domain
 
-5. ~~S7 **PLT-F-006** Engine port with Ollama adapter, fake engine and adapter contract suite (deps: PLT-C-001)  ∥  S8 **PLT-F-007** Identity and grants data model (deps: PLT-F-002) **gate it**~~ built 2026-10-31, not shipped (`5cd11e2`; set C code gate owed)
-6. S9 **PLT-F-008** Audit log (deps: PLT-F-007)  ∥  S10 **PLT-F-009** Domain events core (deps: PLT-F-002, PLT-F-007) **gate it**
+5. ~~S7 **PLT-F-006** Engine port with Ollama adapter, fake engine and adapter contract suite (deps: PLT-C-001)  ∥  S8 **PLT-F-007** Identity and grants data model (deps: PLT-F-002) **gate it**~~ built 2026-10-31, not shipped (`5cd11e2`; set C code gate ran, `fab7890`)
+6. ~~S9 **PLT-F-008** Audit log (deps: PLT-F-007)  ∥  S10 **PLT-F-009** Domain events core (deps: PLT-F-002, PLT-F-007) **gate it**~~ built 2026-10-31, not shipped (`939208f`, `fab7890`; set C code gate ran)
 7. S11 **PLT-F-010** Access keys: issue, authenticate, expire, revoke (deps: PLT-F-007, PLT-F-008, PLT-F-009) **gate it**  ∥  S12 **PLT-F-011** Policy engine for request properties, background hours and priority class (deps: PLT-F-007) **gate it**  ∥  S13 **PLT-F-012** Host sharing state: pause switch and quiet hours (deps: PLT-F-004, PLT-F-005, PLT-F-008, PLT-F-009)
 8. S14 **PLT-F-013** Host metrics: totals, share-budget slice and other apps (deps: PLT-F-002, PLT-F-004, PLT-F-003, PLT-F-006)
 
