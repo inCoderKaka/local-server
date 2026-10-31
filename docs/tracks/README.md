@@ -70,7 +70,7 @@ Requirement-driven tickets carry these fields inside existing cells. Every row a
 | Plan position | same cell as the requirement ref | `P<phase>/B<batch>/S<slice>`, e.g. `P1/B1/S3` |
 | Model | the **Model** column · `Model: <X>` in Chores Notes and bug Descriptions | Haiku / Sonnet / Opus / Fable |
 | How to verify | Notes (Chores: Notes; bugs: Description) | `verify: <one line>`. It uses curl, CLI, tests or the API, **never a browser tool** |
-| Source | last column | `req_N` · `design` · `review-gate` · `build` · `user` · `drift-audit` · `legacy` |
+| Source | last column | `<kind> <origin>`. The kind comes first: `req_N` · `design` · `review-gate` · `build` · `user` · `drift-audit` · `legacy`. The origin names exactly where the ticket came from: the decision rows (`req_001 D-38, D-54`), the design section (`design HLD §10`), the gate run and finding (`review-gate set B 9853112..ef86df3 A#5`), the ticket whose build surfaced it (`build PLT-F-001`), or the date of the user's ask (`user 2026-10-31`) |
 
 - **Plan hierarchy:** phase > batch > slice > feature > subfeature. "Wave" is never a plan level. It means OpenCode handoff files only.
 - **Requirement-driven rows:** a row is requirement-driven if a cell contains a `req_\d+` token.

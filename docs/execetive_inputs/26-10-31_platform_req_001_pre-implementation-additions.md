@@ -21,7 +21,7 @@ agent questions (round 2):
    - Private source + public mirror (Recommended): This repo stays private and keeps everything. A publish script (Copybara-style path filter) pushes only the public paths to a new public repo. All tooling keeps working.
    - Two repos (public code, private notes): Notes live in a separate private repo. This breaks the tracking tools that read docs/tracks git history in the same repo.
    - One public repo with git-crypt: Private paths are stored encrypted. File names and commit messages stay public, and one mistake leaks a file permanently.
-   - Keep everything private: Give interviewers access on request. Recruiters can't find the project.
+   - Keep everything private: Share access on request. The project is not publicly discoverable.
 2. "Beyond the code, HLD/LLD, README, user/developer guides and approved legal docs (all public), which of these should also be public?" (multi-select)
    - ADRs (Recommended) · Curated ROADMAP.md (Recommended) · Raw decisions logs · AI workflow files
 3. "Where should Google Cloud appear? (The product is a local desktop binary, so GCP fits only in a few genuine places.)"
