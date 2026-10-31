@@ -92,6 +92,18 @@ func TestDecide(t *testing.T) {
 			mutate: func(g *policy.Grant) { g.AllowedProperties = str(`["background"]`) }, wantCode: policy.CodePropertyNotAllowed},
 		{name: "allowed properties", props: []string{"background, purpose=summarize"}, model: "llama3.1:8b", time: at(12, 0),
 			mutate: func(g *policy.Grant) { g.AllowedProperties = str(`["background","purpose"]`) }, want: interactive},
+		{name: "a deny is reported in preference to a window refusal",
+			rules: []policy.StoredRule{global("bg", 0, backgroundHours),
+				global("d", 1, `{"format_version":1,"when":{"properties":{"background":true}},"deny":true}`)},
+			props: []string{"background"}, model: "llama3.1:8b", time: at(12, 0), wantCode: policy.CodeDenied},
+		{name: "allowed list with trailing bracket", props: []string{"background"}, model: "llama3.1:8b", time: at(12, 0),
+			mutate: func(g *policy.Grant) { g.AllowedProperties = str(`["background"]]`) }, wantCode: policy.CodeInvalidGrant},
+		{name: "allowed list with trailing brace", props: []string{"background"}, model: "llama3.1:8b", time: at(12, 0),
+			mutate: func(g *policy.Grant) { g.AllowedProperties = str(`["background"]}`) }, wantCode: policy.CodeInvalidGrant},
+		{name: "allowed list with a second array", props: []string{"background"}, model: "llama3.1:8b", time: at(12, 0),
+			mutate: func(g *policy.Grant) { g.AllowedProperties = str(`["background"][]`) }, wantCode: policy.CodeInvalidGrant},
+		{name: "allowed list with trailing newline", props: []string{"background"}, model: "llama3.1:8b", time: at(12, 0),
+			mutate: func(g *policy.Grant) { g.AllowedProperties = str("[\"background\"]\n") }, want: interactive},
 		{name: "empty allowed list refuses any property", props: []string{"background"}, model: "llama3.1:8b", time: at(12, 0),
 			mutate: func(g *policy.Grant) { g.AllowedProperties = str(`[]`) }, wantCode: policy.CodePropertyNotAllowed},
 		{name: "malformed allowed list", model: "llama3.1:8b", time: at(12, 0),
@@ -172,6 +184,27 @@ func TestOutsideWindowError(t *testing.T) {
 	}
 	if want := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC); !pe.Opens.Equal(want) {
 		t.Fatalf("opens = %v, want %v", pe.Opens, want)
+	}
+}
+
+func TestOutsideWindowOpensAtEarliestWindow(t *testing.T) {
+	rules := []policy.StoredRule{global("two", 0, `{"format_version":1,"when":{"properties":{"background":true}},"time_zone":"UTC","windows":[{"start":"00:00","end":"07:00"},{"start":"22:00","end":"23:00"}],"priority":"background"}`)}
+	in := policy.Input{Properties: []string{"background"}, Model: "llama3.1:8b", Time: at(12, 0), Grant: grant()}
+	_, err := policy.Decide(rules, in, lim)
+	if !errors.Is(err, policy.ErrOutsideWindow) {
+		t.Fatalf("err = %v", err)
+	}
+	var pe *policy.Error
+	if !errors.As(err, &pe) {
+		t.Fatalf("not a policy error: %#v", err)
+	}
+	if want := time.Date(2026, 10, 31, 22, 0, 0, 0, time.UTC); !pe.Opens.Equal(want) {
+		t.Fatalf("opens = %v, want %v", pe.Opens, want)
+	}
+	in.Time = at(22, 30)
+	dec, err := policy.Decide(rules, in, lim)
+	if err != nil || dec.Priority != policy.Background {
+		t.Fatalf("dec = %+v, err = %v", dec, err)
 	}
 }
 

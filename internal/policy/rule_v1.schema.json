@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/inCoderKaka/local-server/internal/policy/rule_v1.schema.json",
   "title": "local-server policy rule, format version 1",
-  "description": "One policy rule document (D-15, D-25). Stored in grt_policy_rule.body with format_version 1. The decoder in internal/policy/rule.go is the reference: it also refuses duplicate keys, null values, invalid UTF-8 and trailing data, and requires at least one effect (deny, windows, priority or caps), deny on its own, and windows together with time_zone.",
+  "description": "One policy rule document (D-15, D-25). Stored in grt_policy_rule.body with format_version 1. The decoder in internal/policy/rule.go is the reference: it also refuses duplicate keys, null values, invalid UTF-8 and trailing data, writes every integer (format_version, caps, integer property values) without a fraction or exponent (2048, not 2048.0 or 2.048e3), and requires at least one effect (deny, windows, priority or caps), deny on its own, and windows together with time_zone.",
   "type": "object",
   "additionalProperties": false,
   "required": ["format_version"],

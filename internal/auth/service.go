@@ -38,6 +38,8 @@ var (
 	ErrGrantExpired = errors.New("auth: grant version expired")
 	ErrNoGrant      = errors.New("auth: consumer has no current grant version")
 	ErrNodeMismatch = errors.New("auth: access key is bound to another node")
+
+	ErrConsumerNotActive = errors.New("auth: consumer is not active")
 )
 
 // WhoIs is the port that names the transport node a connection came from (D-39). The transport
@@ -90,6 +92,7 @@ type entry struct {
 	key      identity.AccessKey
 	res      *resolved // nil until the secret has been verified once
 	loadedAt time.Time
+	gen      uint64 // cache generation when the key row was read
 }
 
 // New builds the service, registers its settings and subscribes its cache to the change events.
@@ -117,8 +120,10 @@ func New(cfg Config) (*Service, error) {
 	return s, nil
 }
 
-// Invalidate clears the cache. The change-event subscription calls it; a caller that changes
-// keys or grants outside those events may call it directly.
+// Invalidate clears the cache. The change-event subscription calls it. A caller that changes a
+// key with identity.AccessKeyRepo.Update, soft-deletes a consumer, or changes a principal's
+// status must call it after its unit of work commits; otherwise the change shows only when the
+// cache TTL runs out.
 func (s *Service) Invalidate() {
 	s.mu.Lock()
 	s.gen++
@@ -136,10 +141,10 @@ type IssueParams struct {
 	ExpiresAt  *time.Time
 }
 
-// Issued is a new key. Key is the only copy of the secret and is shown once.
+// Issued is a new key. Key.Reveal() is the only copy of the key and is shown once.
 type Issued struct {
 	AccessKey identity.AccessKey
-	Key       string
+	Key       telemetry.Redacted
 }
 
 // String, GoString and LogValue hide the key from logs and %v output.
@@ -178,10 +183,13 @@ func (s *Service) Issue(tx *storage.Tx, p IssueParams) (Issued, error) {
 	if p.ExpiresAt != nil {
 		detail["expires_at"] = p.ExpiresAt.UTC().Format(time.RFC3339)
 	}
+	if text != nil {
+		detail["narrowing"] = json.RawMessage(*text)
+	}
 	if _, err := audit.RecordAt(tx, audit.Clock(s.now), audit.Event{Action: ActionKeyIssued, ActorID: p.ActorID, Detail: detail}); err != nil {
 		return Issued{}, err
 	}
-	return Issued{AccessKey: k, Key: FormatKey(prefix, secret)}, nil
+	return Issued{AccessKey: k, Key: telemetry.Redact(FormatKey(prefix, secret))}, nil
 }
 
 func mustJSON(v any) string {
@@ -191,12 +199,21 @@ func mustJSON(v any) string {
 
 // Revoke ends a key inside the caller's unit of work, audits it and emits access_key.revoked in
 // the same transaction. The unit must be run by the Events notifier's Write, or Emit refuses.
-// Subscribers, including this service's cache, run after commit.
+// Subscribers, including this service's cache, run after commit. An already-revoked key returns
+// ErrRevoked.
 func (s *Service) Revoke(tx *storage.Tx, keyID, actorID string) error {
+	k, err := s.cfg.Identity.AccessKeys.GetTx(tx, keyID)
+	if err != nil {
+		return err
+	}
+	if k.RevokedAt != nil {
+		return ErrRevoked
+	}
 	if err := s.cfg.Identity.AccessKeys.Revoke(tx, keyID); err != nil {
 		return err
 	}
-	if _, err := audit.RecordAt(tx, audit.Clock(s.now), audit.Event{Action: ActionKeyRevoked, ActorID: actorID, Detail: map[string]any{"key_id": keyID}}); err != nil {
+	detail := map[string]any{"key_id": keyID, "consumer_id": k.ConsumerID}
+	if _, err := audit.RecordAt(tx, audit.Clock(s.now), audit.Event{Action: ActionKeyRevoked, ActorID: actorID, Detail: detail}); err != nil {
 		return err
 	}
 	payload, err := json.Marshal(map[string]string{"key_id": keyID})
@@ -230,7 +247,8 @@ func (s *Service) Authenticate(ctx context.Context, header, remoteAddr string) (
 	if err != nil {
 		return nil, ErrInvalidKey
 	}
-	e, err := s.lookup(ctx, p.Prefix)
+	ttl := s.ttl(ctx)
+	e, err := s.lookup(ctx, p.Prefix, ttl)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +256,7 @@ func (s *Service) Authenticate(ctx context.Context, header, remoteAddr string) (
 	if e != nil {
 		stored = e.key.SecretHash
 	}
-	if !secretMatches(p.Secret, stored) || e == nil {
+	if !secretMatches(p.Secret.Reveal(), stored) || e == nil {
 		return nil, ErrInvalidKey
 	}
 	now := s.now()
@@ -249,7 +267,7 @@ func (s *Service) Authenticate(ctx context.Context, header, remoteAddr string) (
 		return nil, ErrExpired
 	}
 	if e.res == nil {
-		if e, err = s.resolve(ctx, e); err != nil {
+		if e, err = s.resolve(ctx, e, ttl); err != nil {
 			return nil, err
 		}
 	}
@@ -257,11 +275,14 @@ func (s *Service) Authenticate(ctx context.Context, header, remoteAddr string) (
 		return nil, ErrGrantExpired
 	}
 	if e.key.BoundNode != nil {
-		if s.cfg.WhoIs == nil {
+		if s.cfg.WhoIs == nil || *e.key.BoundNode == "" {
 			return nil, ErrNodeMismatch
 		}
 		node, err := s.cfg.WhoIs.NodeOf(ctx, remoteAddr)
-		if err != nil || node != *e.key.BoundNode {
+		if err != nil {
+			return nil, fmt.Errorf("%w: node lookup failed: %v", ErrNodeMismatch, err)
+		}
+		if node != *e.key.BoundNode {
 			return nil, ErrNodeMismatch
 		}
 	}
@@ -281,8 +302,7 @@ func (s *Service) ttl(ctx context.Context) time.Duration {
 
 // lookup returns the cached entry for a prefix or loads the key row. A nil entry with a nil
 // error means the prefix is unknown.
-func (s *Service) lookup(ctx context.Context, prefix string) (*entry, error) {
-	ttl := s.ttl(ctx)
+func (s *Service) lookup(ctx context.Context, prefix string, ttl time.Duration) (*entry, error) {
 	s.mu.Lock()
 	gen := s.gen
 	if e, ok := s.cache[prefix]; ok && ttl > 0 && s.now().Sub(e.loadedAt) < ttl {
@@ -297,21 +317,24 @@ func (s *Service) lookup(ctx context.Context, prefix string) (*entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("auth: load key: %w", err)
 	}
-	e := &entry{key: k, loadedAt: s.now()}
-	s.store(prefix, e, gen, ttl)
+	e := &entry{key: k, loadedAt: s.now(), gen: gen}
+	s.store(prefix, e, ttl)
 	return e, nil
 }
 
 // resolve loads the consumer, grant and current version of a verified key and caches them.
-func (s *Service) resolve(ctx context.Context, e *entry) (*entry, error) {
-	ttl := s.ttl(ctx)
-	s.mu.Lock()
-	gen := s.gen
-	s.mu.Unlock()
+func (s *Service) resolve(ctx context.Context, e *entry, ttl time.Duration) (*entry, error) {
 	rd := s.cfg.DB.Reader()
 	c, err := s.cfg.Identity.Consumers.Get(ctx, rd, e.key.ConsumerID)
 	if err != nil {
 		return nil, fmt.Errorf("auth: load consumer: %w", err)
+	}
+	pr, err := s.cfg.Identity.Principals.Get(ctx, rd, c.PrincipalID)
+	if err != nil {
+		return nil, fmt.Errorf("auth: load principal: %w", err)
+	}
+	if pr.Status != identity.StatusActive {
+		return nil, ErrConsumerNotActive
 	}
 	g, err := s.cfg.Grants.Grants.GetByConsumer(ctx, rd, c.ID)
 	if errors.Is(err, grants.ErrNotFound) {
@@ -334,19 +357,19 @@ func (s *Service) resolve(ctx context.Context, e *entry) (*entry, error) {
 			return nil, fmt.Errorf("auth: key %s: %w", e.key.ID, err)
 		}
 	}
-	ne := &entry{key: e.key, loadedAt: e.loadedAt, res: &resolved{principalID: c.PrincipalID, grantID: g.ID, version: v, narrowing: nar}}
-	s.store(e.key.Prefix, ne, gen, ttl)
+	ne := &entry{key: e.key, loadedAt: e.loadedAt, gen: e.gen, res: &resolved{principalID: c.PrincipalID, grantID: g.ID, version: v, narrowing: nar}}
+	s.store(e.key.Prefix, ne, ttl)
 	return ne, nil
 }
 
-// store caches e unless the cache is off or was cleared since gen was read, so an entry loaded
-// before a change event never outlives it.
-func (s *Service) store(prefix string, e *entry, gen uint64, ttl time.Duration) {
+// store caches e unless the cache is off or was cleared since e's key row was read, so an entry
+// loaded before a change event never outlives it.
+func (s *Service) store(prefix string, e *entry, ttl time.Duration) {
 	if ttl <= 0 {
 		return
 	}
 	s.mu.Lock()
-	if s.gen == gen {
+	if s.gen == e.gen {
 		s.cache[prefix] = e
 	}
 	s.mu.Unlock()

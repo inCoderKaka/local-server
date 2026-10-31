@@ -2,7 +2,9 @@ package auth_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,6 +40,8 @@ type env struct {
 	cons  identity.Consumer
 	grant grants.Grant
 	model grants.Model
+	// onNow, if set, runs once on the next clock call and is then cleared.
+	onNow func()
 }
 
 func setup(t *testing.T) *env {
@@ -52,7 +56,14 @@ func setup(t *testing.T) *env {
 	e := &env{db: db, bus: events.New(), st: settings.New(db), ir: identity.NewRepos(nil), gr: grants.NewRepos(nil),
 		whois: &fakeWhoIs{}, now: time.Now()}
 	e.svc, err = auth.New(auth.Config{DB: db, Identity: e.ir, Grants: e.gr, Events: e.bus, Settings: e.st, WhoIs: e.whois,
-		Clock: func() time.Time { return e.now }})
+		Clock: func() time.Time {
+			if e.onNow != nil {
+				f := e.onNow
+				e.onNow = nil
+				f()
+			}
+			return e.now
+		}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,10 +118,10 @@ func (e *env) check(key string) (*auth.Identity, error) {
 func TestIssueAndAuthenticate(t *testing.T) {
 	e := setup(t)
 	is := e.issue(t, auth.IssueParams{})
-	if !strings.HasPrefix(is.Key, "ls_"+is.AccessKey.Prefix+"_") {
-		t.Fatalf("key %q does not start with its prefix", is.Key)
+	if !strings.HasPrefix(is.Key.Reveal(), "ls_"+is.AccessKey.Prefix+"_") {
+		t.Fatalf("key %q does not start with its prefix", is.Key.Reveal())
 	}
-	id, err := e.check(is.Key)
+	id, err := e.check(is.Key.Reveal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +137,7 @@ func TestSecretNeverStored(t *testing.T) {
 	e := setup(t)
 	is := e.issue(t, auth.IssueParams{ActorID: ""})
 	e.revoke(t, is.AccessKey.ID)
-	p, err := auth.ParseKey(is.Key)
+	p, err := auth.ParseKey(is.Key.Reveal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +147,7 @@ func TestSecretNeverStored(t *testing.T) {
 		`SELECT count(*) FROM ntf_event WHERE instr(payload, ?) > 0`,
 	} {
 		var n int
-		if err := e.db.Reader().QueryRow(context.Background(), q, p.Secret).Scan(&n); err != nil {
+		if err := e.db.Reader().QueryRow(context.Background(), q, p.Secret.Reveal()).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		if n != 0 {
@@ -147,28 +158,34 @@ func TestSecretNeverStored(t *testing.T) {
 	if err := e.db.Reader().QueryRow(context.Background(), `SELECT secret_hash FROM idn_access_key`).Scan(&h); err != nil {
 		t.Fatal(err)
 	}
-	if h != auth.HashSecret(p.Secret) || h == p.Secret {
+	if h != auth.HashSecret(p.Secret.Reveal()) || h == p.Secret.Reveal() {
 		t.Fatalf("stored hash = %q", h)
 	}
 	for _, s := range []string{is.String(), is.GoString()} {
-		if strings.Contains(s, p.Secret) {
+		if strings.Contains(s, p.Secret.Reveal()) {
 			t.Fatal("Issued prints the secret")
 		}
+	}
+	if s := fmt.Sprintf("%+v", p); strings.Contains(s, p.Secret.Reveal()) {
+		t.Fatal("Parsed prints the secret")
+	}
+	if b, err := json.Marshal(is); err != nil || strings.Contains(string(b), p.Secret.Reveal()) {
+		t.Fatalf("Issued marshals the secret: %s %v", b, err)
 	}
 }
 
 func TestRejects(t *testing.T) {
 	e := setup(t)
 	is := e.issue(t, auth.IssueParams{})
-	p, _ := auth.ParseKey(is.Key)
+	p, _ := auth.ParseKey(is.Key.Reveal())
 	wrong := auth.FormatKey(p.Prefix, strings.Repeat("0", 64))
-	unknown := auth.FormatKey(strings.Repeat("0", 12), p.Secret)
+	unknown := auth.FormatKey(strings.Repeat("0", 12), p.Secret.Reveal())
 	for name, key := range map[string]string{"wrong secret": wrong, "unknown prefix": unknown, "malformed": "ls_x"} {
 		if _, err := e.check(key); !errors.Is(err, auth.ErrInvalidKey) {
 			t.Errorf("%s: err = %v, want ErrInvalidKey", name, err)
 		}
 	}
-	if _, err := e.svc.Authenticate(context.Background(), is.Key, ""); !errors.Is(err, auth.ErrInvalidKey) {
+	if _, err := e.svc.Authenticate(context.Background(), is.Key.Reveal(), ""); !errors.Is(err, auth.ErrInvalidKey) {
 		t.Errorf("no Bearer scheme: err = %v", err)
 	}
 }
@@ -176,7 +193,7 @@ func TestRejects(t *testing.T) {
 func TestRevokedKeyRejectedAndCacheCleared(t *testing.T) {
 	e := setup(t)
 	is := e.issue(t, auth.IssueParams{})
-	if _, err := e.check(is.Key); err != nil {
+	if _, err := e.check(is.Key.Reveal()); err != nil {
 		t.Fatal(err)
 	}
 	// Revoking straight in the table, without an event, is invisible to the cache: this proves
@@ -184,7 +201,7 @@ func TestRevokedKeyRejectedAndCacheCleared(t *testing.T) {
 	if err := e.db.Write(context.Background(), func(tx *storage.Tx) error { return e.ir.AccessKeys.Revoke(tx, is.AccessKey.ID) }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.check(is.Key); err != nil {
+	if _, err := e.check(is.Key.Reveal()); err != nil {
 		t.Fatalf("expected the cached entry to still answer, got %v", err)
 	}
 	// An access_key.revoked event clears it.
@@ -194,7 +211,7 @@ func TestRevokedKeyRejectedAndCacheCleared(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.check(is.Key); !errors.Is(err, auth.ErrRevoked) {
+	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrRevoked) {
 		t.Fatalf("err = %v, want ErrRevoked", err)
 	}
 }
@@ -202,12 +219,24 @@ func TestRevokedKeyRejectedAndCacheCleared(t *testing.T) {
 func TestServiceRevokeAuditedAndRejected(t *testing.T) {
 	e := setup(t)
 	is := e.issue(t, auth.IssueParams{})
-	if _, err := e.check(is.Key); err != nil {
+	if _, err := e.check(is.Key.Reveal()); err != nil {
 		t.Fatal(err)
 	}
 	e.revoke(t, is.AccessKey.ID)
-	if _, err := e.check(is.Key); !errors.Is(err, auth.ErrRevoked) {
+	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrRevoked) {
 		t.Fatalf("err = %v, want ErrRevoked", err)
+	}
+	var detail string
+	if err := e.db.Reader().QueryRow(context.Background(), `SELECT detail FROM aud_event WHERE action = ?`, auth.ActionKeyRevoked).Scan(&detail); err != nil {
+		t.Fatal(err)
+	}
+	var d map[string]any
+	if err := json.Unmarshal([]byte(detail), &d); err != nil || d["consumer_id"] != e.cons.ID {
+		t.Fatalf("revoke detail = %s, %v; want consumer_id %s", detail, err, e.cons.ID)
+	}
+	err := e.bus.Write(context.Background(), e.db, func(tx *storage.Tx) error { return e.svc.Revoke(tx, is.AccessKey.ID, "") })
+	if !errors.Is(err, auth.ErrRevoked) {
+		t.Fatalf("second revoke = %v, want ErrRevoked", err)
 	}
 	for action, want := range map[string]int{auth.ActionKeyIssued: 1, auth.ActionKeyRevoked: 1} {
 		var n int
@@ -244,11 +273,11 @@ func TestExpiredKeyRejected(t *testing.T) {
 	e := setup(t)
 	exp := e.now.Add(time.Hour)
 	is := e.issue(t, auth.IssueParams{ExpiresAt: &exp})
-	if _, err := e.check(is.Key); err != nil {
+	if _, err := e.check(is.Key.Reveal()); err != nil {
 		t.Fatal(err)
 	}
 	e.now = exp.Add(time.Second)
-	if _, err := e.check(is.Key); !errors.Is(err, auth.ErrExpired) {
+	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrExpired) {
 		t.Fatalf("err = %v, want ErrExpired", err)
 	}
 }
@@ -256,7 +285,7 @@ func TestExpiredKeyRejected(t *testing.T) {
 func TestGrantChangeEventClearsCache(t *testing.T) {
 	e := setup(t)
 	is := e.issue(t, auth.IssueParams{})
-	if id, err := e.check(is.Key); err != nil || id.GrantVersionNo != 1 {
+	if id, err := e.check(is.Key.Reveal()); err != nil || id.GrantVersionNo != 1 {
 		t.Fatalf("%+v %v", id, err)
 	}
 	if err := e.bus.Write(context.Background(), e.db, func(tx *storage.Tx) error {
@@ -268,7 +297,7 @@ func TestGrantChangeEventClearsCache(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	id, err := e.check(is.Key)
+	id, err := e.check(is.Key.Reveal())
 	if err != nil || id.GrantVersionNo != 2 || *id.Limits.QuotaTokensPerDay != 5 {
 		t.Fatalf("%+v %v", id, err)
 	}
@@ -280,13 +309,13 @@ func TestCacheTTLSetting(t *testing.T) {
 	if err := e.st.Set(context.Background(), settings.Host, auth.KeyCacheTTL, "", "0s"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.check(is.Key); err != nil {
+	if _, err := e.check(is.Key.Reveal()); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.db.Write(context.Background(), func(tx *storage.Tx) error { return e.ir.AccessKeys.Revoke(tx, is.AccessKey.ID) }); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.check(is.Key); !errors.Is(err, auth.ErrRevoked) {
+	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrRevoked) {
 		t.Fatalf("with the cache off a direct revoke must show at once, got %v", err)
 	}
 }
@@ -302,7 +331,7 @@ func TestNoGrantAndExpiredGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.now = past.Add(time.Minute)
-	if _, err := e.check(is.Key); !errors.Is(err, auth.ErrGrantExpired) {
+	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrGrantExpired) {
 		t.Fatalf("err = %v, want ErrGrantExpired", err)
 	}
 }
@@ -312,7 +341,7 @@ func TestNarrowingOnlyNarrows(t *testing.T) {
 	// The key lists a model the grant does not have, a higher quota and a lower context cap.
 	is := e.issue(t, auth.IssueParams{Narrowing: auth.Narrowing{ModelIDs: []string{e.model.ID, "other"},
 		QuotaTokensPerDay: i64(5000), ContextCap: i64(1024), MaxConcurrency: i64(2)}})
-	id, err := e.check(is.Key)
+	id, err := e.check(is.Key.Reveal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +356,7 @@ func TestNarrowingOnlyNarrows(t *testing.T) {
 		t.Errorf("max concurrency = %v, want 2 (grant has none)", l.MaxConcurrency)
 	}
 	only := e.issue(t, auth.IssueParams{Narrowing: auth.Narrowing{ModelIDs: []string{"other"}}})
-	if id, err = e.check(only.Key); err != nil || len(id.Limits.Models) != 0 {
+	if id, err = e.check(only.Key.Reveal()); err != nil || len(id.Limits.Models) != 0 {
 		t.Errorf("a narrowing with no shared model must leave none: %+v %v", id, err)
 	}
 	if _, err := auth.ParseNarrowing(`{"quota_tokens_per_day":-1}`); !errors.Is(err, auth.ErrInvalidNarrowing) {
@@ -335,6 +364,14 @@ func TestNarrowingOnlyNarrows(t *testing.T) {
 	}
 	if _, err := auth.ParseNarrowing(`{"bogus":1}`); !errors.Is(err, auth.ErrInvalidNarrowing) {
 		t.Errorf("unknown field: %v", err)
+	}
+	for _, bad := range []string{`{"quota_tokens_per_day":1}}`, `{"quota_tokens_per_day":1}]`, `{"quota_tokens_per_day":1} {}`} {
+		if _, err := auth.ParseNarrowing(bad); !errors.Is(err, auth.ErrInvalidNarrowing) {
+			t.Errorf("%q: %v, want ErrInvalidNarrowing", bad, err)
+		}
+	}
+	if _, err := auth.ParseNarrowing("{\"quota_tokens_per_day\":1}\n"); err != nil {
+		t.Errorf("trailing newline: %v", err)
 	}
 }
 
@@ -347,7 +384,7 @@ func TestBadStoredNarrowingFailsClosed(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.check(is.Key); err == nil {
+	if _, err := e.check(is.Key.Reveal()); err == nil {
 		t.Fatal("a key whose narrowing cannot be read must not authenticate")
 	}
 }
@@ -356,15 +393,85 @@ func TestBoundNode(t *testing.T) {
 	e := setup(t)
 	is := e.issue(t, auth.IssueParams{BoundNode: "node-a"})
 	e.whois.node = "node-a"
-	if _, err := e.check(is.Key); err != nil {
+	if _, err := e.check(is.Key.Reveal()); err != nil {
 		t.Fatal(err)
 	}
 	e.whois.node = "node-b"
-	if _, err := e.check(is.Key); !errors.Is(err, auth.ErrNodeMismatch) {
+	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrNodeMismatch) {
 		t.Fatalf("other node: %v", err)
 	}
 	e.whois.node, e.whois.err = "node-a", errors.New("down")
-	if _, err := e.check(is.Key); !errors.Is(err, auth.ErrNodeMismatch) {
+	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrNodeMismatch) {
 		t.Fatalf("WhoIs failure must refuse: %v", err)
+	}
+	empty := ""
+	if err := e.db.Write(context.Background(), func(tx *storage.Tx) error {
+		return e.ir.AccessKeys.Update(tx, is.AccessKey.ID, nil, nil, &empty, nil)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Invalidate()
+	e.whois.node, e.whois.err = "", nil
+	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrNodeMismatch) {
+		t.Fatalf("empty binding must refuse: %v", err)
+	}
+}
+
+func TestRevokeDuringLookupNotCached(t *testing.T) {
+	e := setup(t)
+	is := e.issue(t, auth.IssueParams{})
+	// On a cache miss, the first clock call in Authenticate is loadedAt in lookup, right after
+	// the DB read. The revoke and the cache clear land between the read and the store.
+	e.onNow = func() {
+		if err := e.db.Write(context.Background(), func(tx *storage.Tx) error { return e.ir.AccessKeys.Revoke(tx, is.AccessKey.ID) }); err != nil {
+			t.Error(err)
+		}
+		e.svc.Invalidate()
+	}
+	_, _ = e.check(is.Key.Reveal()) // already in flight; the result does not matter
+	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrRevoked) {
+		t.Fatalf("err = %v, want ErrRevoked", err)
+	}
+}
+
+func TestSuspendedConsumerRejected(t *testing.T) {
+	e := setup(t)
+	is := e.issue(t, auth.IssueParams{})
+	if _, err := e.check(is.Key.Reveal()); err != nil {
+		t.Fatal(err)
+	}
+	set := func(status string) {
+		t.Helper()
+		if err := e.db.Write(context.Background(), func(tx *storage.Tx) error {
+			return e.ir.Principals.SetStatus(tx, e.cons.PrincipalID, status)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		e.svc.Invalidate()
+	}
+	set(identity.StatusSuspended)
+	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrConsumerNotActive) {
+		t.Fatalf("err = %v, want ErrConsumerNotActive", err)
+	}
+	set(identity.StatusActive)
+	if _, err := e.check(is.Key.Reveal()); err != nil {
+		t.Fatalf("after reactivation: %v", err)
+	}
+}
+
+func TestIssueAuditHasNarrowing(t *testing.T) {
+	e := setup(t)
+	e.issue(t, auth.IssueParams{Narrowing: auth.Narrowing{QuotaTokensPerDay: i64(77)}})
+	var detail string
+	if err := e.db.Reader().QueryRow(context.Background(), `SELECT detail FROM aud_event WHERE action = ?`, auth.ActionKeyIssued).Scan(&detail); err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		Narrowing struct {
+			Quota int64 `json:"quota_tokens_per_day"`
+		} `json:"narrowing"`
+	}
+	if err := json.Unmarshal([]byte(detail), &d); err != nil || d.Narrowing.Quota != 77 {
+		t.Fatalf("issue detail = %s, %v", detail, err)
 	}
 }

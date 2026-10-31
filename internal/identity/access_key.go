@@ -67,6 +67,11 @@ func (r *AccessKeyRepo) Get(ctx context.Context, rd *storage.Reader, id string) 
 	return first[AccessKey](rd.Query(ctx, `SELECT `+keyCols+` FROM idn_access_key WHERE id = ?`, id))(scanAccessKey)
 }
 
+// GetTx returns one access key as the unit of work sees it.
+func (r *AccessKeyRepo) GetTx(tx *storage.Tx, id string) (AccessKey, error) {
+	return first[AccessKey](tx.Query(`SELECT `+keyCols+` FROM idn_access_key WHERE id = ?`, id))(scanAccessKey)
+}
+
 // GetByPrefix returns the access key with a prefix.
 func (r *AccessKeyRepo) GetByPrefix(ctx context.Context, rd *storage.Reader, prefix string) (AccessKey, error) {
 	return first[AccessKey](rd.Query(ctx, `SELECT `+keyCols+` FROM idn_access_key WHERE prefix = ?`, prefix))(scanAccessKey)

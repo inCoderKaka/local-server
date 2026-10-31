@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+
+	"github.com/inCoderKaka/local-server/internal/telemetry"
 )
 
 // The access key format is "ls_<prefix>_<secret>": a fixed scheme, a lowercase hex prefix that
@@ -25,7 +27,7 @@ var ErrMalformedKey = errors.New("auth: malformed access key")
 // Parsed is the prefix and secret read from an Authorization header value.
 type Parsed struct {
 	Prefix string
-	Secret string
+	Secret telemetry.Redacted
 }
 
 // FormatKey joins a prefix and a secret into the key text a consumer receives.
@@ -54,7 +56,7 @@ func ParseKey(k string) (Parsed, error) {
 	if rest[prefixLen] != '_' || !isLowerHex(prefix) || !isLowerHex(secret) {
 		return Parsed{}, ErrMalformedKey
 	}
-	return Parsed{Prefix: prefix, Secret: secret}, nil
+	return Parsed{Prefix: prefix, Secret: telemetry.Redact(secret)}, nil
 }
 
 func isLowerHex(s string) bool {

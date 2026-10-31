@@ -100,13 +100,11 @@ func parseRule(sr StoredRule, maxBytes int) (*rule, error) {
 }
 
 // docVersion checks the document's size and strict JSON shape and reads its format_version.
-// An unknown version is reported before anything else about the document is checked.
+// Apart from the size limit and JSON syntax, an unknown version is reported before anything
+// else about the document is checked.
 func docVersion(body []byte, maxBytes int) (int64, error) {
 	if len(body) > maxBytes {
 		return 0, ruleErr("longer than %d bytes", max(maxBytes, 0))
-	}
-	if err := strictJSON(body); err != nil {
-		return 0, err
 	}
 	var head struct {
 		FormatVersion *json.RawMessage `json:"format_version"`
@@ -124,6 +122,9 @@ func docVersion(body []byte, maxBytes int) (int64, error) {
 	if v != FormatV1 {
 		return 0, &Error{Code: CodeUnknownFormatVersion, FormatVersion: v,
 			Message: "format_version " + strconv.FormatInt(v, 10) + " is not supported by this build"}
+	}
+	if err := strictJSON(body); err != nil {
+		return 0, err
 	}
 	return v, nil
 }

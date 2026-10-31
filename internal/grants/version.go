@@ -30,12 +30,15 @@ type Version struct {
 	QuotaRequestsPerDay *int64
 	MaxConcurrency      *int64
 	ExpiresAt           *time.Time
-	AllowedProperties   *string
-	OnContextOverflow   string
-	Reason              *string
-	CreatedBy           *string
-	CreatedAt           time.Time
-	Models              []VersionModel
+	// AllowedProperties: nil (NULL) allows any request property; otherwise a JSON array of
+	// property names, where `[]` allows none. Any other text, including an empty string, makes
+	// every request on the grant fail with policy `invalid_grant` (I-113).
+	AllowedProperties *string
+	OnContextOverflow string
+	Reason            *string
+	CreatedBy         *string
+	CreatedAt         time.Time
+	Models            []VersionModel
 }
 
 // NewVersion is what Create stores. An empty OnContextOverflow means refuse (D-48).
@@ -44,11 +47,14 @@ type NewVersion struct {
 	QuotaRequestsPerDay *int64
 	MaxConcurrency      *int64
 	ExpiresAt           *time.Time
-	AllowedProperties   *string
-	OnContextOverflow   string
-	Reason              *string
-	CreatedBy           *string
-	Models              []VersionModel
+	// AllowedProperties: nil (NULL) allows any request property; otherwise a JSON array of
+	// property names, where `[]` allows none. Any other text, including an empty string, makes
+	// every request on the grant fail with policy `invalid_grant` (I-113).
+	AllowedProperties *string
+	OnContextOverflow string
+	Reason            *string
+	CreatedBy         *string
+	Models            []VersionModel
 }
 
 // VersionRepo reads and writes grt_version and grt_version_model. There is no update: a

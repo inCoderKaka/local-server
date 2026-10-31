@@ -25,7 +25,7 @@ A nil error means the request is allowed. `Decision` then holds the priority cla
 
 Rules combine as follows:
 
-- **Refusals do not depend on order.** A matching rule with `deny` refuses (`policy_denied`). A matching rule with `windows` refuses outside all of its windows (`outside_time_window`), and the error's `Opens` says when that rule's windows next open. The first refusing rule by position is reported.
+- **Refusals do not depend on order.** A matching rule with `deny` refuses (`policy_denied`). A matching rule with `windows` refuses outside all of its windows (`outside_time_window`), and the error's `Opens` says when that rule's windows next open. A `deny` refusal is reported in preference to a window refusal, so `outside_time_window` means only the time refuses the request now. Among refusals of one type, the first by position is reported.
 - **Caps only narrow.** Each cap is the smallest among the grant's value and every matching rule's value.
 - **Priority:** the first matching rule by position that sets a priority decides. With none, the request is interactive.
 - **A broken rule fails closed.** An enabled rule that does not parse fails every decision it takes part in (`invalid_policy_rule` or `unknown_rule_format_version`). A disabled rule is never parsed.
@@ -43,6 +43,8 @@ A rule is one JSON object. `format_version` is required, and the stored `grt_pol
 | `windows` + `time_zone` | Daily windows `{"start": "HH:MM", "end": "HH:MM"}`. The start is inclusive and the end exclusive. An end before the start crosses midnight, and an equal start and end are refused. The windows are read as wall-clock time in `time_zone`: an IANA name, `UTC`, or `Local` for the host machine's zone. A matching request outside every window is refused. |
 | `priority` | `interactive` or `background`. |
 | `caps` | `context_cap`, `max_output_tokens`, `max_concurrency`, each at least 1. |
+
+An interactive request outside its windows is refused. For a job, the jobs module treats `outside_time_window` as "not yet admissible": it queues the job until `Opens` and evaluates the policy again at admission (D-38, kept by D-54).
 
 Leaving out `when` matches every request the rule's scope covers. Its scope is global, or one grant through `grt_policy_rule.grant_id`. The decoder is stricter than JSON itself. It refuses unknown fields, duplicate keys, nulls, keys that are not lower case (which also blocks `encoding/json`'s case-insensitive field matching), invalid UTF-8, trailing data, empty `when`, `properties`, `models`, `windows` or `caps` objects and lists, and documents over `policy.rule.max_bytes`. Lowering that setting below an existing rule's size makes the rule fail closed until it is shortened.
 

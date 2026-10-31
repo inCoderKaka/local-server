@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Access keys: issue (shown once), revoke, and verify the `Authorization` key header for the gateway. A verified key resolves to its consumer, current grant version and effective limits (the grant narrowed by the key).
+Access keys: issue (shown once), revoke, and verify the `Authorization` key header for the gateway. A verified key resolves to its consumer, current grant version and effective limits (the grant narrowed by the key). A key whose consumer is not active does not authenticate.
 
 ## Owns
 
@@ -10,7 +10,7 @@ Access keys: issue (shown once), revoke, and verify the `Authorization` key head
 - Tables: none (it uses `idn_access_key` through `internal/identity`).
 - Port: `WhoIs` (`NodeOf(ctx, remoteAddr)`), the bound-node check; transport adapters implement it later.
 - Setting: `auth.cache_ttl` (host; default 60s; 0 turns the cache off).
-- Events: subscribes to `access_key.revoked` and `grant.changed` to clear its cache; emits `access_key.revoked` from `Revoke`. Whoever writes a new grant version emits `grant.changed` in the same unit of work.
+- Events: subscribes to `access_key.revoked` and `grant.changed` to clear its cache; emits `access_key.revoked` from `Revoke`. A caller that updates a key, soft-deletes a consumer or changes a principal's status must call `Service.Invalidate()` after its unit of work commits; otherwise the change shows only when the cache TTL runs out. Whoever writes a new grant version emits `grant.changed` in the same unit of work.
 - Audit actions: `access_key.issued`, `access_key.revoked`.
 
 ## Imports

@@ -86,6 +86,8 @@ func TestValidateRuleUnknownVersion(t *testing.T) {
 		`{"format_version":2,"deny":true}`,
 		`{"format_version":0}`,
 		`{"format_version":-1,"whatever":[1,2]}`,
+		`{"format_version":2,"x":null}`,
+		`{"format_version":2,"Deny":true}`,
 	} {
 		_, err := policy.ValidateRule([]byte(b), 8192)
 		if !errors.Is(err, policy.ErrUnknownFormatVersion) {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"maps"
 	"math"
 	"slices"
@@ -107,7 +108,9 @@ type Limits struct {
 //
 // Rules combine as follows. A matching rule with deny refuses the request (CodeDenied); a
 // matching rule with windows refuses it outside all of them (CodeOutsideWindow). Refusals do
-// not depend on order, and the first refusing rule is reported. Caps take the smallest value
+// not depend on order. A deny refusal is reported in preference to a window refusal, so
+// CodeOutsideWindow means only the time refuses the request now. Among refusals of one type,
+// the first by position is reported. Caps take the smallest value
 // among the grant and every matching rule, so a rule can only narrow. The priority class is
 // set by the first matching rule that sets one; with none it is interactive. Any enabled rule
 // that does not parse fails the decision (CodeInvalidRule or CodeUnknownFormatVersion), so a
@@ -129,6 +132,7 @@ func Decide(rules []StoredRule, in Input, lim Limits) (Decision, error) {
 		return Decision{}, err
 	}
 	dec := Decision{Caps: Caps{ContextCap: gm.ContextCap, MaxOutputTokens: gm.MaxOutputTokens, MaxConcurrency: in.Grant.MaxConcurrency}}
+	var outside *Error
 	for _, r := range parsed {
 		if !r.matches(props, in.Model) {
 			continue
@@ -137,8 +141,11 @@ func Decide(rules []StoredRule, in Input, lim Limits) (Decision, error) {
 			return Decision{}, &Error{Code: CodeDenied, RuleID: r.id, RuleName: r.name, Message: "a rule refuses this request"}
 		}
 		if r.windows != nil && !r.inWindows(in.Time) {
-			return Decision{}, &Error{Code: CodeOutsideWindow, RuleID: r.id, RuleName: r.name, Opens: r.nextOpen(in.Time),
-				Message: "this request is allowed only inside the rule's time windows"}
+			if outside == nil {
+				outside = &Error{Code: CodeOutsideWindow, RuleID: r.id, RuleName: r.name, Opens: r.nextOpen(in.Time),
+					Message: "this request is allowed only inside the rule's time windows"}
+			}
+			continue
 		}
 		if dec.Priority == "" && r.priority != "" {
 			dec.Priority = r.priority
@@ -146,6 +153,9 @@ func Decide(rules []StoredRule, in Input, lim Limits) (Decision, error) {
 		dec.Caps.ContextCap = minCap(dec.Caps.ContextCap, r.caps.ContextCap)
 		dec.Caps.MaxOutputTokens = minCap(dec.Caps.MaxOutputTokens, r.caps.MaxOutputTokens)
 		dec.Caps.MaxConcurrency = minCap(dec.Caps.MaxConcurrency, r.caps.MaxConcurrency)
+	}
+	if outside != nil {
+		return Decision{}, outside
 	}
 	if dec.Priority == "" {
 		dec.Priority = Interactive
@@ -171,8 +181,13 @@ func checkAllowed(text *string, props Properties) error {
 	}
 	var names []string
 	dec := json.NewDecoder(bytes.NewReader([]byte(*text)))
-	if err := dec.Decode(&names); err != nil || names == nil || dec.More() {
-		return &Error{Code: CodeInvalidGrant, Message: "allowed_properties is not a JSON array of names"}
+	invalid := &Error{Code: CodeInvalidGrant, Message: "allowed_properties is not a JSON array of names"}
+	if err := dec.Decode(&names); err != nil || names == nil {
+		return invalid
+	}
+	var rest json.RawMessage
+	if err := dec.Decode(&rest); err != io.EOF {
+		return invalid
 	}
 	for _, k := range slices.Sorted(maps.Keys(props)) {
 		if !slices.Contains(names, k) {
@@ -236,7 +251,7 @@ func Defs() []settings.Def {
 		{Key: KeyPropertiesMaxCount, Kind: settings.Int, Default: "16", Owner: settings.Host,
 			Description: "The most request properties one request may carry; more are refused. Zero or less refuses any properties."},
 		{Key: KeyRuleMaxBytes, Kind: settings.Int, Default: "8192", Owner: settings.Host,
-			Description: "The most bytes one policy rule document may hold. A larger rule is refused when written, and an existing rule above it fails every request it applies to until the rule is shortened or this value raised."},
+			Description: "The most bytes one policy rule document may hold. A larger rule is refused when written, and an existing rule above it fails every request it applies to until the rule is shortened or this value raised. Zero or less refuses every rule."},
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/inCoderKaka/local-server/internal/grants"
 )
@@ -32,7 +33,8 @@ func ParseNarrowing(text string) (Narrowing, error) {
 	if err := dec.Decode(&n); err != nil {
 		return Narrowing{}, fmt.Errorf("%w: %v", ErrInvalidNarrowing, err)
 	}
-	if dec.More() {
+	var rest json.RawMessage
+	if err := dec.Decode(&rest); err != io.EOF {
 		return Narrowing{}, fmt.Errorf("%w: trailing data", ErrInvalidNarrowing)
 	}
 	for name, v := range map[string]*int64{"quota_tokens_per_day": n.QuotaTokensPerDay, "quota_requests_per_day": n.QuotaRequestsPerDay,
@@ -83,8 +85,11 @@ func narrow(v grants.Version, n Narrowing) Limits {
 		QuotaTokensPerDay:   minLimit(v.QuotaTokensPerDay, n.QuotaTokensPerDay),
 		QuotaRequestsPerDay: minLimit(v.QuotaRequestsPerDay, n.QuotaRequestsPerDay),
 		MaxConcurrency:      minLimit(v.MaxConcurrency, n.MaxConcurrency),
-		AllowedProperties:   v.AllowedProperties,
 		OnContextOverflow:   v.OnContextOverflow,
+	}
+	if v.AllowedProperties != nil {
+		ap := *v.AllowedProperties
+		l.AllowedProperties = &ap
 	}
 	allow := map[string]bool{}
 	for _, id := range n.ModelIDs {

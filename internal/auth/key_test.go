@@ -28,11 +28,11 @@ func FuzzParseHeader(f *testing.F) {
 			}
 			return
 		}
-		if len(p.Prefix) != 12 || len(p.Secret) != 64 {
-			t.Fatalf("accepted %q with prefix %q secret %q", h, p.Prefix, p.Secret)
+		if len(p.Prefix) != 12 || len(p.Secret.Reveal()) != 64 {
+			t.Fatalf("accepted %q with prefix %q secret length %d", h, p.Prefix, len(p.Secret.Reveal()))
 		}
-		if !strings.HasSuffix(h, auth.FormatKey(p.Prefix, p.Secret)) {
-			t.Fatalf("accepted %q but it is not a well-formed key", h)
+		if !strings.EqualFold(h[:7], "Bearer ") || h[7:] != auth.FormatKey(p.Prefix, p.Secret.Reveal()) {
+			t.Fatalf("accepted %q but it is not Bearer plus a well-formed key", h)
 		}
 	})
 }
