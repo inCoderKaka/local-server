@@ -1,0 +1,50 @@
+name: fuzz
+
+# Scheduled fuzzing of every Fuzz* target on untrusted input (D-60). Plain
+# `go test` already runs the committed seed corpora on every CI run.
+on:
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      fuzz_time:
+        description: "Time to fuzz each target, as a Go duration (for example 60s or 5m)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+      # Per-target time: the manual input wins, then the repository variable
+      # FUZZ_TIME, then this default.
+      FUZZ_TIME: ${{ inputs.fuzz_time || vars.FUZZ_TIME || '60s' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Fuzz every target
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          for pkg in $(go list ./...); do
+            for target in $(go test -list '^Fuzz' "$pkg" | grep '^Fuzz' || true); do
+              found=1
+              echo "::group::$pkg $target"
+              go test "$pkg" -run '^$' -fuzz "^${target}\$" -fuzztime "$FUZZ_TIME"
+              echo "::endgroup::"
+            done
+          done
+          if [ "$found" = 0 ]; then echo "no Fuzz targets yet"; fi
+      - name: Keep new failing inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-failures
+          path: "**/testdata/fuzz/**"
+          if-no-files-found: ignore

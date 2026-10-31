@@ -1,15 +1,16 @@
 # platform / phase_1 — implementation status
 
-Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-workflow-skills/agents/implementation-status-reporter.md`). Requirement: `requirements/req_001.md` · log: `requirements/req_001.decisions.md` · ADR 0001, 0002, 0003, 0004. Last updated 2026-10-30.
+Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-workflow-skills/agents/implementation-status-reporter.md`). Requirement: `requirements/req_001.md` · log: `requirements/req_001.decisions.md` · ADR 0001, 0002, 0003, 0004, 0005. Last updated 2026-10-31.
 
 ## Position + next action
-- **Position:** req_001 is the phase's only requirement and is fully ticketized: 52 tickets (PLT-F-001..PLT-F-048, PLT-C-001..PLT-C-004), all designed, none started, plus chore PLT-C-005 (design close-out and ticketization, done). Nothing is built: the repo holds only docs (no `go.mod`, `cmd/` or `internal/`). Design work is committed through 2e5e2bd (tickets 6e8f4eb, PLT-C-005 worklog row 5915e8a, review-gate fixes 6520214, D-51/D-52 fdea028, D-53..D-56 and ADR 0004 2e5e2bd). 11 commits are unpushed (`git log origin/main..HEAD`). req_001 has no open question (Open and Deferred are empty in its log), so it is not blocked (D-17). Three pre-build confirmations still live only in ticket Notes, not as log rows: PLT-F-016 (which key signs checkpoints), PLT-F-030 (default for consumer webhook targets on private and tailnet addresses) and PLT-F-018 (SLO approval, D-55, before its gate).
-- **Next action:** build **PLT-C-001** (B1/S1, Sonnet, gate it): Go module scaffold, CI on 3 OSes and the module-boundary check. It has no dependencies and gates the rest of B1; then B1/S2-S4 (PLT-F-001, PLT-F-002, PLT-F-003) run in parallel, per `next-steps.md`. PLT-C-002 (legal drafts, B4/S28) and PLT-F-006 can fill a free builder slot early.
+- **Position:** req_001 is the phase's only requirement and is fully ticketized: 52 designed tickets (PLT-F-001..PLT-F-048, PLT-C-001..PLT-C-004) plus done chores PLT-C-005 (design close-out) and PLT-C-007 (pre-implementation additions D-57..D-72, ADR 0005, public docs set: HLD, LLD, guides, README, ROADMAP). Nothing is built: the repo holds only docs (no `go.mod`, `cmd/` or `internal/`). Design work is committed through 7454922 (D-70..D-72); review gates over the docs ran at 6520214, 7bcd3c7, def3ea8 and d986f37. 24 commits are unpushed (`git log origin/main..HEAD`). req_001 has no open question (Open and Deferred are empty in its log), so it is not blocked (D-17). Pre-build confirmations that remain: PLT-F-018 SLO approval as a D-NN row (D-55, before its gate) and PLT-F-001's ogen coverage spike (D-57). The earlier open items for PLT-F-016 and PLT-F-030 are decided (D-65, D-66).
+- **Next action:** build **PLT-C-001** (B1/S1, Sonnet, gate it): Go module scaffold, CI on 3 OSes and the module-boundary check, now also govulncheck (D-62), the race job (D-61) and the scheduled fuzz job (D-60). It has no dependencies and gates the rest of B1; then B1/S2-S4 (PLT-F-001, PLT-F-002, PLT-F-003) run in parallel, per `next-steps.md`. PLT-C-002 (legal drafts, B4/S28) and PLT-F-006 can fill a free builder slot early.
 
 ## Progress table
 | Batch | Slice | Ticket | Status | Owner | Model | Gate-covered |
 |---|---|---|---|---|---|---|
 | — | — | PLT-C-005 | done | Claude | Sonnet | yes (6520214, docs only) |
+| — | — | PLT-C-007 | done | Claude | — | yes (d986f37 and earlier docs gates) |
 | B1 | S1 | PLT-C-001 | designed | Claude | Sonnet | no |
 | B1 | S2 | PLT-F-001 | idea (designed) | Claude | Opus | no |
 | B1 | S3 | PLT-F-002 | idea (designed) | Claude | Sonnet | no |
@@ -64,9 +65,9 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | B10 | S52 | PLT-C-004 | designed | Claude | Sonnet | no |
 
 ## Gate ledger
-- Last review gate: 6520214 (`docs(platform): review-gate fixes over req_001 design close-out and ticketization`, 29 approved findings plus the glossary Module row), a docs-only gate over the design and tickets, not over code. Its two deferred findings (#7 receipt on the metering-failure path, #9 which checkpoint a receipt cites) were decided afterwards in fdea028 (D-51, D-52). Since 6520214: 4 commits (fdea028, 7bb1d49, f7da149, 2e5e2bd), all `docs(platform):`, no `feat(`/`fix(`. They carry design decisions D-51..D-56, ADR 0004, a verbatim session record and design-status/design.md notes; those decisions were not gate-reviewed. Uncommitted paths: 0. Earlier gate runs: none.
-- Shared contracts touched since the last gate: none. `git diff --name-only 6520214..HEAD` lists only `docs/adr/**`, `docs/architecture.md`, `docs/glossary.md`, `docs/legal/README.md`, `docs/tracks/platform/phase_1/**` and `execetive_inputs/**`. Nothing under `docs/tracks/README.md`, `ops/bin/**`, `apps/api/app/platform/**`, migrations, public API routes, `docs/tools/sdlc-workflow-skills/**` or `.claude/**` (several of these paths do not exist in this repo). Ticket text for the future shared contracts PLT-F-001, PLT-F-004, PLT-F-015, PLT-F-016 and PLT-F-018 was edited (D-51, D-52, D-54, D-55) but no contract exists yet.
-- Next gate: not due — no code exists and no shared contract file changed since 6520214; the first gate falls on PLT-C-001 (module layout, archcheck rules), the first ticket marked "gate it" in `next-steps.md`.
+- Last review gate: d986f37 (`docs(platform): review-gate fixes for def3ea8..HEAD (docs scope)`), a docs-only gate. Since d986f37: 1 commit, 7454922 (`docs(platform):` D-70..D-72, with PLT-F-044 and LLD edits), no `feat(`/`fix(`; its decisions were not gate-reviewed. Uncommitted paths: 0. Earlier gate runs: 7bcd3c7 and def3ea8 (docs fixes), 6520214 (design close-out and ticketization, 29 approved findings plus the glossary Module row).
+- Shared contracts touched since the last gate: none. `git diff --name-only d986f37..HEAD` lists only `docs/adr/0005-*`, `docs/design_docs/lld.md`, `docs/execetive_inputs/**`, `docs/glossary.md` and `docs/tracks/platform/phase_1/**`. Nothing under `docs/tracks/README.md`, `ops/bin/**`, migrations, public API routes, `docs/tools/sdlc-workflow-skills/**` or `.claude/**` (several of these paths do not exist in this repo). Ticket text for the future contract PLT-F-044 was edited (D-69, D-71, D-72) but no code exists.
+- Next gate: not due — no code exists and no shared contract file changed since d986f37; the first gate falls on PLT-C-001 (module layout, archcheck rules), the first ticket marked "gate it" in `next-steps.md`.
 
 ## Drift & bugs inbox
 - uncaptured — `design-status.md` still says req_001 stage 6 (`ticketize`) is "not started" and "Next: run `ticketize platform 1 1`", but 52 tickets exist (6e8f4eb); its stage 6 row and Position need updating. (now fixed: stage 6 is `done`, verified 2026-10-30)
@@ -74,16 +75,17 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 - uncaptured — `design-status.md` predates 2e5e2bd: its stage 3 row lists D-38 as a live LLD row (D-54 supersedes it) and omits D-53..D-56; its Artifacts line omits ADR 0004 and `execetive_inputs/26-10-30_platform_req_001_pre-implementation.md` (design.md already carries D-53..D-56).
 - uncaptured — PLT-F-016 Notes say which key signs ledger checkpoints is undecided (D-27 (4) covers receipts only) and a D-NN row is needed before building, but the log's Open section is empty, so the D-17 gate does not see it. (now fixed: D-65 decides the checkpoint key; PLT-F-016 Notes updated)
 - uncaptured — PLT-F-030 Notes say the default for consumer webhook endpoints targeting private (RFC 1918, ULA) or tailnet addresses must be confirmed by the user before the ticket builds; no log row records the question. (now fixed: D-66 sets the default to deny; PLT-F-030 updated)
-- uncaptured — `worklog.md` has one row (PLT-C-005, Ref up to 6e8f4eb): the review-gate fixes (6520214), D-51/D-52 (fdea028), the verbatim session record (f7da149) and D-53..D-56 with ADR 0004 (2e5e2bd) are not logged, and the PLT-C-005 row does not name the gate that ran over it.
+- uncaptured — `worklog.md` has one row (PLT-C-005, Ref up to 6e8f4eb): the review-gate fixes (6520214), D-51/D-52 (fdea028), the verbatim session record (f7da149) and D-53..D-56 with ADR 0004 (2e5e2bd) are not logged, and the PLT-C-005 row does not name the gate that ran over it. (now fixed: the worklog has backfilled rows for 6520214..2e5e2bd and for PLT-C-007)
+- PLT-F-049 — spin-off (Source `build`, idea 2026-10-31, P3): commercial-ready transport. Its Ref cell has no `P1/B/S` plan position and `next-steps.md` does not list it; not named as a next action. (now captured as PLT-F-049)
+- PLT-C-006 — spin-off (Source `build`, idea 2026-10-31, P3): model-licence review for paid hosting, billing phase. No plan position and not in `next-steps.md`.
+- uncaptured — PLT-C-007 (done) has no plan position in its Notes and its worklog rows say "review-gate (docs) pending" on the first row, while later rows record the gates; the status table shows it gate-covered by the docs gates through d986f37.
 - No rows in `bugs.md` (empty). `ops/bin/ticket-drift` does not exist in this repo, so no automated drift check ran.
 
 ## Token ledger
 | Ticket | Model | Input | Output | Cache (write / read) | Attribution |
 |---|---|---|---|---|---|
-| — | claude-opus-5-5 | n/a | n/a | n/a | n/a — multi-ticket span (49 replies) |
-| — | claude-haiku-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (67 replies) |
-| — | claude-opus-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (20 replies) |
-| — | claude-sonnet-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (61 replies) |
+| — | — | n/a | n/a | n/a | n/a — the token-ledger script found no transcript span or subagent naming a phase ticket id (existing transcripts under `~/.claude/projects/` do not mention one); nothing attributable |
+
 
 ## Requirement coverage
 
