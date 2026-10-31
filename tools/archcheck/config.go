@@ -84,6 +84,7 @@ func DefaultConfig() Config {
 			"tailscale.com":                       {"transport"},
 			"gopkg.in/natefinch/lumberjack.v2":    {"internal/telemetry/slogprom"},
 			"github.com/prometheus/client_golang": {"internal/telemetry/slogprom"},
+			"github.com/zalando/go-keyring":       {"internal/hostkeys"},
 		},
 		NoteDir:      "docs/modules",
 		NoteHeadings: []string{"## Purpose", "## Owns", "## Imports", "## Decisions"},

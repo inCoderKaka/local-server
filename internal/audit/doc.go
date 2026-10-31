@@ -1,2 +1,3 @@
-// Package audit is part of the audit module; see docs/modules/audit.md. Its port and adapters are added by PLT-F-008.
+// Package audit is the append-only audit trail (D-07): Record writes an event in the caller's
+// unit of work, and Log.List reads events back. See docs/modules/audit.md.
 package audit
