@@ -164,6 +164,49 @@ func (e *env) verifierKeys(t *testing.T) []string {
 	return ks.VerifierKeys()
 }
 
+// staleKeys returns a stale key list on its first PublicKeys call and the live one after.
+type staleKeys struct {
+	Keys
+	stale []hostkeys.PublicKey
+	calls int
+}
+
+func (k *staleKeys) PublicKeys(ctx context.Context) ([]hostkeys.PublicKey, error) {
+	k.calls++
+	if k.calls == 1 {
+		return k.stale, nil
+	}
+	return k.Keys.PublicKeys(ctx)
+}
+
+func TestBuildSignsWithACheckpointKeyRotatedAfterTheSnapshot(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	e.record(t, 1)
+	stale, err := e.keys.PublicKeys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newID, err := e.keys.Rotate(ctx, hostkeys.Checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := e.svc.keys
+	sk := &staleKeys{Keys: orig, stale: stale}
+	e.svc.keys = sk
+	cp := e.build(t)
+	e.svc.keys = orig
+	if sk.calls != 2 {
+		t.Fatalf("PublicKeys called %d times; want 2", sk.calls)
+	}
+	if cp.KeyID != newID {
+		t.Fatalf("checkpoint key %s; want the rotated key %s", cp.KeyID, newID)
+	}
+	if _, err := Verify(cp.Note, e.verifierKeys(t)...); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+}
+
 func TestInclusionProofVerifiesAgainstLaterCheckpoint(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
@@ -594,6 +637,8 @@ func TestKeySetMatchesOpenAPIAndVerifiesReceipts(t *testing.T) {
 		other := "not-the-identity"
 		s.Keys[a].LsParentKid = &other
 	})
+	tamper("kid of another key", func(s KeySet) { s.Keys[a].Kid = s.Keys[b].Kid })
+	tamper("use changed", func(s KeySet) { s.Keys[a].Use = "enc" })
 	tamper("two identity entries", func(s KeySet) { s.Keys[a].LsRole = "identity" })
 	tamper("line feed in the signature", func(s KeySet) {
 		sig := s.Keys[a].LsEndorsement.Signature

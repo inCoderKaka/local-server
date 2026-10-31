@@ -38,6 +38,9 @@ var (
 	ErrGrantExpired = errors.New("auth: grant version expired")
 	ErrNoGrant      = errors.New("auth: consumer has no current grant version")
 	ErrNodeMismatch = errors.New("auth: access key is bound to another node")
+	// ErrNodeLookup accompanies ErrNodeMismatch when the bound node could not be looked up. The
+	// secret had already matched, so this is not a failed guess.
+	ErrNodeLookup = errors.New("auth: bound node lookup failed")
 
 	ErrConsumerNotActive = errors.New("auth: consumer is not active")
 )
@@ -280,7 +283,7 @@ func (s *Service) Authenticate(ctx context.Context, header, remoteAddr string) (
 		}
 		node, err := s.cfg.WhoIs.NodeOf(ctx, remoteAddr)
 		if err != nil {
-			return nil, fmt.Errorf("%w: node lookup failed: %v", ErrNodeMismatch, err)
+			return nil, fmt.Errorf("%w: %w: %v", ErrNodeMismatch, ErrNodeLookup, err)
 		}
 		if node != *e.key.BoundNode {
 			return nil, ErrNodeMismatch

@@ -399,10 +399,14 @@ func TestBoundNode(t *testing.T) {
 	e.whois.node = "node-b"
 	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrNodeMismatch) {
 		t.Fatalf("other node: %v", err)
+	} else if errors.Is(err, auth.ErrNodeLookup) {
+		t.Fatalf("other node is not a lookup failure: %v", err)
 	}
 	e.whois.node, e.whois.err = "node-a", errors.New("down")
 	if _, err := e.check(is.Key.Reveal()); !errors.Is(err, auth.ErrNodeMismatch) {
 		t.Fatalf("WhoIs failure must refuse: %v", err)
+	} else if !errors.Is(err, auth.ErrNodeLookup) {
+		t.Fatalf("WhoIs failure must satisfy ErrNodeLookup: %v", err)
 	}
 	empty := ""
 	if err := e.db.Write(context.Background(), func(tx *storage.Tx) error {

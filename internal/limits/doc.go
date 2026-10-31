@@ -22,12 +22,14 @@
 // A quota is the key's or the grant version's tokens-per-window figure (Narrowing and
 // grants.Version store it as quota_tokens_per_day; the window length is the setting
 // limits.quota_window, one day by default). Usage is the sum of use_record.total_tokens of
-// calls that finished in the current fixed window, aligned to UTC multiples of the window length,
+// calls that finished in the current fixed window, aligned to whole multiples of the window length counted from 0001-01-01 UTC (midnight UTC for lengths that divide 24h),
 // so Retry-After is the time to the end of the window. A request quota
 // (quota_requests_per_day, req_001 D-98) is the same figure per request: Check counts the
 // use_record rows of that window against it, with the same scope rules and the same
-// quota_exceeded refusal (QuotaError.Unit says which). Unmetered calls leave no record and are
-// not counted. The key's quota counts that key's
+// quota_exceeded refusal (QuotaError.Unit says which). Until the gateway's admission counter
+// exists (req_001 D-100, PLT-F-018), the request quota counts use_record rows, so unmetered
+// calls are not yet counted, and calls in flight can overshoot it as they do token quotas.
+// D-100 makes it count every admitted call. The key's quota counts that key's
 // records; the grant's quota counts all records of the grant's consumer. Check does not count
 // tokens of calls still running, so concurrent calls can overshoot a quota by what is in flight.
 //

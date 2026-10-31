@@ -33,7 +33,8 @@ info:
     ## Extensions on OpenAI-compatible calls
 
     The request and response bodies stay standard OpenAI. Extensions travel in headers (D-33):
-    `LS-Request-Properties` on the request and `LS-Receipt` on the response. HTTP header names
+    `LS-Request-Properties` on the request and `LS-Receipt` on the response (a streamed
+    response carries its receipt in an SSE comment line instead). HTTP header names
     are case-insensitive.
 
     ## Unsupported fields
@@ -50,8 +51,8 @@ info:
 
     | `code` | HTTP status | `type` | `Retry-After` | Meaning |
     |---|---|---|---|---|
-    | `quota_exceeded` | 429 | `insufficient_quota` | yes | The token quota for the window is used up |
-    | `queue_full` | 503 | `server_error` | yes | The host's admission queue is full |
+    | `quota_exceeded` | 429 | `insufficient_quota` | yes | The token or request quota for the window is used up |
+    | `queue_full` | 429 | `server_error` | yes | The host's admission queue is full (D-26, D-93) |
     | `host_paused` | 503 | `server_error` | when the end of quiet hours is known | The host paused sharing or is in quiet hours |
     | `model_not_granted` | 403 | `invalid_request_error` | no | The model is not in the grant or key |
     | `context_too_long` | 400 | `invalid_request_error` | no | The prompt exceeds the grant's context limit and the grant's context overflow is `refuse` |
@@ -69,7 +70,8 @@ info:
 
     - **IDs** are UUIDv7 strings.
     - **Times** are RFC 3339 date-times in UTC on local-server's own contracts. The
-      OpenAI-compatible bodies keep OpenAI's Unix-seconds `created`.
+      OpenAI-compatible bodies keep OpenAI's Unix-seconds `created`. The signed key
+      certificate in `/v1/keys` carries a key's creation time as Unix milliseconds.
     - **Durations** are whole seconds in fields ending `_seconds`.
     - **Settings.** Every time, retention, TTL, retry, threshold and limit (queue length,
       page size, body size, quotas, lockout) is a runtime setting owned by one party (platform
@@ -2967,7 +2969,10 @@ components:
         JSON. With `stream_options.include_usage`, the last chunk carries `usage` and an empty
         `choices`. Then comes the receipt comment line `: ls-receipt <JWS>` (see `LS-Receipt`),
         and finally `data: [DONE]`. An error after streaming has started arrives as a `data:`
-        line holding an `Error` envelope.
+        line holding an `Error` envelope. The tokens used so far are metered, and the receipt
+        comment line (`outcome: failed`, or an `unmetered` receipt when the record could not be
+        written) follows that line (D-16, D-51). When the client disconnects (`outcome:
+        aborted`), the tokens are metered but no receipt can be delivered on the stream.
       contentMediaType: text/event-stream
       contentSchema:
         $ref: '#/components/schemas/ChatCompletionChunk'
@@ -3343,8 +3348,8 @@ components:
       enum: [refuse, truncate]
     Quota:
       type: object
-      description: A token allowance per window.
-      required: [window_seconds, tokens]
+      description: A token and request allowance per window. Leave out `tokens` or `requests` for no limit on it; `0` allows none (D-25, D-98).
+      required: [window_seconds]
       properties:
         window_seconds:
           type: integer
@@ -3352,13 +3357,18 @@ components:
           minimum: 1
         tokens:
           type: integer
-          description: Tokens allowed per window.
+          description: Tokens allowed per window; absent means no token limit, 0 allows none.
+          format: int64
+          minimum: 0
+        requests:
+          type: integer
+          description: Requests allowed per window; absent means no request limit, 0 allows none.
           format: int64
           minimum: 0
     QuotaStatus:
       type: object
-      description: One quota and what is left of it.
-      required: [scope, window_seconds, tokens, used_tokens, remaining_tokens, resets_at]
+      description: One scope's quotas and what is left of them. The token fields are present when a token quota applies, the request fields when a request quota applies.
+      required: [scope, window_seconds, resets_at]
       properties:
         scope:
           type: string
@@ -3380,22 +3390,34 @@ components:
           type: integer
           description: Tokens left in the current window.
           format: int64
+        requests:
+          type: integer
+          description: Requests allowed per window.
+          format: int64
+        used_requests:
+          type: integer
+          description: Requests made in the current window.
+          format: int64
+        remaining_requests:
+          type: integer
+          description: Requests left in the current window.
+          format: int64
         resets_at:
           type: string
           description: When the current window ends.
           format: date-time
     RateLimit:
       type: object
-      description: A request rate limit.
+      description: 'A per-access-key request allowance that refills over time: up to `requests` calls in a burst, refilled completely in `window_seconds` (the host settings `limits.rate_capacity` and `limits.rate_window`).'
       required: [requests, window_seconds]
       properties:
         requests:
           type: integer
-          description: Requests allowed per window.
+          description: Requests allowed in a burst, and per window once the burst is used.
           minimum: 1
         window_seconds:
           type: integer
-          description: The window's length.
+          description: Time an empty allowance takes to refill completely.
           minimum: 1
 
     # -------------------------------------------------------------- jobs
@@ -3744,7 +3766,7 @@ components:
             The signed bytes, base64url without padding. Decoded they are five lines joined by
             `\n`, without a trailing newline: `local-server/key-certificate/v1`, the host's
             global id (the identity key's `kid`), the key's `ls_role`, the key's `x`, and the
-            key's creation time as Unix milliseconds UTC in decimal (`ls_created_at`).
+            key's `ls_created_at` converted to Unix milliseconds UTC, in decimal.
         signature:
           type: string
           description: The identity key's Ed25519 signature (64 bytes) over the certificate bytes, base64url without padding.
@@ -3799,7 +3821,7 @@ components:
           description: For the checkpoint key, its C2SP signed-note verifier key (`<name>+<hash>+<keydata>`); null otherwise.
         ls_created_at:
           type: string
-          description: When the key was created.
+          description: When the key was created, to the millisecond. The endorsement certificate carries the same instant as Unix milliseconds.
           format: date-time
         ls_retired_at:
           type: [string, 'null']
@@ -4436,7 +4458,7 @@ components:
             $ref: '#/components/schemas/GrantModelLimit'
         quotas:
           type: array
-          description: Token quotas.
+          description: Token and request quotas.
           items:
             $ref: '#/components/schemas/Quota'
         concurrency:

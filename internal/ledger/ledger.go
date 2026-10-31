@@ -90,7 +90,7 @@ func (l *Ledger) RecordTx(tx *storage.Tx, u Usage) (Recorded, error) {
 	r.Metering = Metered
 	size := n + 1
 	r.LeafIndex, r.TreeSize = &n, &size
-	signed, err := l.SignReceipt(r)
+	signed, err := l.signReceipt(r)
 	if err != nil {
 		return Recorded{}, err
 	}

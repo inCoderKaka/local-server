@@ -11982,6 +11982,41 @@ func (s *OptInt) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes int64 as json.
+func (o OptInt64) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	e.Int64(int64(o.Value))
+}
+
+// Decode decodes int64 from json.
+func (o *OptInt64) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptInt64 to nil")
+	}
+	o.Set = true
+	v, err := d.Int64()
+	if err != nil {
+		return err
+	}
+	o.Value = int64(v)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptInt64) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptInt64) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes AccessKeyNarrowing as json.
 func (o OptNilAccessKeyNarrowing) Encode(e *jx.Encoder) {
 	if !o.Set {
@@ -14279,14 +14314,23 @@ func (s *Quota) encodeFields(e *jx.Encoder) {
 		e.Int(s.WindowSeconds)
 	}
 	{
-		e.FieldStart("tokens")
-		e.Int64(s.Tokens)
+		if s.Tokens.Set {
+			e.FieldStart("tokens")
+			s.Tokens.Encode(e)
+		}
+	}
+	{
+		if s.Requests.Set {
+			e.FieldStart("requests")
+			s.Requests.Encode(e)
+		}
 	}
 }
 
-var jsonFieldsNameOfQuota = [2]string{
+var jsonFieldsNameOfQuota = [3]string{
 	0: "window_seconds",
 	1: "tokens",
+	2: "requests",
 }
 
 // Decode decodes Quota from json.
@@ -14311,16 +14355,24 @@ func (s *Quota) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"window_seconds\"")
 			}
 		case "tokens":
-			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
-				v, err := d.Int64()
-				s.Tokens = int64(v)
-				if err != nil {
+				s.Tokens.Reset()
+				if err := s.Tokens.Decode(d); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tokens\"")
+			}
+		case "requests":
+			if err := func() error {
+				s.Requests.Reset()
+				if err := s.Requests.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"requests\"")
 			}
 		default:
 			return d.Skip()
@@ -14332,7 +14384,7 @@ func (s *Quota) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000011,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -14524,16 +14576,40 @@ func (s *QuotaStatus) encodeFields(e *jx.Encoder) {
 		e.Int(s.WindowSeconds)
 	}
 	{
-		e.FieldStart("tokens")
-		e.Int64(s.Tokens)
+		if s.Tokens.Set {
+			e.FieldStart("tokens")
+			s.Tokens.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("used_tokens")
-		e.Int64(s.UsedTokens)
+		if s.UsedTokens.Set {
+			e.FieldStart("used_tokens")
+			s.UsedTokens.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("remaining_tokens")
-		e.Int64(s.RemainingTokens)
+		if s.RemainingTokens.Set {
+			e.FieldStart("remaining_tokens")
+			s.RemainingTokens.Encode(e)
+		}
+	}
+	{
+		if s.Requests.Set {
+			e.FieldStart("requests")
+			s.Requests.Encode(e)
+		}
+	}
+	{
+		if s.UsedRequests.Set {
+			e.FieldStart("used_requests")
+			s.UsedRequests.Encode(e)
+		}
+	}
+	{
+		if s.RemainingRequests.Set {
+			e.FieldStart("remaining_requests")
+			s.RemainingRequests.Encode(e)
+		}
 	}
 	{
 		e.FieldStart("resets_at")
@@ -14541,13 +14617,16 @@ func (s *QuotaStatus) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfQuotaStatus = [6]string{
+var jsonFieldsNameOfQuotaStatus = [9]string{
 	0: "scope",
 	1: "window_seconds",
 	2: "tokens",
 	3: "used_tokens",
 	4: "remaining_tokens",
-	5: "resets_at",
+	5: "requests",
+	6: "used_requests",
+	7: "remaining_requests",
+	8: "resets_at",
 }
 
 // Decode decodes QuotaStatus from json.
@@ -14555,7 +14634,7 @@ func (s *QuotaStatus) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode QuotaStatus to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -14582,11 +14661,9 @@ func (s *QuotaStatus) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"window_seconds\"")
 			}
 		case "tokens":
-			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
-				v, err := d.Int64()
-				s.Tokens = int64(v)
-				if err != nil {
+				s.Tokens.Reset()
+				if err := s.Tokens.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -14594,11 +14671,9 @@ func (s *QuotaStatus) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tokens\"")
 			}
 		case "used_tokens":
-			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
-				v, err := d.Int64()
-				s.UsedTokens = int64(v)
-				if err != nil {
+				s.UsedTokens.Reset()
+				if err := s.UsedTokens.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -14606,19 +14681,47 @@ func (s *QuotaStatus) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"used_tokens\"")
 			}
 		case "remaining_tokens":
-			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
-				v, err := d.Int64()
-				s.RemainingTokens = int64(v)
-				if err != nil {
+				s.RemainingTokens.Reset()
+				if err := s.RemainingTokens.Decode(d); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"remaining_tokens\"")
 			}
+		case "requests":
+			if err := func() error {
+				s.Requests.Reset()
+				if err := s.Requests.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"requests\"")
+			}
+		case "used_requests":
+			if err := func() error {
+				s.UsedRequests.Reset()
+				if err := s.UsedRequests.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"used_requests\"")
+			}
+		case "remaining_requests":
+			if err := func() error {
+				s.RemainingRequests.Reset()
+				if err := s.RemainingRequests.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"remaining_requests\"")
+			}
 		case "resets_at":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.ResetsAt = v
@@ -14638,8 +14741,9 @@ func (s *QuotaStatus) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b00111111,
+	for i, mask := range [2]uint8{
+		0b00000011,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

@@ -80,7 +80,7 @@ preloads:
 			continue
 		}
 		if !isLoaded && cfg.budget > 0 {
-			size, err := s.modelSize(ctx, m)
+			size, err := s.modelSize(ctx, snap.loaded, m)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("preload %s: %w", m, err))
 				continue
@@ -97,9 +97,11 @@ preloads:
 			for _, u := range unloads {
 				if err := s.eng.Unload(ctx, u); err != nil {
 					errs = append(errs, fmt.Errorf("preload %s: unload %s: %w", m, u, err))
+					s.unloadFailures.Inc("reclaim")
 					snap.noReclaim[u] = true
 					continue preloads
 				}
+				s.unloads.Inc("reclaim")
 				delete(snap.loaded, u)
 				s.mu.Lock()
 				delete(s.lastUsed, u)
@@ -117,8 +119,8 @@ preloads:
 }
 
 // Sweep unloads every loaded model that is idle (no running request, not being loaded,
-// not preloaded) and has been unused for the keep-alive setting (idle unload). A negative keep-alive never unloads. A model first seen loaded is timed from
-// now.
+// not preloaded) and has been unused for the keep-alive setting (idle unload). A
+// negative keep-alive never unloads. A model first seen loaded is timed from now.
 func (s *Scheduler) Sweep(ctx context.Context) error {
 	s.dispatchMu.Lock()
 	defer s.dispatchMu.Unlock()
@@ -148,8 +150,10 @@ func (s *Scheduler) Sweep(ctx context.Context) error {
 		}
 		if err := s.eng.Unload(ctx, m.Name); err != nil {
 			errs = append(errs, fmt.Errorf("unload %s: %w", m.Name, err))
+			s.unloadFailures.Inc("idle")
 			continue
 		}
+		s.unloads.Inc("idle")
 		s.mu.Lock()
 		delete(s.lastUsed, m.Name)
 		s.mu.Unlock()

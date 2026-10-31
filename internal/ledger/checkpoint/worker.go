@@ -82,18 +82,26 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 func (w *Worker) checkpointIfDue(ctx context.Context) error {
 	s := w.svc
 	if !w.started {
-		w.started = true
-		if cp, err := s.Latest(ctx); err == nil {
+		cp, err := s.Latest(ctx)
+		switch {
+		case err == nil:
 			w.lastCheckpoint, w.haveLast = cp.CreatedAt, true
+		case !errors.Is(err, ErrNoCheckpoint):
+			return err
 		}
+		w.started = true
 	}
 	leaves, err := s.LeafCount(ctx)
 	if err != nil {
 		return err
 	}
 	var covered int64
-	if cp, err := s.Latest(ctx); err == nil {
+	cp, err := s.Latest(ctx)
+	switch {
+	case err == nil:
 		covered = cp.TreeSize
+	case !errors.Is(err, ErrNoCheckpoint):
+		return err
 	}
 	fresh := leaves - covered
 	if fresh <= 0 {
@@ -132,9 +140,7 @@ func (w *Worker) rotateIfDue(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if _, err := w.svc.keys.EnsureCurrent(ctx); err != nil {
-		return err
-	}
+	_, err = w.svc.keys.EnsureCurrent(ctx)
 	w.nextKeyCheck = now.Add(every)
-	return nil
+	return err
 }

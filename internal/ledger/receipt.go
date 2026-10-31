@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"strings"
 
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
@@ -78,15 +80,14 @@ func (u Usage) receipt(hostKID string) Receipt {
 	return r
 }
 
-// SignReceipt signs r after setting V and HostKID, and checks that the metered and
-// unmetered forms hold exactly their own fields (D-51, D-52). Use Record
-// for a metered call: it signs inside the unit of work that fixes the leaf. Calling this with
-// leaf fields for a leaf that is not in the ledger would make a false receipt.
-func (l *Ledger) SignReceipt(r Receipt) (Signed, error) {
+// signReceipt signs r after setting V and HostKID, and checks that the metered and
+// unmetered forms hold exactly their own fields (D-51, D-52). The only ways in are Record and
+// RecordTx (metered, signed inside the unit of work that fixes the leaf) and SignUnmetered.
+func (l *Ledger) signReceipt(r Receipt) (Signed, error) {
 	r.V, r.HostKID = LeafVersion, l.signer.HostID()
 	switch r.Metering {
 	case Metered:
-		if r.LeafIndex == nil || r.TreeSize == nil || *r.TreeSize != *r.LeafIndex+1 {
+		if r.LeafIndex == nil || r.TreeSize == nil || *r.LeafIndex < 0 || *r.LeafIndex >= math.MaxInt64 || *r.TreeSize != *r.LeafIndex+1 {
 			return Signed{}, errors.New("ledger: a metered receipt needs leaf_index and tree_size = leaf_index + 1")
 		}
 	case Unmetered:
@@ -133,7 +134,7 @@ func (l *Ledger) SignUnmetered(u Usage) (Signed, error) {
 	}
 	r := u.receipt(l.signer.HostID())
 	r.Metering = Unmetered
-	return l.SignReceipt(r)
+	return l.signReceipt(r)
 }
 
 // Errors returned by Verify.
@@ -149,7 +150,7 @@ type header struct {
 }
 
 func parseHeader(jws string) (parts []string, h header, err error) {
-	parts = strings.Split(jws, ".")
+	parts = strings.SplitN(jws, ".", 4)
 	if len(parts) != 3 {
 		return nil, h, fmt.Errorf("%w: want 3 parts", ErrMalformedReceipt)
 	}
@@ -159,6 +160,15 @@ func parseHeader(jws string) (parts []string, h header, err error) {
 	}
 	if err := strictJSON(raw, &h); err != nil {
 		return nil, h, fmt.Errorf("%w: header: %v", ErrMalformedReceipt, err)
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keys); err != nil {
+		return nil, h, fmt.Errorf("%w: header: %v", ErrMalformedReceipt, err)
+	}
+	for k := range keys {
+		if k != "alg" && k != "kid" && k != "typ" {
+			return nil, h, fmt.Errorf("%w: header: unknown field", ErrMalformedReceipt)
+		}
 	}
 	if h.Alg != ReceiptAlg || h.Typ != ReceiptTyp || h.Kid == "" {
 		return nil, h, fmt.Errorf("%w: header must be alg %s, typ %s and name a kid", ErrMalformedReceipt, ReceiptAlg, ReceiptTyp)
@@ -185,7 +195,7 @@ func strictJSON(raw []byte, v any) error {
 	if err := d.Decode(v); err != nil {
 		return err
 	}
-	if d.More() {
+	if _, err := d.Token(); err != io.EOF {
 		return errors.New("trailing data")
 	}
 	return nil
@@ -229,7 +239,7 @@ func Verify(jws string, key ed25519.PublicKey) (Receipt, error) {
 		return Receipt{}, fmt.Errorf("%w: unsupported version %d", ErrMalformedReceipt, r.V)
 	}
 	switch {
-	case r.Metering == Metered && r.LeafIndex != nil && r.TreeSize != nil && *r.TreeSize == *r.LeafIndex+1 && *r.LeafIndex >= 0:
+	case r.Metering == Metered && r.LeafIndex != nil && r.TreeSize != nil && *r.TreeSize == *r.LeafIndex+1 && *r.LeafIndex >= 0 && *r.LeafIndex < math.MaxInt64:
 	case r.Metering == Unmetered && r.LeafIndex == nil && r.TreeSize == nil:
 	default:
 		return Receipt{}, fmt.Errorf("%w: metering %q does not match leaf_index and tree_size", ErrMalformedReceipt, r.Metering)

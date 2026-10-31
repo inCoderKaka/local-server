@@ -33,7 +33,7 @@ const (
 )
 
 // QuotaError means a token or request quota is used up. The gateway answers 429 quota_exceeded with
-// RetryAfter in the Retry-After header.
+// RetryAfter, rounded up to whole seconds, in the Retry-After header.
 type QuotaError struct {
 	Scope      string // ScopeGrant or ScopeAccessKey
 	Unit       string // UnitTokens or UnitRequests (req_001 D-98)
@@ -55,7 +55,7 @@ func (e *QuotaError) Is(target error) bool { return target == ErrQuotaExceeded }
 func (e *QuotaError) Code() string { return CodeQuotaExceeded }
 
 // RateLimitError means the request rate is too high or the caller is locked out after failed
-// key checks. The gateway answers 429 rate_limit_exceeded with RetryAfter in Retry-After.
+// key checks. The gateway answers 429 rate_limit_exceeded with RetryAfter, rounded up to whole seconds, in the Retry-After header.
 type RateLimitError struct {
 	LockedOut  bool          // true for a lockout, false for the request rate
 	RetryAfter time.Duration // always positive
@@ -84,7 +84,8 @@ func (e *TooLargeError) Error() string {
 // Is matches ErrTooLarge.
 func (e *TooLargeError) Is(target error) bool { return target == ErrTooLarge }
 
-// retryAfterAtLeast makes a wait positive, so a Retry-After header is never 0.
+// retryAfterAtLeast makes a wait positive; with the gateway rounding up to whole seconds, a
+// Retry-After header is never 0.
 func retryAfterAtLeast(d, floor time.Duration) time.Duration {
 	if d < floor {
 		return floor

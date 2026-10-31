@@ -3,7 +3,9 @@ package checkpoint
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -111,7 +113,7 @@ var ErrWrongHost = errors.New("checkpoint: the receipt's host_kid is not the hos
 
 // VerifyReceipt verifies a receipt with the receipt key of the set that its header names by
 // kid (retired keys included) and checks that host_kid is the set's identity key (D-94). It
-// does not check the endorsement chain (hostkeys.VerifyKey does, with the key rows).
+// does not check the endorsement chain (VerifyEndorsement does, from the set alone; call it on the set first).
 func (k KeySet) VerifyReceipt(jws string) (ledger.Receipt, error) {
 	kid, err := ledger.ReceiptKeyID(jws)
 	if err != nil {
@@ -152,11 +154,15 @@ var ErrBadEndorsement = errors.New("checkpoint: key endorsement does not verify 
 // key of the same set, with nothing else: the endorsement's signature must verify over its
 // certificate bytes, and the certificate must name the identity (as host id), the key's role,
 // public key and creation time (req_001 D-96). The identity entry itself must have kid equal to
-// its own public key (D-94).
+// its own public key (D-94). It also checks the kid derivation of every other key (hex of the
+// first 8 bytes of the SHA-256 of its public key) and the constant JWK members.
 func (k KeySet) VerifyEndorsement() error {
 	var idJWK *JWK
 	identities := 0
 	for i := range k.Keys {
+		if j := k.Keys[i]; j.Kty != "OKP" || j.Crv != "Ed25519" || j.Alg != "Ed25519" || j.Use != "sig" {
+			return ErrBadEndorsement
+		}
 		if k.Keys[i].LsRole == string(hostkeys.Identity) {
 			idJWK = &k.Keys[i]
 			identities++
@@ -172,6 +178,16 @@ func (k KeySet) VerifyEndorsement() error {
 	for _, j := range k.Keys {
 		if j.LsRole == string(hostkeys.Identity) {
 			continue
+		}
+		if j.LsRole != string(hostkeys.Receipt) && j.LsRole != string(hostkeys.Checkpoint) {
+			return fmt.Errorf("%w: key %s: ls_role is not receipt or checkpoint", ErrBadEndorsement, j.Kid)
+		}
+		x, err := decodeB64URL(j.X)
+		if err != nil || len(x) != ed25519.PublicKeySize {
+			return fmt.Errorf("%w: key %s: x is not an Ed25519 public key", ErrBadEndorsement, j.Kid)
+		}
+		if sum := sha256.Sum256(x); j.Kid != hex.EncodeToString(sum[:8]) {
+			return fmt.Errorf("%w: key %s: kid is not derived from x", ErrBadEndorsement, j.Kid)
 		}
 		if j.LsEndorsement == nil {
 			return fmt.Errorf("%w: key %s has none", ErrBadEndorsement, j.Kid)

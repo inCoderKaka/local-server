@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -298,13 +299,18 @@ func TestUnmeteredReceiptHasNoLeaf(t *testing.T) {
 	// A metered claim built by hand without a leaf, or an unmetered one with a leaf, is refused.
 	bad := u.receipt("x")
 	bad.Metering = Metered
-	if _, err := e.l.SignReceipt(bad); err == nil {
+	if _, err := e.l.signReceipt(bad); err == nil {
 		t.Fatal("signed a metered receipt without leaf_index")
 	}
 	one := int64(1)
 	bad.Metering, bad.LeafIndex, bad.TreeSize = Unmetered, &one, &one
-	if _, err := e.l.SignReceipt(bad); err == nil {
+	if _, err := e.l.signReceipt(bad); err == nil {
 		t.Fatal("signed an unmetered receipt with a leaf")
+	}
+	neg, zero := int64(-1), int64(0)
+	bad.Metering, bad.LeafIndex, bad.TreeSize = Metered, &neg, &zero
+	if _, err := e.l.signReceipt(bad); err == nil {
+		t.Fatal("signed a metered receipt with leaf_index -1")
 	}
 }
 
@@ -366,6 +372,39 @@ func TestReceiptWithNewlineRejectedByParseHeader(t *testing.T) {
 	parts := strings.Split(rec.Receipt.JWS, ".")
 	if _, err := ReceiptKeyID(parts[0][:10] + "\n" + parts[0][10:] + "." + parts[1] + "." + parts[2]); !errors.Is(err, ErrMalformedReceipt) {
 		t.Fatalf("ReceiptKeyID with a newline = %v; want ErrMalformedReceipt", err)
+	}
+}
+
+func TestMalformedReceiptShapes(t *testing.T) {
+	pub := fuzzKey().Public().(ed25519.PublicKey)
+	if _, err := ReceiptKeyID("a.b.c.d"); !errors.Is(err, ErrMalformedReceipt) {
+		t.Fatalf("ReceiptKeyID with 4 parts = %v; want ErrMalformedReceipt", err)
+	}
+	if _, err := Verify("a.b.c.d", pub); !errors.Is(err, ErrMalformedReceipt) {
+		t.Fatalf("Verify with 4 parts = %v; want ErrMalformedReceipt", err)
+	}
+	for _, h := range []string{
+		`{"alg":"Ed25519","kid":"k1","typ":"ls-receipt+jws"}}`,
+		`{"ALG":"Ed25519","kid":"k1","typ":"ls-receipt+jws"}`,
+	} {
+		jws := base64.RawURLEncoding.EncodeToString([]byte(h)) + ".x.y"
+		if _, err := ReceiptKeyID(jws); !errors.Is(err, ErrMalformedReceipt) {
+			t.Fatalf("ReceiptKeyID(%s) = %v; want ErrMalformedReceipt", h, err)
+		}
+	}
+	max, min := int64(math.MaxInt64), int64(math.MinInt64)
+	r := fuzzReceipt()
+	r.LeafIndex, r.TreeSize = &max, &min
+	if _, err := Verify(fuzzJWS(fuzzHeader, r), pub); !errors.Is(err, ErrMalformedReceipt) {
+		t.Fatalf("Verify with wrapped tree_size = %v; want ErrMalformedReceipt", err)
+	}
+}
+
+func TestTokenCountOverflowRefused(t *testing.T) {
+	u := goldenUsage()
+	u.PromptTokens, u.CompletionTokens = math.MaxInt64, 1
+	if _, err := CanonicalLeaf(u); err == nil {
+		t.Fatal("CanonicalLeaf accepted overflowing token counts")
 	}
 }
 
@@ -523,7 +562,7 @@ func TestGoldenReceipts(t *testing.T) {
 	n, size := int64(6), int64(7)
 	r := goldenUsage().receipt("")
 	r.Metering, r.LeafIndex, r.TreeSize = Metered, &n, &size
-	m, err := l.SignReceipt(r)
+	m, err := l.signReceipt(r)
 	if err != nil {
 		t.Fatal(err)
 	}

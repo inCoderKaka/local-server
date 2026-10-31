@@ -46,7 +46,7 @@ func Defs() []settings.Def {
 		{Key: KeyGrantConcurrency, Kind: settings.Int, Default: "1", Owner: h,
 			Description: "Most requests one grant runs at once when the grant sets no limit of its own."},
 		{Key: KeyQueueLength, Kind: settings.Int, Default: "16", Owner: h,
-			Description: "Most requests that may wait for a slot. A request that finds the queue full is refused at once with a Retry-After."},
+			Description: "Most requests that may wait for a slot. A request that finds the queue full is refused at once with a Retry-After. An interactive request that finds it full instead takes the place of the newest waiting background request, which is then refused with a Retry-After."},
 		{Key: KeyQueueWait, Kind: settings.Duration, Default: "30s", Owner: h,
 			Description: "Longest an interactive request waits in the queue before it is refused with a Retry-After. Background work waits without a limit."},
 		{Key: KeyRetryAfter, Kind: settings.Duration, Default: "5s", Owner: h,

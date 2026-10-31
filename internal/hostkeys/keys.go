@@ -47,6 +47,9 @@ var (
 // PublicKey is a published host key: what a verifier needs to check a signature, or to check
 // that the key chains to the host identity.
 type PublicKey struct {
+	// ID is the key's id in hst_key: the first 8 bytes of the SHA-256 of Key, in lowercase hex.
+	// For a receipt or checkpoint key it is also the kid that receipts and checkpoints name; the
+	// identity key is published under the host id (HostID) instead (req_001 D-94).
 	ID        string
 	Purpose   Purpose
 	Key       ed25519.PublicKey

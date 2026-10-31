@@ -402,11 +402,21 @@ func TestSignWithKeyIDNamesTheSigningKeyAcrossRotation(t *testing.T) {
 	if err != nil || kid != oldID || named != oldID {
 		t.Fatalf("SignWithKeyID = %q, %v; build saw %q; want the key live at the start, %q", kid, err, named, oldID)
 	}
-	pks, _ := k.PublicKeys(ctx)
+	pks, err := k.PublicKeys(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
 	for _, pk := range pks {
-		if pk.ID == kid && !ed25519.Verify(pk.Key, msg, sig) {
-			t.Fatal("signature does not verify under the key the message names")
+		if pk.ID == kid {
+			found = true
+			if !ed25519.Verify(pk.Key, msg, sig) {
+				t.Fatal("signature does not verify under the key the message names")
+			}
 		}
+	}
+	if !found {
+		t.Fatalf("signing key %s is not in PublicKeys", kid)
 	}
 	if k.CurrentKeyID(Receipt) == oldID {
 		t.Fatal("test did not rotate")

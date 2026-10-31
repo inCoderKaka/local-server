@@ -94,6 +94,10 @@ type Scheduler struct {
 	clock   Clock
 	log     *slog.Logger
 
+	refusals       telemetry.Counter // by code
+	unloads        telemetry.Counter // by reason
+	unloadFailures telemetry.Counter // by reason
+
 	// dispatchMu serialises everything that admits, unloads or loads on behalf of the
 	// queue (dispatch, Apply, Sweep), so a model is never unloaded while it is being
 	// admitted. It is taken before mu and never while holding mu.
@@ -127,7 +131,10 @@ func New(eng Engine, st *settings.Store, sharing Sharing, opts Options) (*Schedu
 	}
 	return &Scheduler{
 		eng: eng, st: st, sharing: sharing, clock: opts.Clock, log: opts.Telemetry.Logger(),
-		byGrant: map[string]int{}, byModel: map[string]int{}, loading: map[string]int64{},
+		refusals:       opts.Telemetry.Counter("scheduler_refusals_total", "code"),
+		unloads:        opts.Telemetry.Counter("scheduler_unloads_total", "reason"),
+		unloadFailures: opts.Telemetry.Counter("scheduler_unload_failures_total", "reason"),
+		byGrant:        map[string]int{}, byModel: map[string]int{}, loading: map[string]int64{},
 		lastUsed: map[string]time.Time{}, pinned: map[string]bool{},
 	}, nil
 }
@@ -187,15 +194,28 @@ func (t *Ticket) Release() {
 //   - Interactive: ErrHostPaused at once while the host is paused or quiet; waits up to
 //     the queue-wait setting, then ErrQueueFull.
 //   - Background: waits while the host is paused or quiet, and has no wait limit but ctx.
-//   - Both: ErrQueueFull at once when the queue is full; ErrOverBudget when the model
-//     plus the estimated context can never fit the memory budget beside the preloaded
-//     models.
+//   - Both: ErrQueueFull at once when the queue is full, except that an interactive
+//     request finding it full takes the place of the newest waiting background request,
+//     which then gets ErrQueueFull; ErrOverBudget when the model plus the estimated
+//     context can never fit the memory budget beside the preloaded models.
 //
 // If the model is not loaded, Admit loads it before returning. A cancelled ctx removes
 // the request from the queue and returns ctx.Err().
 func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
+	tk, err := s.admit(ctx, req)
+	var se *Error
+	if errors.As(err, &se) {
+		s.refusals.Inc(string(se.Code))
+	}
+	return tk, err
+}
+
+func (s *Scheduler) admit(ctx context.Context, req Request) (*Ticket, error) {
 	if req.Model == "" || (req.Class != ClassInteractive && req.Class != ClassBackground) {
 		return nil, errors.New("scheduler: request needs a model and a class")
+	}
+	if req.GrantID == "" {
+		return nil, errors.New("scheduler: request needs a grant")
 	}
 	if req.EstimatedCtxTokens < 0 {
 		return nil, errors.New("scheduler: negative estimated context")
@@ -215,10 +235,6 @@ func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
 	}
 	ctxBytes := int64(req.EstimatedCtxTokens) * cfg.ctxBytes
 	if cfg.budget > 0 {
-		size, err := s.modelSize(ctx, req.Model)
-		if err != nil {
-			return nil, err
-		}
 		lm, err := s.eng.Loaded(ctx)
 		if err != nil {
 			return nil, err
@@ -226,6 +242,10 @@ func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
 		loaded := make(map[string]int64, len(lm))
 		for _, m := range lm {
 			loaded[m.Name] = m.SizeBytes
+		}
+		size, err := s.modelSize(ctx, loaded, req.Model)
+		if err != nil {
+			return nil, err
 		}
 		s.mu.Lock()
 		pinnedBytes := s.pinnedLoadedBytesLocked(loaded, req.Model)
@@ -251,9 +271,24 @@ func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
 	}
 	s.mu.Lock()
 	if w.state == waiting && len(s.queue) > cfg.queueLen {
-		s.removeLocked(w)
-		s.mu.Unlock()
-		return nil, queueFullErr(cfg)
+		// An interactive arrival goes ahead of background work (req_001 D-26): it takes
+		// the place of the newest waiting background request, which is refused.
+		var v *waiter
+		if req.Class == ClassInteractive {
+			for _, q := range s.queue {
+				if q != w && q.req.Class == ClassBackground && (v == nil || q.seq > v.seq) {
+					v = q
+				}
+			}
+		}
+		if v == nil {
+			s.removeLocked(w)
+			s.mu.Unlock()
+			return nil, queueFullErr(cfg)
+		}
+		s.removeLocked(v)
+		v.err = queueFullErr(cfg)
+		close(v.done)
 	}
 	s.mu.Unlock()
 
@@ -266,7 +301,7 @@ func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
 	}
 	recheck := s.clock.NewTimer(cfg.recheck)
 	defer func() { recheck.Stop() }()
-	recheckFailing := false // log a failing recheck once per outage, not once per interval
+	var recheckErr error // the last recheck's failure; logged once per outage, not once per interval
 	for {
 		select {
 		case <-w.done:
@@ -282,6 +317,9 @@ func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
 			return nil, ctx.Err()
 		case <-waitC:
 			if s.cancelWaiter(w) {
+				if recheckErr != nil {
+					return nil, recheckErr // the engine is down; say so, not queue_full
+				}
 				return nil, queueFullErr(cfg)
 			}
 			waitC = nil
@@ -292,12 +330,12 @@ func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
 				cfg = c
 			}
 			if err := s.dispatch(dctx); err != nil {
-				if !recheckFailing {
+				if recheckErr == nil {
 					s.log.Warn("scheduler: recheck failed", "err", err)
 				}
-				recheckFailing = true
+				recheckErr = err
 			} else {
-				recheckFailing = false
+				recheckErr = nil
 			}
 			recheck = s.clock.NewTimer(cfg.recheck)
 		}
@@ -417,16 +455,11 @@ func (s *Scheduler) takeSnapshot(ctx context.Context, cfg config) (*snapshot, er
 	return snap, nil
 }
 
-// modelSize is the memory a model takes: its loaded size, else its installed size.
-func (s *Scheduler) modelSize(ctx context.Context, name string) (int64, error) {
-	lm, err := s.eng.Loaded(ctx)
-	if err != nil {
-		return 0, err
-	}
-	for _, m := range lm {
-		if m.Name == name {
-			return m.SizeBytes, nil
-		}
+// modelSize is the memory a model takes: its size in loaded (the loaded models and their
+// sizes), else its installed size.
+func (s *Scheduler) modelSize(ctx context.Context, loaded map[string]int64, name string) (int64, error) {
+	if b, ok := loaded[name]; ok {
+		return b, nil
 	}
 	ms, err := s.eng.ListModels(ctx)
 	if err != nil {
@@ -478,10 +511,12 @@ func (s *Scheduler) dispatch(ctx context.Context) error {
 		for _, m := range unloads {
 			if err := s.eng.Unload(ctx, m); err != nil {
 				s.log.Warn("scheduler: reclaim unload failed", "model", m, "err", err)
+				s.unloadFailures.Inc("reclaim")
 				snap.noReclaim[m] = true
 				unloaded = false
 				break
 			}
+			s.unloads.Inc("reclaim")
 			delete(snap.loaded, m)
 			s.mu.Lock()
 			delete(s.lastUsed, m)
@@ -560,9 +595,16 @@ func (s *Scheduler) pick(cfg config, snap *snapshot) (*waiter, []string) {
 }
 
 // fitsWhenIdleLocked reports whether w would fit the memory budget beside the loaded
-// preloaded models once every running request has finished.
+// preloaded models once every running request has finished. A model whose reclaim just
+// failed counts as staying loaded, like a preloaded one.
 func (s *Scheduler) fitsWhenIdleLocked(cfg config, snap *snapshot, w *waiter) bool {
-	return snap.sizes[w.req.Model]+w.ctxBytes+s.pinnedLoadedBytesLocked(snap.loaded, w.req.Model) <= cfg.budget
+	stuck := s.pinnedLoadedBytesLocked(snap.loaded, w.req.Model)
+	for n := range snap.noReclaim {
+		if b, ok := snap.loaded[n]; ok && n != w.req.Model && !s.pinned[n] {
+			stuck += b
+		}
+	}
+	return snap.sizes[w.req.Model]+w.ctxBytes+stuck <= cfg.budget
 }
 
 // pinnedLoadedBytesLocked is the memory of the loaded preloaded models other than

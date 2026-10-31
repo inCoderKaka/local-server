@@ -94,9 +94,15 @@ func (t *tracker) fail(keys []string, now time.Time, c lockoutCfg) {
 	}
 }
 
-func (t *tracker) clear(keys []string) {
+// clear resets the failed-guess counters of keys. An entry under an active lockout is kept, with
+// its count reset, so a success that raced past CheckLockout does not lift the lockout (D-99).
+func (t *tracker) clear(keys []string, now time.Time) {
 	t.mu.Lock()
 	for _, k := range keys {
+		if f, ok := t.m[k]; ok && f.lockedUntil.After(now) {
+			f.count, f.windowStart = 0, now
+			continue
+		}
 		delete(t.m, k)
 	}
 	t.mu.Unlock()
@@ -163,8 +169,10 @@ func (l *Limiter) lockoutCfg(ctx context.Context) (on bool, c lockoutCfg, err er
 }
 
 // CheckLockout refuses a caller that is locked out. Call it before auth.Service.Authenticate
-// with the Authorization header value and the connection's remote address. The error is a
-// *RateLimitError with LockedOut set. A locked-out address is refused even with a good key.
+// with the Authorization header value and the client's address: the connection's remote
+// address, or for a public-mode (Funnel) connection the original client address the transport
+// reports, never the relay's (otherwise every public caller shares one address lock). The error
+// is a *RateLimitError with LockedOut set. A locked-out address is refused even with a good key.
 func (l *Limiter) CheckLockout(ctx context.Context, remoteAddr, header string) error {
 	on, _, err := l.lockoutCfg(ctx)
 	if err != nil || !on {
@@ -177,11 +185,13 @@ func (l *Limiter) CheckLockout(ctx context.Context, remoteAddr, header string) e
 }
 
 // AuthResult feeds an authentication outcome into the lockout counters: pass the error from
-// auth.Service.Authenticate, nil on success. A bad, unknown, revoked or expired key, or one
-// used from the wrong node, counts as a failure against the address and the key prefix; success
-// clears only the key prefix's counter, never the address's: otherwise a holder of one valid
-// key could reset its address counter while guessing other prefixes (req_001 D-99). Any other error (a database failure, a missing grant) is not a failed
-// guess and changes nothing.
+// auth.Service.Authenticate (nil on success) and the same remoteAddr and header given to
+// CheckLockout. A bad, unknown, revoked or expired key, or one used from the wrong node,
+// counts as a failure against the address and the key prefix. Success clears only the key
+// prefix's counter, never the address's, and leaves an active lockout in place: otherwise a
+// holder of one valid key could reset its address counter while guessing other prefixes
+// (req_001 D-99). Any other error (a database failure, a missing grant, a failed bound-node
+// lookup, auth.ErrNodeLookup) is not a failed guess and changes nothing.
 func (l *Limiter) AuthResult(ctx context.Context, remoteAddr, header string, authErr error) {
 	on, c, err := l.lockoutCfg(ctx)
 	if err != nil {
@@ -194,13 +204,16 @@ func (l *Limiter) AuthResult(ctx context.Context, remoteAddr, header string, aut
 	keys := subjects(remoteAddr, header)
 	switch {
 	case authErr == nil:
-		l.fails.clear(prefixSubjects(keys))
+		l.fails.clear(prefixSubjects(keys), l.now())
 	case isCredentialFailure(authErr):
 		l.fails.fail(keys, l.now(), c)
 	}
 }
 
 func isCredentialFailure(err error) bool {
+	if errors.Is(err, auth.ErrNodeLookup) {
+		return false
+	}
 	for _, target := range []error{auth.ErrInvalidKey, auth.ErrRevoked, auth.ErrExpired, auth.ErrNodeMismatch} {
 		if errors.Is(err, target) {
 			return true

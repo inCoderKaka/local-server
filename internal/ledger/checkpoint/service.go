@@ -160,19 +160,10 @@ func (s *Service) originTx(tx *storage.Tx) (string, error) {
 	return o, nil
 }
 
-var errKeyRotated = errors.New("checkpoint: the checkpoint key rotated while signing")
-
 // Build signs a checkpoint of the whole log as it is now and stores it. It returns false and
 // writes nothing when the log is empty or has no leaf the last checkpoint does not cover.
 func (s *Service) Build(ctx context.Context) (Checkpoint, bool, error) {
-	for range 3 {
-		cp, made, err := s.build(ctx)
-		if errors.Is(err, errKeyRotated) {
-			continue
-		}
-		return cp, made, err
-	}
-	return Checkpoint{}, false, errKeyRotated
+	return s.build(ctx)
 }
 
 func (s *Service) build(ctx context.Context) (Checkpoint, bool, error) {
@@ -215,7 +206,21 @@ func (s *Service) build(ctx context.Context) (Checkpoint, bool, error) {
 		}
 		pub, ok := pubs[kid]
 		if !ok {
-			return errKeyRotated
+			// The checkpoint key rotated after the snapshot above. Rotate commits the new key's
+			// row before Sign can use it, so a fresh read of the published keys has it.
+			fresh, err := s.keys.PublicKeys(ctx)
+			if err != nil {
+				return err
+			}
+			for _, pk := range fresh {
+				if pk.Purpose == hostkeys.Checkpoint && pk.ID == kid {
+					pub, ok = pk.Key, true
+					break
+				}
+			}
+			if !ok {
+				return fmt.Errorf("checkpoint: signing key %s is not in the published key set", kid)
+			}
 		}
 		signed := signedNote(text, origin, pub, sig)
 		at := s.clock.Now()
@@ -223,7 +228,7 @@ func (s *Service) build(ctx context.Context) (Checkpoint, bool, error) {
 			size, root[:], signed, kid, at.UnixMilli()); err != nil {
 			return fmt.Errorf("checkpoint: insert ldg_checkpoint: %w", err)
 		}
-		out = Checkpoint{TreeSize: size, RootHash: root, Note: signed, KeyID: kid, CreatedAt: at.UTC()}
+		out = Checkpoint{TreeSize: size, RootHash: root, Note: signed, KeyID: kid, CreatedAt: time.UnixMilli(at.UnixMilli()).UTC()}
 		made = true
 		return nil
 	})

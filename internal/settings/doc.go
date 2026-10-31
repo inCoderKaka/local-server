@@ -8,8 +8,11 @@
 // the definition lives in code and only values changed by the owner are stored, in
 // hst_setting. Store.Get reads the stored value or the default. Store.Set succeeds only
 // when the calling party is the setting's owner (platform admin, host or consumer); there
-// is no bounds hierarchy, so nothing else restricts the value (D-54) beyond it parsing as
-// the registered type.
+// is no bounds hierarchy (D-54): no other party limits the value to a range. Beyond
+// parsing as the registered type, a value is refused only by a write validator the owning
+// module registers with Store.SetValidator or Store.SetTxValidator, for a rule only that
+// module knows (a value that would break it, or a setting frozen once something exists,
+// req_001 D-97).
 //
 // A Def with Scoped set has one value per scope (a consumer id for a consumer-owned
 // setting); one without has a single value and an empty scope.

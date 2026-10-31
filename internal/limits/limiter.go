@@ -14,6 +14,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
+	"github.com/inCoderKaka/local-server/internal/usage"
 )
 
 // Config is what New needs.
@@ -59,17 +60,22 @@ func New(cfg Config) (*Limiter, error) {
 	if err := cfg.Settings.Register(Defs()...); err != nil {
 		return nil, err
 	}
+	if err := setValidators(cfg.Settings); err != nil {
+		return nil, err
+	}
 	return l, nil
 }
 
-// Protections says which of the protections public mode requires are on (req_001 D-24).
+// Protections says which of the protections public mode requires (req_001 D-24) that this
+// module owns are on: rate limit, lockout and body limit. Time limits are not here; public mode
+// (PLT-F-039) must check them separately.
 type Protections struct {
 	RateLimit bool
 	Lockout   bool
 	BodyLimit bool
 }
 
-// All reports whether every protection is on.
+// All reports whether all three are on.
 func (p Protections) All() bool { return p.RateLimit && p.Lockout && p.BodyLimit }
 
 // ProtectionsEnabled reads the three enable settings. Turning one on or off is a settings
@@ -194,11 +200,11 @@ func (l *Limiter) quotas(ctx context.Context, id *auth.Identity, key identity.Ac
 	start := now.UTC().Truncate(window)
 	end := start.Add(window)
 	var out []quota
-	add := func(scope, subject, unit, col, value string, limit *int64) error {
+	add := func(scope, subject, unit string, by usage.By, value string, limit *int64) error {
 		if limit == nil {
 			return nil
 		}
-		used, err := l.used(ctx, unit, col, value, start, end)
+		used, err := l.used(ctx, unit, by, value, start, end)
 		if err != nil {
 			return err
 		}
@@ -207,15 +213,17 @@ func (l *Limiter) quotas(ctx context.Context, id *auth.Identity, key identity.Ac
 	}
 	// A consumer has one grant, so the grant's use is the consumer's use across all its keys.
 	for _, a := range []struct {
-		scope, subject, unit, col, value string
-		limit                            *int64
+		scope, subject, unit string
+		by                   usage.By
+		value                string
+		limit                *int64
 	}{
-		{ScopeGrant, id.GrantID, UnitTokens, "consumer_id", id.ConsumerID, v.QuotaTokensPerDay},
-		{ScopeAccessKey, id.KeyID, UnitTokens, "access_key_id", id.KeyID, keyLimit},
-		{ScopeGrant, id.GrantID, UnitRequests, "consumer_id", id.ConsumerID, v.QuotaRequestsPerDay},
-		{ScopeAccessKey, id.KeyID, UnitRequests, "access_key_id", id.KeyID, keyReqLimit},
+		{ScopeGrant, id.GrantID, UnitTokens, usage.ByConsumer, id.ConsumerID, v.QuotaTokensPerDay},
+		{ScopeAccessKey, id.KeyID, UnitTokens, usage.ByAccessKey, id.KeyID, keyLimit},
+		{ScopeGrant, id.GrantID, UnitRequests, usage.ByConsumer, id.ConsumerID, v.QuotaRequestsPerDay},
+		{ScopeAccessKey, id.KeyID, UnitRequests, usage.ByAccessKey, id.KeyID, keyReqLimit},
 	} {
-		if err := add(a.scope, a.subject, a.unit, a.col, a.value, a.limit); err != nil {
+		if err := add(a.scope, a.subject, a.unit, a.by, a.value, a.limit); err != nil {
 			return nil, err
 		}
 	}
@@ -223,16 +231,13 @@ func (l *Limiter) quotas(ctx context.Context, id *auth.Identity, key identity.Ac
 }
 
 // used returns the tokens (UnitTokens) or the number of calls (UnitRequests) that finished in
-// [from, to). col is a fixed column name.
-func (l *Limiter) used(ctx context.Context, unit, col, value string, from, to time.Time) (int64, error) {
-	agg := "COALESCE(SUM(total_tokens), 0)"
+// [from, to), read through the usage module.
+func (l *Limiter) used(ctx context.Context, unit string, by usage.By, value string, from, to time.Time) (int64, error) {
+	read := usage.Tokens
 	if unit == UnitRequests {
-		agg = "COUNT(*)"
+		read = usage.Count
 	}
-	var n int64
-	err := l.cfg.DB.Reader().QueryRow(ctx,
-		`SELECT `+agg+` FROM use_record WHERE `+col+` = ? AND finished_at >= ? AND finished_at < ?`,
-		value, from.UnixMilli(), to.UnixMilli()).Scan(&n)
+	n, err := read(ctx, l.cfg.DB.Reader(), by, value, from, to)
 	if err != nil {
 		return 0, fmt.Errorf("limits: read usage: %w", err)
 	}

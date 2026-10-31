@@ -36,6 +36,28 @@ jobs:
       - name: Known vulnerabilities (D-62)
         run: go tool govulncheck ./...
 
+  # The OpenAPI contract (D-57). Linux only, to avoid line-ending noise.
+  api-contract:
+    name: api-contract
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: OpenAPI lint (D-57)
+        run: go tool vacuum lint --fail-severity error api/openapi.yaml
+      - name: Generated API code matches the spec (D-57)
+        run: |
+          go generate ./internal/api/...
+          if [ -n "$(git status --porcelain -- internal/api)" ]; then
+            git status --porcelain -- internal/api
+            git diff --stat -- internal/api
+            exit 1
+          fi
+
   # The race detector needs cgo (D-61).
   race:
     name: race (${{ matrix.os }})

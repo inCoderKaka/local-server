@@ -270,6 +270,70 @@ func TestQueueFullReturnsRetryAfter(t *testing.T) {
 	}
 }
 
+func TestInteractiveDisplacesBackgroundWhenQueueFull(t *testing.T) {
+	e := newEnv(t)
+	e.set(scheduler.KeyTotalConcurrency, "1")
+	e.set(scheduler.KeyOllamaNumParallel, "1")
+	e.set(scheduler.KeyQueueLength, "1")
+	e.set(scheduler.KeyRetryAfter, "7s")
+	held := e.admit(req("a", scheduler.ClassInteractive, "m1"))
+	bg := e.admitAsync(req("job", scheduler.ClassBackground, "m1"))
+	e.waitQueued(1)
+
+	in := e.admitAsync(req("b", scheduler.ClassInteractive, "m1"))
+	r := e.got(bg)
+	var se *scheduler.Error
+	if !errors.Is(r.err, scheduler.ErrQueueFull) || !errors.As(r.err, &se) || se.RetryAfter != 7*time.Second {
+		t.Fatalf("background err = %v, want queue_full with Retry-After 7s", r.err)
+	}
+	if got := e.s.Stats().Queued; got != 1 {
+		t.Fatalf("queued = %d after the displacement, want 1", got)
+	}
+	e.notYet(in)
+
+	// A background arrival at a queue full of interactive waiters is still refused.
+	_, err := e.s.Admit(e.ctx, req("job", scheduler.ClassBackground, "m1"))
+	if !errors.Is(err, scheduler.ErrQueueFull) {
+		t.Fatalf("background arrival: err = %v, want queue_full", err)
+	}
+	if got := e.s.Stats().Queued; got != 1 {
+		t.Fatalf("queued = %d after the refusal, want 1", got)
+	}
+
+	held.Release()
+	r = e.got(in)
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	r.tk.Release()
+}
+
+func TestQueueWaitExpiryDuringOutageReturnsEngineError(t *testing.T) {
+	e := newEnv(t)
+	e.set(scheduler.KeyTotalConcurrency, "1")
+	e.set(scheduler.KeyOllamaNumParallel, "1")
+	e.set(scheduler.KeyQueueWait, "10s")
+	held := e.admit(req("a", scheduler.ClassInteractive, "m1"))
+	w := e.admitAsync(req("a", scheduler.ClassInteractive, "m1"))
+	e.waitQueued(1)
+
+	e.eng.InjectError(fake.OpLoaded, engine.Errorf(engine.CodeEngineUnavailable, nil, "down"), 1000)
+	before := e.eng.Calls(fake.OpLoaded)
+	e.clk.Advance(time.Second)
+	for i := 0; i < 2000 && e.eng.Calls(fake.OpLoaded) == before; i++ {
+		time.Sleep(time.Millisecond)
+	}
+	if e.eng.Calls(fake.OpLoaded) == before {
+		t.Fatal("the recheck did not run")
+	}
+	e.clk.Advance(10 * time.Second)
+	r := e.got(w)
+	if engine.CodeOf(r.err) != engine.CodeEngineUnavailable || errors.Is(r.err, scheduler.ErrQueueFull) {
+		t.Fatalf("err = %v, want the engine error, not queue_full", r.err)
+	}
+	held.Release()
+}
+
 func TestQueueWaitLimit(t *testing.T) {
 	e := newEnv(t)
 	e.set(scheduler.KeyTotalConcurrency, "1")
@@ -523,6 +587,9 @@ func TestAdmitValidates(t *testing.T) {
 	if _, err := e.s.Admit(e.ctx, scheduler.Request{Model: "m1"}); err == nil {
 		t.Fatal("missing class accepted")
 	}
+	if _, err := e.s.Admit(e.ctx, scheduler.Request{Model: "m1", Class: scheduler.ClassInteractive}); err == nil {
+		t.Fatal("missing grant accepted")
+	}
 }
 
 // cancelOnLoaded cancels a context the first time the scheduler reads the loaded models,
@@ -616,6 +683,26 @@ func TestAgedBackgroundNotStarvedByMemory(t *testing.T) {
 		}
 	}
 	t.Fatal("aged background request starved by memory for 90s of overlapping interactive load")
+}
+
+func TestFailedReclaimDoesNotHoldUpOthers(t *testing.T) {
+	e := newEnv(t)
+	e.set(scheduler.KeyMemoryBudgetBytes, "1610612736") // 1.5 GiB: one model at a time
+	e.set(scheduler.KeyBackgroundAging, "0s")
+
+	e.admit(req("a", scheduler.ClassInteractive, "m1")).Release() // m1 loaded and idle
+	e.eng.InjectError(fake.OpUnload, errors.New("unload refused"), 100)
+
+	bg := e.admitAsync(req("job", scheduler.ClassBackground, "m2"))
+	e.waitQueued(1)
+	e.clk.Advance(time.Second)
+	in := e.admitAsync(req("b", scheduler.ClassInteractive, "m1"))
+	r := e.got(in)
+	if r.err != nil {
+		t.Fatalf("interactive m1: %v, want admitted although m2 waits for room m1 will not give up", r.err)
+	}
+	r.tk.Release()
+	e.notYet(bg)
 }
 
 func TestOverBudgetBesidePreloadedModels(t *testing.T) {

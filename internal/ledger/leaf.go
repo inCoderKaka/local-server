@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -84,6 +85,9 @@ func (u Usage) normalized() (Usage, error) {
 	}
 	if u.PromptTokens < 0 || u.CompletionTokens < 0 {
 		return u, fmt.Errorf("ledger: token counts must not be negative")
+	}
+	if u.PromptTokens > math.MaxInt64-u.CompletionTokens {
+		return u, fmt.Errorf("ledger: token counts overflow total_tokens")
 	}
 	u.StartedAt, u.FinishedAt = u.StartedAt.UTC().Truncate(time.Millisecond), u.FinishedAt.UTC().Truncate(time.Millisecond)
 	if u.StartedAt.IsZero() || u.FinishedAt.Before(u.StartedAt) {

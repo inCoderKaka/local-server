@@ -333,7 +333,7 @@ Nothing is hard-coded. There is no bounds hierarchy: each party sets its own val
 - **Spec-first:** OpenAPI 3.1 is the source of truth. Server interfaces are generated from it (ogen, D-57), and client apps test against it.
 - **Standard surfaces, as published:** `/v1/chat/completions` (with streaming), `/v1/embeddings`, `/v1/models`, Standard Webhooks, JWS receipts and C2SP checkpoints.
 - **Additive local-server contracts:** `/v1/health`, `/v1/capabilities`, `/v1/jobs`, `/v1/resource-requests`, `/v1/usage`, `/v1/keys`, `/v1/ledger/checkpoint`, `/v1/usage/{id}/proof`, notification preferences and webhook endpoints. The admin API `/admin/v1` is on the admin listener only.
-- **Errors:** the OpenAI error envelope plus typed codes: `quota_exceeded`, `host_paused`, `model_not_granted`, `context_too_long`, `queue_full`, `engine_unavailable`. Each comes with `Retry-After` where a retry makes sense (D-32; `engine_unavailable` from D-39).
+- **Errors:** the OpenAI error envelope plus typed codes, among them `quota_exceeded`, `host_paused`, `model_not_granted`, `context_too_long`, `queue_full`, `engine_unavailable` and `over_budget` (D-93); the full table, with the policy codes of D-79, is in the LLD's error model and `api/openapi.yaml`. Each comes with `Retry-After` where a retry makes sense (D-32; `engine_unavailable` from D-39).
 - **Evolution:** the major version is in the URL, and changes within a major are additive only. Deprecations use `Deprecation`/`Sunset` headers, and golden tests guard compatibility.
 
 The [developer guide](../developer-guide.md) shows these from a client app's side.

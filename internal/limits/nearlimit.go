@@ -33,7 +33,7 @@ func (l *Limiter) Record(ctx context.Context, id *auth.Identity) error {
 	}
 	for _, q := range qs {
 		if q.unit != UnitTokens {
-			continue // quota.near_limit is a token-quota event (QuotaStatus counts tokens)
+			continue // quota.near_limit is raised for token quotas only
 		}
 		if q.limit <= 0 || float64(q.used)*100 < float64(q.limit)*float64(pct) {
 			continue
@@ -59,8 +59,8 @@ func (l *Limiter) Record(ctx context.Context, id *auth.Identity) error {
 	return nil
 }
 
-// nearLimitPayload mirrors the QuotaStatus schema (api/openapi.yaml) plus the ids of who it is
-// about. Numbers and ids only (D-31).
+// nearLimitPayload mirrors the QuotaStatus schema (api/openapi.yaml) and adds threshold_percent
+// and the ids of who it is about. Numbers and ids only (D-31).
 type nearLimitPayload struct {
 	Scope           string `json:"scope"`
 	WindowSeconds   int64  `json:"window_seconds"`
@@ -68,15 +68,17 @@ type nearLimitPayload struct {
 	UsedTokens      int64  `json:"used_tokens"`
 	RemainingTokens int64  `json:"remaining_tokens"`
 	ResetsAt        string `json:"resets_at"`
-	Percent         int64  `json:"percent"`
-	KeyID           string `json:"key_id,omitempty"`
-	GrantID         string `json:"grant_id"`
-	ConsumerID      string `json:"consumer_id"`
+	// ThresholdPercent is the limits.near_limit_percent setting that raised the event, not the
+	// share used.
+	ThresholdPercent int64  `json:"threshold_percent"`
+	KeyID            string `json:"key_id,omitempty"`
+	GrantID          string `json:"grant_id"`
+	ConsumerID       string `json:"consumer_id"`
 }
 
 func (l *Limiter) emitNearLimit(ctx context.Context, id *auth.Identity, q quota, pct int64) error {
 	p := nearLimitPayload{Scope: q.scope, WindowSeconds: int64(q.window / time.Second), Tokens: q.limit, UsedTokens: q.used,
-		RemainingTokens: max(q.limit-q.used, 0), ResetsAt: q.end.UTC().Format(time.RFC3339), Percent: pct,
+		RemainingTokens: max(q.limit-q.used, 0), ResetsAt: q.end.UTC().Format(time.RFC3339), ThresholdPercent: pct,
 		GrantID: id.GrantID, ConsumerID: id.ConsumerID}
 	if q.scope == ScopeAccessKey {
 		p.KeyID = id.KeyID

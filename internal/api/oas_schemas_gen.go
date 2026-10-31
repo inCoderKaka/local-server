@@ -2262,7 +2262,10 @@ func (s *ContextOverflow) UnmarshalText(data []byte) error {
 // Server-sent events. Each event is a `data:` line holding one `ChatCompletionChunk` as JSON. With
 // `stream_options.include_usage`, the last chunk carries `usage` and an empty `choices`. Then comes
 // the receipt comment line `: ls-receipt <JWS>` (see `LS-Receipt`), and finally `data: [DONE]`. An
-// error after streaming has started arrives as a `data:` line holding an `Error` envelope.
+// error after streaming has started arrives as a `data:` line holding an `Error` envelope. The tokens
+// used so far are metered, and the receipt comment line (`outcome: failed`, or an `unmetered` receipt
+// when the record could not be written) follows that line (D-16, D-51). When the client disconnects
+// (`outcome: aborted`), the tokens are metered but no receipt can be delivered on the stream.
 // Ref: #/components/schemas/ChatCompletionEventStream
 type CreateChatCompletionOKTextEventStream struct {
 	Data io.Reader
@@ -2928,7 +2931,7 @@ func (s *FunctionDefinitionParameters) init() FunctionDefinitionParameters {
 type GrantLimits struct {
 	// The models allowed, with their limits.
 	Models []GrantModelLimit `json:"models"`
-	// Token quotas.
+	// Token and request quotas.
 	Quotas []Quota `json:"quotas"`
 	// Most requests at once.
 	Concurrency       int             `json:"concurrency"`
@@ -3439,8 +3442,8 @@ func (s *HostInfoEngineState) UnmarshalText(data []byte) error {
 type HostKeyEndorsement struct {
 	// The signed bytes, base64url without padding. Decoded they are five lines joined by `\n`, without a
 	// trailing newline: `local-server/key-certificate/v1`, the host's global id (the identity key's
-	// `kid`), the key's `ls_role`, the key's `x`, and the key's creation time as Unix milliseconds UTC in
-	// decimal (`ls_created_at`).
+	// `kid`), the key's `ls_role`, the key's `x`, and the key's `ls_created_at` converted to Unix
+	// milliseconds UTC, in decimal.
 	Certificate string `json:"certificate"`
 	// The identity key's Ed25519 signature (64 bytes) over the certificate bytes, base64url without
 	// padding.
@@ -3819,7 +3822,8 @@ type HostPublicKey struct {
 	// For the checkpoint key, its C2SP signed-note verifier key (`<name>+<hash>+<keydata>`); null
 	// otherwise.
 	LsNoteVerifierKey OptNilString `json:"ls_note_verifier_key"`
-	// When the key was created.
+	// When the key was created, to the millisecond. The endorsement certificate carries the same instant
+	// as Unix milliseconds.
 	LsCreatedAt time.Time `json:"ls_created_at"`
 	// When the key stopped signing; retired keys stay listed for verification.
 	LsRetiredAt OptNilDateTime `json:"ls_retired_at"`
@@ -7502,13 +7506,16 @@ func (s *PrincipalRefKind) UnmarshalText(data []byte) error {
 	}
 }
 
-// A token allowance per window.
+// A token and request allowance per window. Leave out `tokens` or `requests` for no limit on it; `0`
+// allows none (D-25, D-98).
 // Ref: #/components/schemas/Quota
 type Quota struct {
 	// The window's length.
 	WindowSeconds int `json:"window_seconds"`
-	// Tokens allowed per window.
-	Tokens int64 `json:"tokens"`
+	// Tokens allowed per window; absent means no token limit, 0 allows none.
+	Tokens OptInt64 `json:"tokens"`
+	// Requests allowed per window; absent means no request limit, 0 allows none.
+	Requests OptInt64 `json:"requests"`
 }
 
 // GetWindowSeconds returns the value of WindowSeconds.
@@ -7517,8 +7524,13 @@ func (s *Quota) GetWindowSeconds() int {
 }
 
 // GetTokens returns the value of Tokens.
-func (s *Quota) GetTokens() int64 {
+func (s *Quota) GetTokens() OptInt64 {
 	return s.Tokens
+}
+
+// GetRequests returns the value of Requests.
+func (s *Quota) GetRequests() OptInt64 {
+	return s.Requests
 }
 
 // SetWindowSeconds sets the value of WindowSeconds.
@@ -7527,8 +7539,13 @@ func (s *Quota) SetWindowSeconds(val int) {
 }
 
 // SetTokens sets the value of Tokens.
-func (s *Quota) SetTokens(val int64) {
+func (s *Quota) SetTokens(val OptInt64) {
 	s.Tokens = val
+}
+
+// SetRequests sets the value of Requests.
+func (s *Quota) SetRequests(val OptInt64) {
+	s.Requests = val
 }
 
 // Standard Webhooks payload for `quota.near_limit`.
@@ -7571,7 +7588,8 @@ func (s *QuotaNearLimitEvent) SetData(val QuotaStatus) {
 	s.Data = val
 }
 
-// One quota and what is left of it.
+// One scope's quotas and what is left of them. The token fields are present when a token quota
+// applies, the request fields when a request quota applies.
 // Ref: #/components/schemas/QuotaStatus
 type QuotaStatus struct {
 	// Whether the quota is the grant's or the key's narrowing.
@@ -7579,11 +7597,17 @@ type QuotaStatus struct {
 	// The window's length.
 	WindowSeconds int `json:"window_seconds"`
 	// Tokens allowed per window.
-	Tokens int64 `json:"tokens"`
+	Tokens OptInt64 `json:"tokens"`
 	// Tokens used in the current window.
-	UsedTokens int64 `json:"used_tokens"`
+	UsedTokens OptInt64 `json:"used_tokens"`
 	// Tokens left in the current window.
-	RemainingTokens int64 `json:"remaining_tokens"`
+	RemainingTokens OptInt64 `json:"remaining_tokens"`
+	// Requests allowed per window.
+	Requests OptInt64 `json:"requests"`
+	// Requests made in the current window.
+	UsedRequests OptInt64 `json:"used_requests"`
+	// Requests left in the current window.
+	RemainingRequests OptInt64 `json:"remaining_requests"`
 	// When the current window ends.
 	ResetsAt time.Time `json:"resets_at"`
 }
@@ -7599,18 +7623,33 @@ func (s *QuotaStatus) GetWindowSeconds() int {
 }
 
 // GetTokens returns the value of Tokens.
-func (s *QuotaStatus) GetTokens() int64 {
+func (s *QuotaStatus) GetTokens() OptInt64 {
 	return s.Tokens
 }
 
 // GetUsedTokens returns the value of UsedTokens.
-func (s *QuotaStatus) GetUsedTokens() int64 {
+func (s *QuotaStatus) GetUsedTokens() OptInt64 {
 	return s.UsedTokens
 }
 
 // GetRemainingTokens returns the value of RemainingTokens.
-func (s *QuotaStatus) GetRemainingTokens() int64 {
+func (s *QuotaStatus) GetRemainingTokens() OptInt64 {
 	return s.RemainingTokens
+}
+
+// GetRequests returns the value of Requests.
+func (s *QuotaStatus) GetRequests() OptInt64 {
+	return s.Requests
+}
+
+// GetUsedRequests returns the value of UsedRequests.
+func (s *QuotaStatus) GetUsedRequests() OptInt64 {
+	return s.UsedRequests
+}
+
+// GetRemainingRequests returns the value of RemainingRequests.
+func (s *QuotaStatus) GetRemainingRequests() OptInt64 {
+	return s.RemainingRequests
 }
 
 // GetResetsAt returns the value of ResetsAt.
@@ -7629,18 +7668,33 @@ func (s *QuotaStatus) SetWindowSeconds(val int) {
 }
 
 // SetTokens sets the value of Tokens.
-func (s *QuotaStatus) SetTokens(val int64) {
+func (s *QuotaStatus) SetTokens(val OptInt64) {
 	s.Tokens = val
 }
 
 // SetUsedTokens sets the value of UsedTokens.
-func (s *QuotaStatus) SetUsedTokens(val int64) {
+func (s *QuotaStatus) SetUsedTokens(val OptInt64) {
 	s.UsedTokens = val
 }
 
 // SetRemainingTokens sets the value of RemainingTokens.
-func (s *QuotaStatus) SetRemainingTokens(val int64) {
+func (s *QuotaStatus) SetRemainingTokens(val OptInt64) {
 	s.RemainingTokens = val
+}
+
+// SetRequests sets the value of Requests.
+func (s *QuotaStatus) SetRequests(val OptInt64) {
+	s.Requests = val
+}
+
+// SetUsedRequests sets the value of UsedRequests.
+func (s *QuotaStatus) SetUsedRequests(val OptInt64) {
+	s.UsedRequests = val
+}
+
+// SetRemainingRequests sets the value of RemainingRequests.
+func (s *QuotaStatus) SetRemainingRequests(val OptInt64) {
+	s.RemainingRequests = val
 }
 
 // SetResetsAt sets the value of ResetsAt.
@@ -7690,12 +7744,14 @@ func (s *QuotaStatusScope) UnmarshalText(data []byte) error {
 	}
 }
 
-// A request rate limit.
+// A per-access-key request allowance that refills over time: up to `requests` calls in a burst,
+// refilled completely in `window_seconds` (the host settings `limits.rate_capacity` and
+// `limits.rate_window`).
 // Ref: #/components/schemas/RateLimit
 type RateLimit struct {
-	// Requests allowed per window.
+	// Requests allowed in a burst, and per window once the burst is used.
 	Requests int `json:"requests"`
-	// The window's length.
+	// Time an empty allowance takes to refill completely.
 	WindowSeconds int `json:"window_seconds"`
 }
 

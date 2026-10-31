@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/inCoderKaka/local-server/internal/storage"
 )
@@ -45,8 +46,14 @@ func (s *Store) RegisterStorage() error {
 		return err
 	}
 	if err := s.SetValidator(storage.KeySynchronous, func(_ context.Context, v string) error {
-		_, err := storage.ParseSynchronous(v)
-		return err
+		m, err := storage.ParseSynchronous(v)
+		if err != nil {
+			return err
+		}
+		if v != m { // store the canonical spelling, so what is stored is what storage.Open uses
+			return fmt.Errorf("must be exactly %s or %s", storage.SyncFull, storage.SyncNormal)
+		}
+		return nil
 	}); err != nil {
 		return err
 	}

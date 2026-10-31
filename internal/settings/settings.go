@@ -333,8 +333,10 @@ func (s *Store) Duration(ctx context.Context, key, scope string) (time.Duration,
 
 // Set stores value for key in scope on behalf of party by. It fails with ErrNotOwner unless
 // by owns the setting, and with ErrInvalidValue if value does not parse as the setting's
-// type; it checks nothing else (D-54). Whether the caller is really that party (and, for a
-// consumer-owned setting, that the scope is the caller's own id) is the caller's duty.
+// type, and with ErrRejected when a validator registered for the key refuses it
+// (SetValidator, SetTxValidator); there is no other bound (D-54). Whether the caller is
+// really that party (and, for a consumer-owned setting, that the scope is the caller's
+// own id) is the caller's duty.
 func (s *Store) Set(ctx context.Context, by Owner, key, scope, value string) error {
 	d, err := s.lookup(key, scope)
 	if err != nil {

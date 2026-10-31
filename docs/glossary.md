@@ -77,14 +77,14 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Host data key | The key that encrypts queued job content, job results and backup snapshots. It is sealed with the host master key and shown once, at setup, as the recovery code. | — | D-40, D-41 |
 | Policy rule | A versioned, declarative rule the host edits through a form (request properties, time windows, priority class, caps). Set per grant or globally. | Rule | D-25 |
 | Priority class | *Interactive* (someone is waiting) or *background* (can wait). Interactive runs first, and background ages up so it is never starved. | Interactive / Background | D-26 |
-| Quota | A grant's or key's token allowance for a period. Going over it returns `quota_exceeded`, and a near-limit notice is sent first. | Quota | D-25, D-29 |
+| Quota | A grant's or key's token or request allowance for a period. Going over it returns `quota_exceeded`, and a near-limit notice is sent first. | Quota | D-25, D-29, D-98 |
 | Rate limit | The maximum number of requests a key may send per time window. Mandatory in public mode. | Rate limit | D-24 |
 | Retention rule | A setting saying how long one kind of record is kept before the retention worker deletes it. | How long we keep … | D-38, D-40 |
 | Setting owner | The one party (platform admin, host or consumer) responsible for a configurable value. It sets the value freely; there is no bounds hierarchy between parties. | — | D-38, D-54 |
 | Capabilities | The caller's effective limits after key narrowing, plus remaining quota (`/v1/capabilities`). | — | D-32 |
 | Access key narrowing | Limits a key adds on top of its consumer's grant. They can only narrow the grant, never widen it. | — | D-25 |
 | Bound node | The tailnet node an access key is restricted to, checked through Tailscale WhoIs. | — | D-39 |
-| Lockout | A login or key blocked after repeated failures, for durations set by the host's lockout settings. | — | D-24 |
+| Lockout | An access key's source address or key prefix, or a login, blocked after repeated failures, for durations set by the host's lockout settings. A successful key check clears only its key prefix's counter. | — | D-24, D-99 |
 | Passkey ceremony | A started WebAuthn registration or login, with a ceremony id, that expires after the host's ceremony TTL setting. | — | D-13 |
 
 ## Requests and records

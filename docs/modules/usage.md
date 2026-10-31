@@ -8,7 +8,7 @@ Metering of tokens and request counts per consumer.
 
 - Packages: `internal/usage/` (built by PLT-F-015, PLT-F-016, PLT-F-023).
 - Tables: `use_*`, migrations in `internal/usage/migrations/`. Built so far (PLT-F-015): `use_record`, written by `internal/ledger` together with its ledger leaf.
-- Port: none defined here.
+- Port: read functions `usage.Tokens` and `usage.Count` (`internal/usage/records.go`) sum tokens or count `use_record` rows of a consumer or access key over a time range. The limits module uses them for quotas (D-98).
 
 ## Imports
 

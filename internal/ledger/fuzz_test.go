@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"math"
 	"testing"
 )
 
@@ -30,7 +31,8 @@ func fuzzReceipt() Receipt {
 }
 
 // FuzzVerifyReceipt feeds arbitrary text to the receipt parser and verifier (D-60). It must
-// never panic, and a receipt it accepts must have the shape the signer guarantees.
+// never panic, and a receipt it accepts must satisfy the rules Verify enforces: version 1, and on a
+// metered receipt leaf_index >= 0 and tree_size = leaf_index + 1, on an unmetered one neither.
 func FuzzVerifyReceipt(f *testing.F) {
 	f.Add(fuzzJWS(fuzzHeader, fuzzReceipt()))
 	un := fuzzReceipt()
@@ -49,7 +51,7 @@ func FuzzVerifyReceipt(f *testing.F) {
 		}
 		switch r.Metering {
 		case Metered:
-			if r.LeafIndex == nil || r.TreeSize == nil || *r.TreeSize != *r.LeafIndex+1 {
+			if r.LeafIndex == nil || r.TreeSize == nil || *r.TreeSize != *r.LeafIndex+1 || *r.LeafIndex < 0 || *r.LeafIndex == math.MaxInt64 {
 				t.Fatalf("accepted a metered receipt with bad leaf fields: %+v", r)
 			}
 		case Unmetered:

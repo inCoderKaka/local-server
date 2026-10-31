@@ -2,12 +2,16 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/ogen-go/ogen"
 	"github.com/ogen-go/ogen/ogenerrors"
 )
 
@@ -173,4 +177,38 @@ func TestStreamedChatHasNoReceiptHeader(t *testing.T) {
 // getJobResult keeps a required receipt header: a job result is never streamed (D-78).
 func TestJobResultReceiptHeaderIsRequired(t *testing.T) {
 	var _ func(JobResultHeaders) string = func(h JobResultHeaders) string { return h.LSReceipt }
+}
+
+// The JobResult description promises "the same shape as ChatCompletion". The schema is a copy
+// rather than a $ref because of I-136, so this test keeps the two from drifting apart.
+func TestJobResultMatchesChatCompletion(t *testing.T) {
+	b, err := os.ReadFile("../../api/openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := ogen.Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cc, jr := spec.Components.Schemas["ChatCompletion"], spec.Components.Schemas["JobResult"]
+	if cc == nil || jr == nil {
+		t.Fatalf("ChatCompletion or JobResult missing from the spec (got %v, %v)", cc != nil, jr != nil)
+	}
+	ccp, err := json.Marshal(cc.Properties)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jrp, err := json.Marshal(jr.Properties)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(ccp) != string(jrp) {
+		t.Errorf("JobResult properties differ from ChatCompletion:\n got  %s\n want %s", jrp, ccp)
+	}
+	ccr, jrr := slices.Clone(cc.Required), slices.Clone(jr.Required)
+	slices.Sort(ccr)
+	slices.Sort(jrr)
+	if !slices.Equal(ccr, jrr) {
+		t.Errorf("JobResult required = %v; ChatCompletion required = %v", jrr, ccr)
+	}
 }

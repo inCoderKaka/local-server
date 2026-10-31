@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -348,7 +349,7 @@ func TestNearLimitEmitsExactlyOncePerWindow(t *testing.T) {
 	if err := json.Unmarshal(ev.Payload, &p); err != nil {
 		t.Fatal(err)
 	}
-	if p["scope"] != "access_key" || p["key_id"] != k.id.KeyID || p["tokens"] != float64(100) || p["used_tokens"] != float64(80) || p["percent"] != float64(80) {
+	if p["scope"] != "access_key" || p["key_id"] != k.id.KeyID || p["tokens"] != float64(100) || p["used_tokens"] != float64(80) || p["threshold_percent"] != float64(80) {
 		t.Fatalf("payload = %s", ev.Payload)
 	}
 	e.advance(24 * time.Hour) // next window
@@ -486,6 +487,10 @@ func TestSuccessClearsOnlyKeyPrefixCounter(t *testing.T) {
 	if err := e.lim.CheckLockout(ctx(), "203.0.113.4:1", guess(p.Prefix)); !errors.Is(err, limits.ErrRateLimited) {
 		t.Fatalf("prefix must lock after 3 failures: %v", err)
 	}
+	e.lim.AuthResult(ctx(), "203.0.113.2:1", good.hdr, nil)
+	if err := e.lim.CheckLockout(ctx(), "203.0.113.4:1", guess(p.Prefix)); !errors.Is(err, limits.ErrRateLimited) {
+		t.Fatalf("success must not lift an active lockout: %v", err)
+	}
 
 	// Address counter: two failures at other prefixes from address D, then a success from D.
 	// The next failure from D is the third and locks it.
@@ -498,12 +503,53 @@ func TestSuccessClearsOnlyKeyPrefixCounter(t *testing.T) {
 	}
 }
 
+func TestNodeLookupFailureIsNotAFailedGuess(t *testing.T) {
+	e := setup(t, nil)
+	e.set(limits.KeyLockoutFailures, "3")
+	lookup := fmt.Errorf("%w: %w", auth.ErrNodeMismatch, auth.ErrNodeLookup)
+	for i := 0; i < 5; i++ {
+		e.lim.AuthResult(ctx(), "198.51.100.9:1", "", lookup)
+	}
+	if err := e.lim.CheckLockout(ctx(), "198.51.100.9:1", ""); err != nil {
+		t.Fatalf("a failed node lookup must not count: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		e.lim.AuthResult(ctx(), "198.51.100.10:1", "", auth.ErrNodeMismatch)
+	}
+	if err := e.lim.CheckLockout(ctx(), "198.51.100.10:1", ""); !errors.Is(err, limits.ErrRateLimited) {
+		t.Fatalf("a plain node mismatch must lock after 3: %v", err)
+	}
+}
+
+func TestTrackerEvictsLeastRecentlySeen(t *testing.T) {
+	e := setup(t, nil)
+	e.set(limits.KeyLockoutFailures, "2")
+	e.set(limits.KeyTrackerMaxEntries, "5")
+	e.lim.AuthResult(ctx(), "10.0.0.1:1", "", auth.ErrInvalidKey)
+	e.advance(time.Second)
+	for i := 2; i <= 6; i++ {
+		e.lim.AuthResult(ctx(), fmt.Sprintf("10.0.0.%d:1", i), "", auth.ErrInvalidKey)
+		e.advance(time.Second)
+	}
+	e.lim.AuthResult(ctx(), "10.0.0.1:1", "", auth.ErrInvalidKey)
+	if err := e.lim.CheckLockout(ctx(), "10.0.0.1:1", ""); err != nil {
+		t.Fatalf("first failure was evicted, so one failure must not lock: %v", err)
+	}
+
+	e.set(limits.KeyTrackerMaxEntries, "100")
+	e.lim.AuthResult(ctx(), "10.0.1.1:1", "", auth.ErrInvalidKey)
+	e.lim.AuthResult(ctx(), "10.0.1.1:1", "", auth.ErrInvalidKey)
+	if err := e.lim.CheckLockout(ctx(), "10.0.1.1:1", ""); !errors.Is(err, limits.ErrRateLimited) {
+		t.Fatalf("control: two failures must lock: %v", err)
+	}
+}
+
 func TestProtectionsAndMemoryBound(t *testing.T) {
 	e := setup(t, nil)
 	e.set(limits.KeyLockoutFailures, "1")
 	e.set(limits.KeyTrackerMaxEntries, "5")
 	bad := "Bearer " + auth.FormatKey("abcdef123456", strings.Repeat("0", 64))
-	for i := 0; i < 50; i++ { // many addresses: the cap holds and nothing panics
+	for i := 0; i < 50; i++ { // many addresses with a tiny cap: nothing panics (eviction is asserted in TestTrackerEvictsLeastRecentlySeen)
 		e.lim.AuthResult(ctx(), "10.0.0."+strings.Repeat("1", i%9+1)+":1", "", auth.ErrInvalidKey)
 		e.advance(time.Second)
 	}
@@ -687,6 +733,19 @@ func TestQuotaQueriesUseIndexes(t *testing.T) {
 		rows.Close()
 		if !strings.Contains(plan.String(), "USING INDEX "+c.index) && !strings.Contains(plan.String(), "USING COVERING INDEX "+c.index) {
 			t.Fatalf("%s query plan does not use %s:\n%s", c.col, c.index, plan.String())
+		}
+	}
+}
+
+func TestSettingsRejectUnusableValues(t *testing.T) {
+	e := setup(t, nil)
+	for _, c := range []struct{ key, val string }{
+		{limits.KeyLockoutFailures, "0"},
+		{limits.KeyRateWindow, "0s"},
+		{limits.KeyMaxBodyBytes, "-1"},
+	} {
+		if err := e.st.Set(ctx(), settings.Host, c.key, "", c.val); !errors.Is(err, settings.ErrRejected) {
+			t.Fatalf("Set(%s, %s) = %v, want ErrRejected", c.key, c.val, err)
 		}
 	}
 }

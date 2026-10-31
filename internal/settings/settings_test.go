@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -252,6 +253,29 @@ func TestSyncChangeRetentionPrunesOldRows(t *testing.T) {
 	}
 }
 
+// The sync.change.retention delete must use the syn_change_created_at index, not scan the table.
+func TestSyncChangeRetentionUsesIndex(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	rows, err := s.db.Reader().Query(ctx, `EXPLAIN QUERY PLAN SELECT rowid FROM syn_change WHERE created_at < ? LIMIT ?`, 0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan strings.Builder
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan.WriteString(detail + "\n")
+	}
+	if !strings.Contains(plan.String(), "syn_change_created_at") {
+		t.Fatalf("query plan does not use syn_change_created_at:\n%s", plan.String())
+	}
+}
+
 func TestSetValidatorRefusesSetAndReset(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)
@@ -342,8 +366,13 @@ func TestRegisterStorageChecksSynchronousOnWrite(t *testing.T) {
 	if err := s.Set(ctx, Host, storage.KeySynchronous, "", "OFF"); !errors.Is(err, ErrRejected) {
 		t.Fatalf("Set OFF = %v; want ErrRejected", err)
 	}
-	if err := s.Set(ctx, Host, storage.KeySynchronous, "", "normal"); err != nil {
-		t.Fatalf("Set normal = %v", err)
+	for _, v := range []string{"normal", "", " FULL "} {
+		if err := s.Set(ctx, Host, storage.KeySynchronous, "", v); !errors.Is(err, ErrRejected) {
+			t.Fatalf("Set %q = %v; want ErrRejected", v, err)
+		}
+	}
+	if err := s.Set(ctx, Host, storage.KeySynchronous, "", "NORMAL"); err != nil {
+		t.Fatalf("Set NORMAL = %v", err)
 	}
 	if err := s.Reset(ctx, Host, storage.KeySynchronous, ""); err != nil {
 		t.Fatalf("Reset = %v", err)

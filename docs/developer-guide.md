@@ -57,7 +57,7 @@ The base URL's host name and port are the host's tailnet name and the port they 
 - **Context limits are enforced.** By default, an over-long prompt fails with `context_too_long` instead of being silently cut. The host can choose truncation for your grant instead.
 - **Extensions live in headers,** so the body stays standard:
   - `LS-Request-Properties` (request) tags the call with properties the host's policy rules understand. For example, a background call can be allowed only in background-work hours. The header's format is defined in the spec.
-  - `LS-Receipt` (response) carries the signed usage receipt. When streaming, the receipt also arrives in an SSE comment line `: ls-receipt <JWS>` after the last chunk and before `data: [DONE]`, which standard SDKs skip.
+  - `LS-Receipt` (response) carries the signed usage receipt of a non-streamed call. A streamed response has no `LS-Receipt` header: its receipt arrives instead in an SSE comment line `: ls-receipt <JWS>` after the last chunk and before `data: [DONE]`. Standard SDKs skip comment lines, so read the raw event stream if you want to keep a streamed call's receipt.
 
 ### Errors and retries
 
@@ -66,7 +66,7 @@ Errors use the OpenAI error envelope plus a typed `code`. Use `Retry-After` wher
 | `code` | What to do |
 |---|---|
 | `quota_exceeded` | Wait for `Retry-After`, or file a resource request |
-| `queue_full` | Retry after `Retry-After` with backoff, or fall back |
+| `queue_full` | Retry after `Retry-After` with backoff, or fall back. A background call can also get it after waiting, when interactive calls need its place. |
 | `host_paused` | Fall back now. Queue background work and resend when `/v1/health` says the host is back |
 | `model_not_granted` | Check `/v1/capabilities`, or ask for the model |
 | `context_too_long` | Shorten the prompt or ask for a larger context limit |
@@ -97,9 +97,11 @@ curl -X POST https://<host>/v1/jobs \
 A receipt is a JWS signed with Ed25519 over your call's usage record (its exact fields are in the spec), plus the ledger `leaf_index` and the tree size that leaf creates.
 
 To verify one:
-1. Fetch the host's public keys from `/v1/keys`, and verify the receipt's signature.
-2. Later, call `GET /v1/usage/{id}/proof`. It returns the first signed checkpoint that covers your leaf, plus an inclusion proof. Verify both.
-3. Keep the checkpoints you see. A consistency proof between an old one and a new one shows that the host only appended to its ledger and never rewrote it.
+1. Fetch `/v1/keys`. The identity key is the key whose `kid` equals the receipt's `host_kid`, which is the host ID. Keep the host ID from your first contact and refuse a key set whose identity key differs.
+2. Find the receipt's key by the JWS header `kid`. Check its `ls_endorsement`: the `signature` must verify, under the identity key, over the base64url-decoded `certificate`. The certificate must name this key: the host ID, the key's `ls_role`, its `x`, and its `ls_created_at` as Unix milliseconds.
+3. Verify the receipt's signature with that key.
+4. Later, call `GET /v1/usage/{id}/proof`. It returns the first signed checkpoint that covers your leaf, plus an inclusion proof. Verify both.
+5. Keep the checkpoints you see. A consistency proof between an old one and a new one shows that the host only appended to its ledger and never rewrote it.
 
 A receipt marked `unmetered` means the host answered but could not record the call. It is signed evidence that the call can't be billed later.
 
