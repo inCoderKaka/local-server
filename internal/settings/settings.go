@@ -112,10 +112,11 @@ type Store struct {
 	db  *storage.DB
 	now func() time.Time
 
-	mu         sync.RWMutex
-	defs       map[string]Def
-	rules      []Rule
-	validators map[string]func(ctx context.Context, value string) error
+	mu           sync.RWMutex
+	defs         map[string]Def
+	rules        []Rule
+	validators   map[string]func(ctx context.Context, value string) error
+	txValidators map[string]func(tx *storage.Tx, value string) error
 }
 
 // New returns a Store over db, which must have been opened with Module(). It registers
@@ -157,7 +158,9 @@ func (s *Store) Register(defs ...Def) error {
 // stored (the default's value for Reset). A non-nil error refuses the write; Set and Reset
 // return it wrapped in ErrRejected. It is for a rule only the owning module can know, for
 // example a setting that is frozen once something exists (req_001 D-97). The key must be
-// registered; a later call for the same key replaces the validator. fn runs before the write and not in its transaction.
+// registered; a later call for the same key replaces the validator. fn runs before the write
+// and outside its transaction, so a rule that must be atomic with the write needs
+// SetTxValidator instead.
 func (s *Store) SetValidator(key string, fn func(ctx context.Context, value string) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -168,6 +171,38 @@ func (s *Store) SetValidator(key string, fn func(ctx context.Context, value stri
 		s.validators = map[string]func(context.Context, string) error{}
 	}
 	s.validators[key] = fn
+	return nil
+}
+
+// SetTxValidator makes fn run inside the write's unit of work, before the write, on every
+// Set and Reset of key, with the value about to be stored (the default's value for Reset).
+// The single writer orders it against every other unit, so the rule is atomic with the write.
+// A non-nil error refuses the write; Set and Reset return it wrapped in ErrRejected. The key
+// must be registered; a later call for the same key replaces the validator.
+func (s *Store) SetTxValidator(key string, fn func(tx *storage.Tx, value string) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.defs[key]; !ok {
+		return fmt.Errorf("%w: %s", ErrUnknownKey, key)
+	}
+	if s.txValidators == nil {
+		s.txValidators = map[string]func(*storage.Tx, string) error{}
+	}
+	s.txValidators[key] = fn
+	return nil
+}
+
+// validateTx runs the registered tx validator of key, if any.
+func (s *Store) validateTx(tx *storage.Tx, key, value string) error {
+	s.mu.RLock()
+	fn := s.txValidators[key]
+	s.mu.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	if err := fn(tx, value); err != nil {
+		return fmt.Errorf("%w: %s: %w", ErrRejected, key, err)
+	}
 	return nil
 }
 
@@ -214,6 +249,31 @@ func (s *Store) Get(ctx context.Context, key, scope string) (string, error) {
 		return "", err
 	}
 	rows, err := s.db.Reader().Query(ctx, `SELECT value FROM hst_setting WHERE key = ? AND scope = ?`, key, scope)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return d.Default, rows.Err()
+	}
+	var v string
+	if err := rows.Scan(&v); err != nil {
+		return "", err
+	}
+	return v, nil
+}
+
+// StringTx returns a String setting read inside the unit of work tx, so it sees earlier
+// units' writes in the same batch.
+func (s *Store) StringTx(tx *storage.Tx, key, scope string) (string, error) {
+	d, err := s.lookup(key, scope)
+	if err != nil {
+		return "", err
+	}
+	if d.Kind != String {
+		return "", fmt.Errorf("%w: %s is %s, not %s", ErrKind, key, d.Kind, String)
+	}
+	rows, err := tx.Query(`SELECT value FROM hst_setting WHERE key = ? AND scope = ?`, key, scope)
 	if err != nil {
 		return "", err
 	}
@@ -291,6 +351,9 @@ func (s *Store) Set(ctx context.Context, by Owner, key, scope, value string) err
 	}
 	at := s.now().UnixMilli()
 	return s.db.Write(ctx, func(tx *storage.Tx) error {
+		if err := s.validateTx(tx, key, value); err != nil {
+			return err
+		}
 		_, err := tx.Exec(`INSERT INTO hst_setting (key, scope, value, updated_by, updated_at) VALUES (?, ?, ?, ?, ?)
 			ON CONFLICT (key, scope) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
 			key, scope, value, string(by), at)
@@ -311,6 +374,9 @@ func (s *Store) Reset(ctx context.Context, by Owner, key, scope string) error {
 		return err
 	}
 	return s.db.Write(ctx, func(tx *storage.Tx) error {
+		if err := s.validateTx(tx, key, d.Default); err != nil {
+			return err
+		}
 		_, err := tx.Exec(`DELETE FROM hst_setting WHERE key = ? AND scope = ?`, key, scope)
 		return err
 	})

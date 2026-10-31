@@ -407,8 +407,8 @@ func TestPausedAndQuiet(t *testing.T) {
 		e.set(scheduler.KeyRetryAfter, "9s")
 		_, err := e.s.Admit(e.ctx, req("a", scheduler.ClassInteractive, "m1"))
 		var se *scheduler.Error
-		if !errors.Is(err, scheduler.ErrHostPaused) || !errors.As(err, &se) || se.RetryAfter != 9*time.Second {
-			t.Fatalf("%s: err = %v, want host_paused", st, err)
+		if !errors.Is(err, scheduler.ErrHostPaused) || !errors.As(err, &se) || se.RetryAfter != 0 {
+			t.Fatalf("%s: err = %v, want host_paused with no Retry-After", st, err)
 		}
 
 		// Background waits, and runs once the host resumes.
@@ -522,5 +522,135 @@ func TestAdmitValidates(t *testing.T) {
 	}
 	if _, err := e.s.Admit(e.ctx, scheduler.Request{Model: "m1"}); err == nil {
 		t.Fatal("missing class accepted")
+	}
+}
+
+// cancelOnLoaded cancels a context the first time the scheduler reads the loaded models,
+// which is inside the dispatch that grants the request: the client "disconnects" as the
+// grant happens.
+type cancelOnLoaded struct {
+	*fake.Engine
+	once   sync.Once
+	cancel context.CancelFunc
+}
+
+func (c *cancelOnLoaded) Loaded(ctx context.Context) ([]engine.LoadedModel, error) {
+	c.once.Do(c.cancel)
+	return c.Engine.Loaded(ctx)
+}
+
+func TestCancelAtGrantDoesNotLeakLoading(t *testing.T) {
+	e := newEnv(t)
+	for round := 0; round < 32; round++ {
+		ctx, cancel := context.WithCancel(e.ctx)
+		w := &cancelOnLoaded{Engine: e.eng, cancel: cancel}
+		s, err := scheduler.New(w, e.st, e.sh, scheduler.Options{Clock: e.clk})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Admit(ctx, req("a", scheduler.ClassInteractive, "m1")); err == nil {
+			t.Fatalf("round %d: Admit with a cancelled context returned a ticket", round)
+		}
+		cancel()
+		tk, err := s.Admit(context.Background(), req("a", scheduler.ClassInteractive, "m1"))
+		if err != nil {
+			t.Fatalf("round %d: %v", round, err)
+		}
+		if !loadedNames(t, e)["m1"] {
+			t.Fatalf("round %d: m1 not loaded after a later Admit (loading marker leaked)", round)
+		}
+		tk.Release()
+		if err := e.eng.Unload(e.ctx, "m1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestAgedBackgroundNotStarvedByMemory(t *testing.T) {
+	e := newEnv(t)
+	e.set(scheduler.KeyMemoryBudgetBytes, "1610612736") // 1.5 GiB: one model at a time
+	e.set(scheduler.KeyBackgroundAging, "30s")
+
+	held := e.admit(req("a", scheduler.ClassInteractive, "m1"))
+	bg := e.admitAsync(req("job", scheduler.ClassBackground, "m2"))
+	e.waitQueued(1)
+
+	for round := 1; round <= 9; round++ {
+		e.clk.Advance(10 * time.Second)
+		next := e.admitAsync(req("a", scheduler.ClassInteractive, "m1"))
+		settled := false
+		for i := 0; i < 2000 && !settled; i++ {
+			st := e.s.Stats()
+			settled = st.Running == 2 || st.Queued == 2
+			if !settled {
+				time.Sleep(time.Millisecond)
+			}
+		}
+		if !settled {
+			t.Fatalf("round %d: the interactive request is neither running nor queued", round)
+		}
+		held.Release()
+		select {
+		case r := <-bg:
+			if r.err != nil {
+				t.Fatal(r.err)
+			}
+			if round < 3 {
+				t.Fatalf("background admitted at round %d, before it aged", round)
+			}
+			e.notYet(next) // m2 is running and m1 does not fit beside it
+			r.tk.Release()
+			r2 := e.got(next)
+			if r2.err != nil {
+				t.Fatal(r2.err)
+			}
+			r2.tk.Release()
+			return
+		case r := <-next:
+			if r.err != nil {
+				t.Fatal(r.err)
+			}
+			held = r.tk
+		case <-time.After(5 * time.Second):
+			t.Fatal("nobody admitted")
+		}
+	}
+	t.Fatal("aged background request starved by memory for 90s of overlapping interactive load")
+}
+
+func TestOverBudgetBesidePreloadedModels(t *testing.T) {
+	e := newEnv(t)
+	e.set(scheduler.KeyMemoryBudgetBytes, "1610612736") // 1.5 GiB
+	e.set(scheduler.KeyPreloadModels, "m1")
+	if err := e.s.Apply(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, class := range []scheduler.Class{scheduler.ClassInteractive, scheduler.ClassBackground} {
+		_, err := e.s.Admit(e.ctx, req("a", class, "m2"))
+		if !errors.Is(err, scheduler.ErrOverBudget) {
+			t.Fatalf("%s m2: err = %v, want over_budget beside the preloaded m1", class, err)
+		}
+		if q := e.s.Stats().Queued; q != 0 {
+			t.Fatalf("%s m2: queued = %d, want 0", class, q)
+		}
+	}
+	// The preloaded model itself is not counted twice.
+	e.admit(req("a", scheduler.ClassInteractive, "m1")).Release()
+}
+
+func TestSettingsValidators(t *testing.T) {
+	e := newEnv(t)
+	for key, val := range map[string]string{
+		scheduler.KeyRetryAfter:       "-1s",
+		scheduler.KeyRecheckInterval:  "0s",
+		scheduler.KeyTotalConcurrency: "0",
+	} {
+		err := e.st.Set(e.ctx, settings.Host, key, "", val)
+		if !errors.Is(err, settings.ErrRejected) {
+			t.Fatalf("Set %s %q: err = %v, want ErrRejected", key, val, err)
+		}
+	}
+	if err := e.st.Set(e.ctx, settings.Host, scheduler.KeyQueueLength, "", "0"); err != nil {
+		t.Fatalf("queue_length 0: %v", err)
 	}
 }

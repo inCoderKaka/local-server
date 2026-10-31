@@ -106,7 +106,7 @@ func (k KeySet) VerifierKeys() []string {
 var ErrNoKey = errors.New("checkpoint: the key set has no receipt key with the receipt's kid")
 
 // ErrWrongHost is returned by VerifyReceipt when the receipt's host_kid is not the identity
-// key of the set.
+// key of the set, or the set has no identity key.
 var ErrWrongHost = errors.New("checkpoint: the receipt's host_kid is not the host identity in the key set")
 
 // VerifyReceipt verifies a receipt with the receipt key of the set that its header names by
@@ -124,7 +124,7 @@ func (k KeySet) VerifyReceipt(jws string) (ledger.Receipt, error) {
 		case j.LsRole == string(hostkeys.Identity):
 			identity = j.Kid
 		case j.LsRole == string(hostkeys.Receipt) && j.Kid == kid && pub == nil:
-			x, err := base64.RawURLEncoding.Strict().DecodeString(j.X)
+			x, err := decodeB64URL(j.X)
 			if err != nil || len(x) != ed25519.PublicKeySize || j.Kty != "OKP" || j.Crv != "Ed25519" {
 				return ledger.Receipt{}, fmt.Errorf("checkpoint: key %s is not an Ed25519 OKP key", kid)
 			}
@@ -138,7 +138,7 @@ func (k KeySet) VerifyReceipt(jws string) (ledger.Receipt, error) {
 	if err != nil {
 		return ledger.Receipt{}, err
 	}
-	if identity != "" && r.HostKID != identity {
+	if identity == "" || r.HostKID != identity {
 		return ledger.Receipt{}, ErrWrongHost
 	}
 	return r, nil
@@ -155,15 +155,17 @@ var ErrBadEndorsement = errors.New("checkpoint: key endorsement does not verify 
 // its own public key (D-94).
 func (k KeySet) VerifyEndorsement() error {
 	var idJWK *JWK
+	identities := 0
 	for i := range k.Keys {
 		if k.Keys[i].LsRole == string(hostkeys.Identity) {
 			idJWK = &k.Keys[i]
+			identities++
 		}
 	}
-	if idJWK == nil || idJWK.Kid != idJWK.X {
+	if identities != 1 || idJWK.Kid != idJWK.X {
 		return ErrBadEndorsement
 	}
-	idPub, err := base64.RawURLEncoding.Strict().DecodeString(idJWK.X)
+	idPub, err := decodeB64URL(idJWK.X)
 	if err != nil || len(idPub) != ed25519.PublicKeySize {
 		return ErrBadEndorsement
 	}
@@ -174,8 +176,11 @@ func (k KeySet) VerifyEndorsement() error {
 		if j.LsEndorsement == nil {
 			return fmt.Errorf("%w: key %s has none", ErrBadEndorsement, j.Kid)
 		}
-		cert, err1 := base64.RawURLEncoding.Strict().DecodeString(j.LsEndorsement.Certificate)
-		sig, err2 := base64.RawURLEncoding.Strict().DecodeString(j.LsEndorsement.Signature)
+		if j.LsParentKid == nil || *j.LsParentKid != idJWK.Kid {
+			return fmt.Errorf("%w: key %s: ls_parent_kid is not the identity", ErrBadEndorsement, j.Kid)
+		}
+		cert, err1 := decodeB64URL(j.LsEndorsement.Certificate)
+		sig, err2 := decodeB64URL(j.LsEndorsement.Signature)
 		created, err3 := time.Parse(time.RFC3339Nano, j.LsCreatedAt)
 		if err1 != nil || err2 != nil || err3 != nil || !ed25519.Verify(idPub, cert, sig) {
 			return fmt.Errorf("%w: key %s", ErrBadEndorsement, j.Kid)
@@ -186,4 +191,17 @@ func (k KeySet) VerifyEndorsement() error {
 		}
 	}
 	return nil
+}
+
+// decodeB64URL decodes unpadded base64url strictly. The decoder skips CR and LF (see ParseText
+// and PLT-B-024), so the canonical re-encoding must equal the input too.
+func decodeB64URL(s string) ([]byte, error) {
+	b, err := base64.RawURLEncoding.Strict().DecodeString(s)
+	if err != nil {
+		return nil, err
+	}
+	if base64.RawURLEncoding.EncodeToString(b) != s {
+		return nil, errors.New("checkpoint: base64url is not canonical")
+	}
+	return b, nil
 }

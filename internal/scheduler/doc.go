@@ -11,9 +11,9 @@
 //     host's OLLAMA_NUM_PARALLEL (the KeyOllamaNumParallel setting), so Ollama's own
 //     queue never fills.
 //   - Memory admission: the model's size (when it is not loaded yet) plus the
-//     estimated context memory of this and every running request must fit the share
+//     estimated context memory of this and every running request must fit the memory
 //     budget. Idle models are unloaded to make room (reclaim); a request that can
-//     never fit fails with ErrOverBudget.
+//     never fit beside the preloaded models fails with ErrOverBudget.
 //   - The queue is bounded. A full queue, or a wait past the queue-wait limit, fails
 //     fast with ErrQueueFull carrying a Retry-After. While the host is paused or in
 //     quiet hours, interactive requests fail with ErrHostPaused and background ones

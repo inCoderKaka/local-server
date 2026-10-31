@@ -2736,7 +2736,7 @@ type ErrorDetail struct {
 	// The request field the error is about, if any.
 	Param NilString `json:"param"`
 	// A typed code (`quota_exceeded`, `host_paused`, `model_not_granted`, `context_too_long`,
-	// `queue_full`, `engine_unavailable`), an OpenAI code, or null.
+	// `queue_full`, `engine_unavailable`, `over_budget`), an OpenAI code, or null.
 	Code NilString `json:"code"`
 }
 

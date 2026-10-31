@@ -335,13 +335,7 @@ func (k *Keys) DataKey() []byte { return append([]byte(nil), k.dataKey...) }
 
 // Sign signs msg with the live key of purpose Receipt or Checkpoint and returns that key's id.
 func (k *Keys) Sign(p Purpose, msg []byte) (keyID string, sig []byte, err error) {
-	if p != Receipt && p != Checkpoint {
-		return "", nil, ErrNotSigningPurpose
-	}
-	k.mu.RLock()
-	s := k.signers[p]
-	k.mu.RUnlock()
-	return s.id, ed25519.Sign(s.priv, msg), nil
+	return k.SignWithKeyID(p, func(string) []byte { return msg })
 }
 
 // SignWithKeyID signs the message that build returns for the live key of purpose Receipt or

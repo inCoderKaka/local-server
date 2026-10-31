@@ -56,6 +56,7 @@ info:
     | `model_not_granted` | 403 | `invalid_request_error` | no | The model is not in the grant or key |
     | `context_too_long` | 400 | `invalid_request_error` | no | The prompt exceeds the grant's context limit and the grant's context overflow is `refuse` |
     | `engine_unavailable` | 503 | `server_error` | no | The engine (Ollama) is not reachable |
+    | `over_budget` | 422 | `invalid_request_error` | no | The model and the request's context can never fit the host's memory budget; retrying the same request does not help |
     | `unsupported_parameter` | 400 | `invalid_request_error` | no | A request field is not supported (OpenAI's code) |
     | `invalid_api_key` | 401 | `invalid_request_error` | no | Missing, unknown, expired or revoked credential (OpenAI's code) |
     | `rate_limit_exceeded` | 429 | `requests` | yes | Rate limit or lockout after failed attempts (OpenAI's code) |
@@ -2268,7 +2269,7 @@ components:
         protected header `{"alg": "Ed25519", "kid": "<receipt-signing key id>", "typ": "ls-receipt+jws"}`,
         payload a `UsageReceipt`. Verify it with the receipt-signing key from `/v1/keys`.
         Absent on a streamed response (`stream: true`): the stream's receipt is not known until
-        the stream ends, so it travels in the final SSE event before `[DONE]` (D-27, D-39, D-78).
+        the stream ends, so it travels in the SSE comment line `: ls-receipt <JWS>` sent after the last chunk and before `data: [DONE]` (D-27, D-33, D-39, D-78).
       required: false
       schema:
         type: string
@@ -2527,8 +2528,8 @@ components:
           description: The request field the error is about, if any.
         code:
           type: [string, 'null']
-          description: A typed code (`quota_exceeded`, `host_paused`, `model_not_granted`, `context_too_long`, `queue_full`, `engine_unavailable`), an OpenAI code, or null.
-          examples: [quota_exceeded, host_paused, model_not_granted, context_too_long, queue_full, engine_unavailable]
+          description: A typed code (`quota_exceeded`, `host_paused`, `model_not_granted`, `context_too_long`, `queue_full`, `engine_unavailable`, `over_budget`), an OpenAI code, or null.
+          examples: [quota_exceeded, host_paused, model_not_granted, context_too_long, queue_full, engine_unavailable, over_budget]
 
     # -------------------------------------------------------------- OpenAI chat
     ChatCompletionRequest:

@@ -1,6 +1,10 @@
 package settings
 
-import "github.com/inCoderKaka/local-server/internal/storage"
+import (
+	"context"
+
+	"github.com/inCoderKaka/local-server/internal/storage"
+)
 
 // KeySyncChangeRetention is the host-owned setting for how long unacknowledged syn_change
 // rows are kept (D-77).
@@ -8,9 +12,11 @@ const KeySyncChangeRetention = "sync.change.retention"
 
 // StorageSynchronousDef is the host-owned setting for SQLite's synchronous mode under WAL
 // (D-76, D-38). storage cannot import settings, so the definition lives here and the
-// caller registers it, reads the value before storage.Open and passes it in
-// storage.Config.Synchronous. A change applies on the next start. Default FULL: a power
-// loss must not drop batches whose signed receipts consumers already hold.
+// caller registers it. The value lives in hst_setting, which exists only once the database
+// is open, so startup opens with the default (FULL, also the first-run value), reads the
+// setting through the Store, and when it differs from the mode in use closes the database
+// and opens it again with storage.Config.Synchronous set to it. A change applies on the
+// next start. Default FULL: a power loss must not drop batches whose signed receipts consumers already hold.
 var StorageSynchronousDef = Def{
 	Key: storage.KeySynchronous, Kind: String, Default: storage.SyncFull, Owner: Host,
 	Description: "SQLite durability under power loss: FULL (default) or NORMAL (faster, may lose the last committed batches). Applies on next start.",
@@ -36,6 +42,12 @@ var SyncChangeRule = Rule{Table: "syn_change", TimeColumn: "created_at", Setting
 // module's tables: storage.synchronous (D-76) and sync.change.retention with its rule (D-77).
 func (s *Store) RegisterStorage() error {
 	if err := s.Register(StorageSynchronousDef, SyncChangeRetentionDef); err != nil {
+		return err
+	}
+	if err := s.SetValidator(storage.KeySynchronous, func(_ context.Context, v string) error {
+		_, err := storage.ParseSynchronous(v)
+		return err
+	}); err != nil {
 		return err
 	}
 	return s.RegisterRetention(SyncChangeRule)

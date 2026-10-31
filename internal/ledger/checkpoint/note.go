@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/mod/sumdb/note"
 	"golang.org/x/mod/sumdb/tlog"
@@ -81,7 +83,7 @@ func ParseText(s string) (Text, error) {
 }
 
 func validName(name string) bool {
-	return name != "" && !strings.ContainsAny(name, " \t\r\n\v\f+") && !strings.ContainsFunc(name, func(r rune) bool { return r == 0x85 || r == 0xA0 })
+	return name != "" && utf8.ValidString(name) && strings.IndexFunc(name, unicode.IsSpace) < 0 && !strings.Contains(name, "+")
 }
 
 // KeyHash returns the 4-byte key hash of a signed-note Ed25519 key.
@@ -122,6 +124,11 @@ type Verified struct {
 func Verify(signed string, verifierKeys ...string) (Verified, error) {
 	var vs []note.Verifier
 	seen := map[string]bool{}
+	type nameHash struct {
+		name string
+		hash uint32
+	}
+	byID := map[nameHash]string{}
 	for _, k := range verifierKeys {
 		if seen[k] {
 			continue
@@ -131,6 +138,11 @@ func Verify(signed string, verifierKeys ...string) (Verified, error) {
 		if err != nil {
 			return Verified{}, fmt.Errorf("%w: verifier key: %v", ErrBadNote, err)
 		}
+		id := nameHash{v.Name(), v.KeyHash()}
+		if prev, ok := byID[id]; ok && prev != k {
+			return Verified{}, fmt.Errorf("%w: conflicting verifier keys %s+%08x", ErrBadNote, v.Name(), v.KeyHash())
+		}
+		byID[id] = k
 		vs = append(vs, v)
 	}
 	n, err := open(signed, vs)
@@ -149,14 +161,9 @@ func Verify(signed string, verifierKeys ...string) (Verified, error) {
 	return Verified{}, fmt.Errorf("%w: no verified signature by a key named like the origin %q", ErrBadNote, t.Origin)
 }
 
-// open wraps note.Open, which panics on two verifiers with the same name and hash.
-func open(signed string, vs []note.Verifier) (n *note.Note, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			n, err = nil, fmt.Errorf("%w: conflicting verifier keys", ErrBadNote)
-		}
-	}()
-	n, err = note.Open([]byte(signed), note.VerifierList(vs...))
+// open wraps note.Open and sorts its errors into ErrBadNote and ErrMalformedNote.
+func open(signed string, vs []note.Verifier) (*note.Note, error) {
+	n, err := note.Open([]byte(signed), note.VerifierList(vs...))
 	if err != nil {
 		var unverified *note.UnverifiedNoteError
 		var invalid *note.InvalidSignatureError

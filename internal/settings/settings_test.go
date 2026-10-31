@@ -290,3 +290,62 @@ func TestSetValidatorRefusesSetAndReset(t *testing.T) {
 		t.Fatalf("validator saw %v; want the new value, then the default for Reset", seen)
 	}
 }
+
+func TestSetTxValidatorRefusesSetAndReset(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if err := s.Register(Def{Key: "t.txfrozen", Kind: String, Default: "d", Owner: Host}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTxValidator("nope", nil); !errors.Is(err, ErrUnknownKey) {
+		t.Fatalf("SetTxValidator on an unknown key = %v", err)
+	}
+	frozen := false
+	cause := errors.New("frozen")
+	var seen []string
+	if err := s.SetTxValidator("t.txfrozen", func(tx *storage.Tx, v string) error {
+		if tx == nil {
+			t.Error("validator got no transaction")
+		}
+		seen = append(seen, v)
+		if frozen {
+			return cause
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set(ctx, Host, "t.txfrozen", "", "a"); err != nil {
+		t.Fatal(err)
+	}
+	frozen = true
+	if err := s.Set(ctx, Host, "t.txfrozen", "", "b"); !errors.Is(err, ErrRejected) || !errors.Is(err, cause) {
+		t.Fatalf("Set = %v; want ErrRejected wrapping the cause", err)
+	}
+	if err := s.Reset(ctx, Host, "t.txfrozen", ""); !errors.Is(err, ErrRejected) || !errors.Is(err, cause) {
+		t.Fatalf("Reset = %v; want ErrRejected wrapping the cause", err)
+	}
+	if v, _ := s.String(ctx, "t.txfrozen", ""); v != "a" {
+		t.Fatalf("value = %q after refused writes", v)
+	}
+	if len(seen) != 3 || seen[0] != "a" || seen[1] != "b" || seen[2] != "d" {
+		t.Fatalf("validator saw %v; want the new value, then the default for Reset", seen)
+	}
+}
+
+func TestRegisterStorageChecksSynchronousOnWrite(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if err := s.RegisterStorage(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set(ctx, Host, storage.KeySynchronous, "", "OFF"); !errors.Is(err, ErrRejected) {
+		t.Fatalf("Set OFF = %v; want ErrRejected", err)
+	}
+	if err := s.Set(ctx, Host, storage.KeySynchronous, "", "normal"); err != nil {
+		t.Fatalf("Set normal = %v", err)
+	}
+	if err := s.Reset(ctx, Host, storage.KeySynchronous, ""); err != nil {
+		t.Fatalf("Reset = %v", err)
+	}
+}

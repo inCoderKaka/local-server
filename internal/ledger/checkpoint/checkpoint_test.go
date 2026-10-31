@@ -2,6 +2,7 @@ package checkpoint
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -26,10 +27,9 @@ var t0 = time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 
 // fakeClock fires its timers only when the test says so.
 type fakeClock struct {
-	mu      sync.Mutex
-	now     time.Time
-	timers  chan *fakeTimer
-	created int
+	mu     sync.Mutex
+	now    time.Time
+	timers chan *fakeTimer
 }
 
 type fakeTimer struct {
@@ -397,8 +397,8 @@ func TestWorkerCadence(t *testing.T) {
 	ctx := context.Background()
 	e.set(t, KeyMinLeaves, "3")
 	e.set(t, KeyMaxInterval, "30s")
-	e.set(t, KeyKeyCheckEvery, "10m")
-	w := NewWorker(e.svc)
+	e.set(t, KeyKeyCheckInterval, "10m")
+	w := NewWorker(e.svc, nil)
 
 	step := func(want int64, why string) {
 		t.Helper()
@@ -428,7 +428,7 @@ func TestWorkerCadence(t *testing.T) {
 	step(7, "N new leaves, interval not elapsed")
 
 	// Key rotation checks run on their own interval.
-	// Cycles ran at +0s, +0s.. +30s (one check, at the start), and +1h30s (a second).
+	// Key checks ran in the first cycle (+0s) and in the first cycle after the 1h jump (+1h30s); the check interval is 10m.
 	if got := e.keys.count(); got != 2 {
 		t.Fatalf("EnsureCurrent calls = %d; want 2 (at start and after the 1h jump, interval 10m)", got)
 	}
@@ -447,17 +447,20 @@ func TestWorkerCadence(t *testing.T) {
 func TestWorkerRunLoopUsesPollIntervalAndStops(t *testing.T) {
 	e := newEnv(t)
 	e.set(t, KeyPollInterval, "7s")
-	w := NewWorker(e.svc)
+	w := NewWorker(e.svc, nil)
 	ctx, cancel := context.WithCancel(context.Background())
+	e.record(t, 1)
 	done := make(chan error, 1)
 	go func() { done <- w.Run(ctx) }()
-	e.record(t, 1)
-	tm := <-e.clock.timers // the first cycle ran (leaf not yet seen), then waits poll
+	tm := <-e.clock.timers // the first cycle ran and covered the leaf, then waits poll
 	if tm.d != 7*time.Second {
 		t.Fatalf("poll timer = %s", tm.d)
 	}
+	if got := e.latestSize(t); got != 1 {
+		t.Fatalf("latest size = %d; want 1", got)
+	}
 	tm.c <- e.clock.Now()
-	tm2 := <-e.clock.timers // second cycle ran and checkpointed
+	tm2 := <-e.clock.timers // the second cycle found nothing new
 	if tm2.d != 7*time.Second {
 		t.Fatalf("poll timer = %s", tm2.d)
 	}
@@ -467,6 +470,9 @@ func TestWorkerRunLoopUsesPollIntervalAndStops(t *testing.T) {
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run = %v", err)
+	}
+	if !tm2.stopped {
+		t.Fatal("Run did not stop its timer")
 	}
 }
 
@@ -528,6 +534,16 @@ func TestKeySetMatchesOpenAPIAndVerifiesReceipts(t *testing.T) {
 	if _, err := ks.VerifyReceipt(oc[0].Receipt.JWS); !errors.Is(err, ErrNoKey) {
 		t.Fatalf("other host's receipt = %v; want ErrNoKey", err)
 	}
+	// A set without an identity entry fails closed.
+	noID := KeySet{}
+	for _, j := range ks.Keys {
+		if j.LsRole != "identity" {
+			noID.Keys = append(noID.Keys, j)
+		}
+	}
+	if _, err := noID.VerifyReceipt(cur.Receipt.JWS); !errors.Is(err, ErrWrongHost) {
+		t.Fatalf("set without identity = %v; want ErrWrongHost", err)
+	}
 	if _, err := ks.VerifyReceipt("not.a.jws"); err == nil {
 		t.Fatal("garbage verified")
 	}
@@ -553,8 +569,11 @@ func TestKeySetMatchesOpenAPIAndVerifiesReceipts(t *testing.T) {
 	tamper := func(name string, f func(set KeySet)) {
 		t.Helper()
 		var set KeySet
-		b, _ := json.Marshal(ks)
-		if err := json.Unmarshal(b, &set); err != nil {
+		raw, err := json.Marshal(ks)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &set); err != nil {
 			t.Fatal(err)
 		}
 		f(set)
@@ -571,6 +590,34 @@ func TestKeySetMatchesOpenAPIAndVerifiesReceipts(t *testing.T) {
 	})
 	tamper("role changed", func(s KeySet) { s.Keys[a].LsRole, s.Keys[b].LsRole = "receipt", "checkpoint" })
 	tamper("key replaced", func(s KeySet) { s.Keys[a].X = s.Keys[b].X })
+	tamper("parent is another key", func(s KeySet) {
+		other := "not-the-identity"
+		s.Keys[a].LsParentKid = &other
+	})
+	tamper("two identity entries", func(s KeySet) { s.Keys[a].LsRole = "identity" })
+	tamper("line feed in the signature", func(s KeySet) {
+		sig := s.Keys[a].LsEndorsement.Signature
+		s.Keys[a].LsEndorsement.Signature = sig[:4] + "\n" + sig[4:]
+	})
+	// A line feed in a receipt key's x is refused by VerifyReceipt too.
+	{
+		var set KeySet
+		raw, err := json.Marshal(ks)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(raw, &set); err != nil {
+			t.Fatal(err)
+		}
+		for i := range set.Keys {
+			if set.Keys[i].Kid == e.keys.CurrentKeyID(hostkeys.Receipt) {
+				set.Keys[i].X = set.Keys[i].X[:4] + "\n" + set.Keys[i].X[4:]
+			}
+		}
+		if _, err := set.VerifyReceipt(cur.Receipt.JWS); err == nil {
+			t.Fatal("VerifyReceipt accepted a receipt key with a line feed in x")
+		}
+	}
 	// The keys chain to the host identity.
 	pks, _ := e.keys.PublicKeys(ctx)
 	for _, pk := range pks {
@@ -619,13 +666,55 @@ func TestOriginSettingRefusedOnceACheckpointExists(t *testing.T) {
 func TestBadOriginSettingIsRefused(t *testing.T) {
 	e := newEnv(t)
 	e.record(t, 1)
-	e.set(t, KeyOrigin, "has space")
-	if _, _, err := e.svc.Build(context.Background()); !errors.Is(err, ErrBadKeyName) {
-		t.Fatalf("Build = %v; want ErrBadKeyName", err)
+	err := e.st.Set(context.Background(), settings.Host, KeyOrigin, "", "has space")
+	if !errors.Is(err, settings.ErrRejected) || !errors.Is(err, ErrBadKeyName) {
+		t.Fatalf("Set = %v; want ErrRejected and ErrBadKeyName", err)
 	}
+	for _, bad := range []string{"example.org/a b", "example.org/a\u2003b", "example.org/\xff"} {
+		err := e.st.Set(context.Background(), settings.Host, KeyOrigin, "", bad)
+		if !errors.Is(err, settings.ErrRejected) || !errors.Is(err, ErrBadKeyName) {
+			t.Fatalf("Set %q = %v; want ErrRejected and ErrBadKeyName", bad, err)
+		}
+	}
+	e.build(t) // the default origin is still in force
+	// The first checkpoint locks the origin (D-97), so a valid origin is set in a fresh log.
+	e = newEnv(t)
+	e.record(t, 1)
 	e.set(t, KeyOrigin, "example.org/my-ledger")
 	cp := e.build(t)
 	if v, err := Verify(cp.Note, e.verifierKeys(t)...); err != nil || v.Origin != "example.org/my-ledger" {
 		t.Fatalf("Verify = %+v, %v", v, err)
+	}
+}
+
+func TestVerifierKeyRefusesUnicodeSpaceAndInvalidUTF8(t *testing.T) {
+	pub := fuzzKey().Public().(ed25519.PublicKey)
+	for _, name := range []string{"example.org/a b", "example.org/\xff"} {
+		if _, err := VerifierKey(name, pub); !errors.Is(err, ErrBadKeyName) {
+			t.Fatalf("VerifierKey(%q) = %v; want ErrBadKeyName", name, err)
+		}
+	}
+}
+
+func TestVerifyRefusesTwoTextsOfOneVerifierKey(t *testing.T) {
+	e := newEnv(t)
+	e.record(t, 1)
+	cp := e.build(t)
+	vk := e.verifierKeys(t)[0]
+	vk2 := vk[:len(vk)-8] + "\n" + vk[len(vk)-8:]
+	if _, err := Verify(cp.Note, vk, vk2); !errors.Is(err, ErrBadNote) {
+		t.Fatalf("Verify with two texts of one key = %v; want ErrBadNote", err)
+	}
+}
+
+func TestSettingValidatorsRefuseValuesThatStallTheWorker(t *testing.T) {
+	e := newEnv(t)
+	for key, v := range map[string]string{
+		KeyMinLeaves: "0", KeyMaxInterval: "0s", KeyPollInterval: "-1s", KeyKeyCheckInterval: "0s",
+	} {
+		err := e.st.Set(context.Background(), settings.Host, key, "", v)
+		if !errors.Is(err, settings.ErrRejected) {
+			t.Fatalf("Set %s=%s = %v; want ErrRejected", key, v, err)
+		}
 	}
 }

@@ -146,12 +146,11 @@ func TestRemoteImageURLRejected(t *testing.T) {
 }
 
 // streamStub answers a request like the gateway does for a stream: no receipt header,
-// because the receipt travels in the final SSE event (D-27, D-39, D-78, PLT-B-007).
+// because the receipt travels in the SSE comment line before `[DONE]` (D-27, D-39, D-78, PLT-B-007).
 type streamStub struct{ chatStub }
 
 func (h *streamStub) CreateChatCompletion(_ context.Context, _ *ChatCompletionRequest, _ CreateChatCompletionParams) (CreateChatCompletionRes, error) {
-	return &ChatCompletionHeaders{Response: ChatCompletion{ID: "c1", Object: "chat.completion", Model: "m",
-		Choices: []ChatCompletionChoice{{Message: ChatCompletionMessage{Role: ChatCompletionMessageRoleAssistant}, FinishReason: FinishReasonStop}}}}, nil
+	return &CreateChatCompletionOKTextEventStreamHeaders{Response: CreateChatCompletionOKTextEventStream{Data: strings.NewReader("data: [DONE]\n\n")}}, nil
 }
 
 func TestStreamedChatHasNoReceiptHeader(t *testing.T) {
@@ -162,6 +161,9 @@ func TestStreamedChatHasNoReceiptHeader(t *testing.T) {
 	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+		t.Fatalf("Content-Type = %q; want text/event-stream", ct)
 	}
 	if v := rec.Header().Values("LS-Receipt"); len(v) != 0 {
 		t.Fatalf("a streamed response must not carry LS-Receipt, got %q", v)

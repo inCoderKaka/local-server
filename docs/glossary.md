@@ -47,6 +47,9 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Tailnet | The private Tailscale network the host machine and its consumers' nodes share. | — | D-10, D-12 |
 | Share-budget slice | The host resources local-server's sharing is using now: the local-server process, the Ollama processes and the loaded models. Its memory is local-server's RSS plus the larger of Ollama's RSS and the loaded models' host RAM, so weights are never counted twice. It is measured, not reserved. Other apps is host use outside it. | — | D-31, D-91 |
 | Other apps | Host resource use outside the share-budget slice: total host use minus local-server, Ollama and loaded models (free memory is not counted). | Other apps | D-31, D-92 |
+| Preload | Loading a model at start and when the preload setting changes, and keeping it loaded until it leaves the setting; a preloaded model is never unloaded for idleness or to make room. | Preload | D-22 |
+| Keep-alive | How long an idle model stays loaded before local-server unloads it (idle unload). A negative value keeps it until it is unloaded by hand or to make room. | Keep alive | D-22 |
+| Reclaim | Unloading idle models that are not preloaded, least recently used first, to make room for a request that does not fit the memory budget. Different from idle unload after the keep-alive. | — | D-22, D-26 |
 
 ## Access and limits
 
@@ -55,6 +58,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Access key | A credential the host issues to a consumer to call the API. Shown once, can expire or be revoked. "API key" is an accepted synonym in conversation; docs and UI say *access key*. | Access key | req_001 §2 glossary |
 | Invite | A one-time sign-up link the host sends so a person can create a consumer account. | Invite link | D-13 |
 | Share budget | Everything the host sets aside for all consumers together (models, memory, concurrency, tokens). | Share budget | req_001 §2 glossary |
+| Memory budget | The memory part of the share budget: bytes the host sets aside for loaded models and the context of running requests together (`scheduler.memory_budget_bytes`; 0 means no limit). A request that can never fit it is refused with `over_budget`. | Memory budget | D-26, D-93 |
 | Grant | One consumer's part of the share budget: allowed models, quotas, context limit, output limit, concurrency, expiry and allowed request properties. | Your limits | req_001 §2 glossary |
 | Grant version | An immutable snapshot of a grant's limits. Each change creates a new version, and usage records name the version they ran under. | — | D-25, D-42 |
 | Context limit | The largest context window, in tokens, a grant allows for one model; local-server sends it to Ollama as num_ctx. The decisions log and tickets call it *context cap* (ctx_cap in the schema). | Context limit | D-22, D-25 |
@@ -66,6 +70,9 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Host identity key | The Ed25519 key pair each install generates. Its public key is the host's global ID. | Host ID | D-25 |
 | Receipt-signing key | A rotating key, signed by the host identity key, that signs usage receipts. | — | D-27 |
 | Checkpoint-signing key | A rarely rotated key, signed by the host identity key, that signs ledger checkpoints. Separate from the receipt-signing keys. | — | D-65 |
+| Key set | The host's public keys, current and retired, published at `/v1/keys` as a JWK Set: the host identity key, the receipt-signing keys and the checkpoint-signing keys, each signing key with its key endorsement. Retired keys stay listed so old receipts and checkpoints still verify. | — | D-27, D-65, D-94 |
+| Key endorsement | The host identity key's signature over a signing key's certificate (host id, role, public key, creation time), published with the key in the key set (`ls_endorsement`) so anyone can check that the key belongs to the host. | — | D-96 |
+| Verifier key | The signed-note text form `<name>+<hash>+<key>` of a checkpoint-signing key, which signed-note tools use to check a checkpoint; published in the key set as `ls_note_verifier_key`. | — | D-65, D-97 |
 | Host master key | The key that seals every secret local-server keeps at rest (private keys, the host data key, credentials). It lives in the OS keychain, or in a user-only file where there is no keychain, and never in the database. | — | D-40 |
 | Host data key | The key that encrypts queued job content, job results and backup snapshots. It is sealed with the host master key and shown once, at setup, as the recovery code. | — | D-40, D-41 |
 | Policy rule | A versioned, declarative rule the host edits through a form (request properties, time windows, priority class, caps). Set per grant or globally. | Rule | D-25 |
@@ -95,6 +102,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Unmetered receipt | A usage receipt marked *unmetered*: the host answered but could not record the call, so it carries the engine's token counts and no leaf index; signed evidence the call can't be billed later. | Unmetered | D-51 |
 | Inclusion proof | A short proof that one usage record's leaf is in the usage ledger, checked against a signed checkpoint. | — | D-27, D-52 |
 | Consistency proof | A proof that a later checkpoint's ledger contains an earlier one's unchanged, so the ledger only grew between them. | — | D-27 |
+| Checkpoint origin | The first line of every checkpoint, also the checkpoint-signing key's name in the signed note. Defaults to `local-server/ledger/<host id>` and cannot change once the first checkpoint is signed. | — | D-97 |
 | Rollup | Usage totals per minute, hour or day, computed from usage records. | Usage over time | D-27 |
 | Outbox | The table where an event and its pending webhook deliveries are written in the same transaction, so none are lost. | — | D-29 |
 | Webhook endpoint | A URL a consumer or host registers to receive signed event notifications. | Webhook | D-29 |

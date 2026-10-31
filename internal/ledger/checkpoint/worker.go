@@ -2,14 +2,21 @@ package checkpoint
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/inCoderKaka/local-server/internal/telemetry"
 )
 
 // Worker signs checkpoints when they are due and rotates host keys on schedule.
 type Worker struct {
 	svc   *Service
 	clock Clock
-	// OnError receives an error of a cycle; the worker carries on. Nil logs it.
+	tel   telemetry.Telemetry
+	// signed counts checkpoints signed; failures counts failed cycle parts.
+	signed   telemetry.Counter
+	failures telemetry.Counter
+	// OnError receives an error of a cycle; the worker carries on. Nil logs it to the telemetry.
 	OnError func(error)
 
 	lastCheckpoint time.Time
@@ -18,8 +25,18 @@ type Worker struct {
 	started        bool
 }
 
-// NewWorker returns the checkpoint worker of svc, on the service's clock.
-func NewWorker(svc *Service) *Worker { return &Worker{svc: svc, clock: svc.clock} }
+// NewWorker returns the checkpoint worker of svc, on the service's clock. A nil tel means
+// telemetry.Nop().
+func NewWorker(svc *Service, tel telemetry.Telemetry) *Worker {
+	if tel == nil {
+		tel = telemetry.Nop()
+	}
+	return &Worker{
+		svc: svc, clock: svc.clock, tel: tel,
+		signed:   tel.Counter("ledger_checkpoints_signed_total"),
+		failures: tel.Counter("ledger_checkpoint_worker_errors_total", "part"),
+	}
+}
 
 // Run runs cycles until ctx ends, one every ledger.checkpoint_poll_interval, and returns
 // ctx.Err(). A cycle error goes to OnError; it never stops the worker.
@@ -29,12 +46,12 @@ func (w *Worker) Run(ctx context.Context) error {
 			if w.OnError != nil {
 				w.OnError(err)
 			} else {
-				logger().Warn("ledger checkpoint worker", "error", err)
+				w.tel.Logger().WarnContext(ctx, "ledger checkpoint worker", "error", err)
 			}
 		}
 		poll, err := w.svc.settings.Duration(ctx, KeyPollInterval, "")
 		if err != nil || poll <= 0 {
-			poll = 5 * time.Second // setting unreadable: stay alive on the registered default
+			poll = defaultPollInterval // setting unreadable: stay alive on the registered default
 		}
 		t := w.clock.NewTimer(poll)
 		select {
@@ -51,10 +68,15 @@ func (w *Worker) Run(ctx context.Context) error {
 func (w *Worker) RunOnce(ctx context.Context) error {
 	cpErr := w.checkpointIfDue(ctx)
 	keyErr := w.rotateIfDue(ctx)
-	if cpErr != nil {
-		return cpErr
+	if ctx.Err() == nil {
+		if cpErr != nil {
+			w.failures.Inc("checkpoint")
+		}
+		if keyErr != nil {
+			w.failures.Inc("key_rotation")
+		}
 	}
-	return keyErr
+	return errors.Join(cpErr, keyErr)
 }
 
 func (w *Worker) checkpointIfDue(ctx context.Context) error {
@@ -95,6 +117,7 @@ func (w *Worker) checkpointIfDue(ctx context.Context) error {
 		return err
 	}
 	if made {
+		w.signed.Inc()
 		w.lastCheckpoint, w.haveLast = now, true
 	}
 	return nil
@@ -105,7 +128,7 @@ func (w *Worker) rotateIfDue(ctx context.Context) error {
 	if w.nextKeyCheck.After(now) {
 		return nil
 	}
-	every, err := w.svc.settings.Duration(ctx, KeyKeyCheckEvery, "")
+	every, err := w.svc.settings.Duration(ctx, KeyKeyCheckInterval, "")
 	if err != nil {
 		return err
 	}

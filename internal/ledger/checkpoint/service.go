@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"golang.org/x/mod/sumdb/tlog"
@@ -24,6 +23,8 @@ type Keys interface {
 	PublicKeys(ctx context.Context) ([]hostkeys.PublicKey, error)
 	EnsureCurrent(ctx context.Context) ([]hostkeys.Purpose, error)
 }
+
+var _ Keys = (*hostkeys.Keys)(nil)
 
 // Clock is the time source; tests pass a fake so waits are deterministic.
 type Clock interface {
@@ -98,8 +99,11 @@ func newService(db *storage.DB, keys Keys, st *settings.Store, c Clock) (*Servic
 	if err := st.Register(Defs()...); err != nil {
 		return nil, err
 	}
+	if err := setValidators(st); err != nil {
+		return nil, err
+	}
 	svc := &Service{db: db, keys: keys, settings: st, clock: c}
-	if err := st.SetValidator(KeyOrigin, svc.originWritable); err != nil {
+	if err := st.SetTxValidator(KeyOrigin, svc.originWritable); err != nil {
 		return nil, err
 	}
 	return svc, nil
@@ -109,13 +113,19 @@ func newService(db *storage.DB, keys Keys, st *settings.Store, c Clock) (*Servic
 // once a checkpoint has been signed: the log name never forks (req_001 D-97).
 var ErrOriginLocked = errors.New("checkpoint: the origin cannot change once a checkpoint has been signed")
 
-// originWritable is the settings write validator of KeyOrigin. A checkpoint built between this
-// check and the write is not caught; the setting is host-owned and the window is one write.
-func (s *Service) originWritable(ctx context.Context, _ string) error {
-	if _, err := s.Latest(ctx); err == nil {
+// originWritable is the settings write validator of KeyOrigin. It runs in the write's unit of
+// work, so the single writer orders it against build: either the origin write comes first and
+// build reads the new name, or a checkpoint comes first and the write is refused.
+func (s *Service) originWritable(tx *storage.Tx, value string) error {
+	if value != "" && !validName(value) {
+		return fmt.Errorf("%w (setting %s)", ErrBadKeyName, KeyOrigin)
+	}
+	var exists int
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM ldg_checkpoint)`).Scan(&exists); err != nil {
+		return fmt.Errorf("checkpoint: check for a signed checkpoint: %w", err)
+	}
+	if exists == 1 {
 		return ErrOriginLocked
-	} else if !errors.Is(err, ErrNoCheckpoint) {
-		return err
 	}
 	return nil
 }
@@ -135,17 +145,28 @@ func (s *Service) origin(ctx context.Context) (string, error) {
 	return o, nil
 }
 
+// originTx is origin read inside the unit of work tx.
+func (s *Service) originTx(tx *storage.Tx) (string, error) {
+	o, err := s.settings.StringTx(tx, KeyOrigin, "")
+	if err != nil {
+		return "", err
+	}
+	if o == "" {
+		o = "local-server/ledger/" + s.keys.HostID()
+	}
+	if !validName(o) {
+		return "", fmt.Errorf("%w (setting %s)", ErrBadKeyName, KeyOrigin)
+	}
+	return o, nil
+}
+
 var errKeyRotated = errors.New("checkpoint: the checkpoint key rotated while signing")
 
 // Build signs a checkpoint of the whole log as it is now and stores it. It returns false and
 // writes nothing when the log is empty or has no leaf the last checkpoint does not cover.
 func (s *Service) Build(ctx context.Context) (Checkpoint, bool, error) {
-	origin, err := s.origin(ctx)
-	if err != nil {
-		return Checkpoint{}, false, err
-	}
 	for range 3 {
-		cp, made, err := s.build(ctx, origin)
+		cp, made, err := s.build(ctx)
 		if errors.Is(err, errKeyRotated) {
 			continue
 		}
@@ -154,7 +175,7 @@ func (s *Service) Build(ctx context.Context) (Checkpoint, bool, error) {
 	return Checkpoint{}, false, errKeyRotated
 }
 
-func (s *Service) build(ctx context.Context, origin string) (Checkpoint, bool, error) {
+func (s *Service) build(ctx context.Context) (Checkpoint, bool, error) {
 	pks, err := s.keys.PublicKeys(ctx)
 	if err != nil {
 		return Checkpoint{}, false, err
@@ -169,6 +190,10 @@ func (s *Service) build(ctx context.Context, origin string) (Checkpoint, bool, e
 	made := false
 	err = s.db.Write(ctx, func(tx *storage.Tx) error {
 		made = false
+		origin, err := s.originTx(tx)
+		if err != nil {
+			return err
+		}
 		var size, last int64
 		if err := tx.QueryRow(`SELECT COALESCE(MAX(leaf_index) + 1, 0) FROM ldg_leaf`).Scan(&size); err != nil {
 			return fmt.Errorf("checkpoint: read log size: %w", err)
@@ -332,5 +357,3 @@ func EncodeHashes[T ~[]tlog.Hash](hs T) []string {
 	}
 	return out
 }
-
-func logger() *slog.Logger { return slog.Default() }

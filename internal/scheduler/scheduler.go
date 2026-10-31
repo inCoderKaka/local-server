@@ -12,6 +12,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/host"
 	"github.com/inCoderKaka/local-server/internal/settings"
+	"github.com/inCoderKaka/local-server/internal/telemetry"
 )
 
 // Engine is the part of the engine port the scheduler uses (req_001 D-22).
@@ -52,10 +53,11 @@ type Request struct {
 	EstimatedCtxTokens int
 }
 
-// Options configure New. The zero value uses the real clock and slog.Default.
+// Options configure New. The zero value uses the real clock and telemetry.Nop until
+// startup wires the real adapter.
 type Options struct {
-	Clock  Clock
-	Logger *slog.Logger
+	Clock     Clock
+	Telemetry telemetry.Telemetry
 }
 
 // Stats is a point-in-time count, for tests, metrics and the admin UI.
@@ -114,14 +116,17 @@ func New(eng Engine, st *settings.Store, sharing Sharing, opts Options) (*Schedu
 	if err := st.Register(Defs()...); err != nil {
 		return nil, err
 	}
+	if err := setValidators(st); err != nil {
+		return nil, err
+	}
 	if opts.Clock == nil {
 		opts.Clock = realClock{}
 	}
-	if opts.Logger == nil {
-		opts.Logger = slog.Default()
+	if opts.Telemetry == nil {
+		opts.Telemetry = telemetry.Nop()
 	}
 	return &Scheduler{
-		eng: eng, st: st, sharing: sharing, clock: opts.Clock, log: opts.Logger,
+		eng: eng, st: st, sharing: sharing, clock: opts.Clock, log: opts.Telemetry.Logger(),
 		byGrant: map[string]int{}, byModel: map[string]int{}, loading: map[string]int64{},
 		lastUsed: map[string]time.Time{}, pinned: map[string]bool{},
 	}, nil
@@ -183,7 +188,8 @@ func (t *Ticket) Release() {
 //     the queue-wait setting, then ErrQueueFull.
 //   - Background: waits while the host is paused or quiet, and has no wait limit but ctx.
 //   - Both: ErrQueueFull at once when the queue is full; ErrOverBudget when the model
-//     plus the estimated context can never fit the memory budget.
+//     plus the estimated context can never fit the memory budget beside the preloaded
+//     models.
 //
 // If the model is not loaded, Admit loads it before returning. A cancelled ctx removes
 // the request from the queue and returns ctx.Err().
@@ -204,7 +210,7 @@ func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
 			return nil, err
 		}
 		if state != host.Sharing {
-			return nil, pausedErr(cfg)
+			return nil, pausedErr()
 		}
 	}
 	ctxBytes := int64(req.EstimatedCtxTokens) * cfg.ctxBytes
@@ -213,9 +219,20 @@ func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
 		if err != nil {
 			return nil, err
 		}
-		if size+ctxBytes > cfg.budget {
+		lm, err := s.eng.Loaded(ctx)
+		if err != nil {
+			return nil, err
+		}
+		loaded := make(map[string]int64, len(lm))
+		for _, m := range lm {
+			loaded[m.Name] = m.SizeBytes
+		}
+		s.mu.Lock()
+		pinnedBytes := s.pinnedLoadedBytesLocked(loaded, req.Model)
+		s.mu.Unlock()
+		if size+ctxBytes+pinnedBytes > cfg.budget {
 			return nil, &Error{Code: CodeOverBudget,
-				Message: fmt.Sprintf("model %s with a context of %d tokens needs %d bytes, the share budget is %d", req.Model, req.EstimatedCtxTokens, size+ctxBytes, cfg.budget)}
+				Message: fmt.Sprintf("model %s with a context of %d tokens needs %d bytes; the memory budget is %d bytes, of which preloaded models use %d", req.Model, req.EstimatedCtxTokens, size+ctxBytes, cfg.budget, pinnedBytes)}
 		}
 	}
 
@@ -249,6 +266,7 @@ func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
 	}
 	recheck := s.clock.NewTimer(cfg.recheck)
 	defer func() { recheck.Stop() }()
+	recheckFailing := false // log a failing recheck once per outage, not once per interval
 	for {
 		select {
 		case <-w.done:
@@ -259,7 +277,7 @@ func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
 			}
 			<-w.done
 			if w.err == nil {
-				w.ticket.Release() // granted at the same moment: give it back
+				s.giveBack(w) // granted at the same moment: give it back
 			}
 			return nil, ctx.Err()
 		case <-waitC:
@@ -274,7 +292,12 @@ func (s *Scheduler) Admit(ctx context.Context, req Request) (*Ticket, error) {
 				cfg = c
 			}
 			if err := s.dispatch(dctx); err != nil {
-				s.log.Warn("scheduler: recheck failed", "err", err)
+				if !recheckFailing {
+					s.log.Warn("scheduler: recheck failed", "err", err)
+				}
+				recheckFailing = true
+			} else {
+				recheckFailing = false
 			}
 			recheck = s.clock.NewTimer(cfg.recheck)
 		}
@@ -299,6 +322,18 @@ func (s *Scheduler) finish(ctx context.Context, w *waiter, cfg config) (*Ticket,
 	return w.ticket, nil
 }
 
+// giveBack returns a ticket granted to a waiter whose caller has gone. If the grant
+// made the waiter load its model, the load marker is cleared first, so the model is
+// not left looking as if it were loading for good.
+func (s *Scheduler) giveBack(w *waiter) {
+	if w.needLoad {
+		s.mu.Lock()
+		delete(s.loading, w.req.Model)
+		s.mu.Unlock()
+	}
+	w.ticket.Release()
+}
+
 func (s *Scheduler) sharingState(ctx context.Context) (host.State, error) {
 	state, err := s.sharing.Effective(ctx)
 	if err != nil && !errors.Is(err, host.ErrInvalidSchedule) {
@@ -309,8 +344,10 @@ func (s *Scheduler) sharingState(ctx context.Context) (host.State, error) {
 	return state, nil
 }
 
-func pausedErr(cfg config) *Error {
-	return &Error{Code: CodeHostPaused, RetryAfter: cfg.retryAfter, Message: "the host is paused or in quiet hours"}
+// pausedErr carries no Retry-After: the scheduler does not know when a pause or quiet
+// hours end.
+func pausedErr() *Error {
+	return &Error{Code: CodeHostPaused, Message: "the host is paused or in quiet hours"}
 }
 
 func queueFullErr(cfg config) *Error {
@@ -425,7 +462,7 @@ func (s *Scheduler) dispatch(ctx context.Context) error {
 		return err
 	}
 	if state != host.Sharing {
-		s.failInteractive(pausedErr(cfg))
+		s.failInteractive(pausedErr())
 		return nil // background work stays queued while paused or quiet (req_001 D-38 host sharing)
 	}
 	snap, err := s.takeSnapshot(ctx, cfg)
@@ -485,7 +522,10 @@ func key(w *waiter, aging time.Duration) time.Time {
 
 // pick chooses the best queued request that can run now. It returns the idle models to
 // unload first to make room (nil when none are needed). A request blocked by its
-// grant's limit or by memory does not hold up the ones behind it.
+// grant's limit does not hold up the ones behind it. Nor does an interactive request
+// blocked by memory. A background request blocked by memory does hold them up when it
+// would fit once the running work drains, so that after it has aged it is not starved
+// by newer requests that keep its room busy (req_001 D-26).
 func (s *Scheduler) pick(cfg config, snap *snapshot) (*waiter, []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -512,8 +552,29 @@ func (s *Scheduler) pick(cfg config, snap *snapshot) (*waiter, []string) {
 		if ok {
 			return w, unloads
 		}
+		if w.req.Class == ClassBackground && s.fitsWhenIdleLocked(cfg, snap, w) {
+			return nil, nil
+		}
 	}
 	return nil, nil
+}
+
+// fitsWhenIdleLocked reports whether w would fit the memory budget beside the loaded
+// preloaded models once every running request has finished.
+func (s *Scheduler) fitsWhenIdleLocked(cfg config, snap *snapshot, w *waiter) bool {
+	return snap.sizes[w.req.Model]+w.ctxBytes+s.pinnedLoadedBytesLocked(snap.loaded, w.req.Model) <= cfg.budget
+}
+
+// pinnedLoadedBytesLocked is the memory of the loaded preloaded models other than
+// except. Callers hold s.mu.
+func (s *Scheduler) pinnedLoadedBytesLocked(loaded map[string]int64, except string) int64 {
+	var n int64
+	for name, b := range loaded {
+		if name != except && s.pinned[name] {
+			n += b
+		}
+	}
+	return n
 }
 
 // fitsLocked checks memory admission for w: the loaded models, the models being loaded,

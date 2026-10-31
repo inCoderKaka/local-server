@@ -71,6 +71,7 @@ Errors use the OpenAI error envelope plus a typed `code`. Use `Retry-After` wher
 | `model_not_granted` | Check `/v1/capabilities`, or ask for the model |
 | `context_too_long` | Shorten the prompt or ask for a larger context limit |
 | `engine_unavailable` | Fall back |
+| `over_budget` | The model and context can never fit this host's memory budget; use a smaller model or shorter context, retrying the same request does not help |
 
 A good client:
 - checks `/v1/health` before falling back;

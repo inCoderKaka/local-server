@@ -16,7 +16,7 @@ const (
 	// CodeHostPaused means the host is paused or in quiet hours.
 	CodeHostPaused Code = "host_paused"
 	// CodeOverBudget means the model plus the estimated context can never fit the
-	// share memory budget.
+	// memory budget.
 	CodeOverBudget Code = "over_budget"
 )
 
@@ -25,7 +25,8 @@ const (
 type Error struct {
 	Code Code
 	// RetryAfter is how long the caller should wait before retrying; it becomes the
-	// Retry-After header. Zero when retrying will not help (CodeOverBudget).
+	// Retry-After header. Zero when retrying will not help (CodeOverBudget) or when the end
+	// is not known (CodeHostPaused).
 	RetryAfter time.Duration
 	Message    string
 }

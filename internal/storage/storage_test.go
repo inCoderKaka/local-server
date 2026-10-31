@@ -59,8 +59,8 @@ func count(t *testing.T, db *DB, q string, args ...any) int {
 func TestMigrationChecksums(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "a.db")
 	db := open(t, path, demo(map[string]string{"0001_init.sql": demoSQL}))
-	if n := count(t, db, `SELECT count(*) FROM ops_schema_migrations`); n != 3 {
-		t.Fatalf("applied rows = %d, want 3 (storage x2, demo x1)", n)
+	if n := count(t, db, `SELECT count(*) FROM ops_schema_migrations`); n != 4 {
+		t.Fatalf("applied rows = %d, want 4 (storage x3, demo x1)", n)
 	}
 	var sum string
 	if err := db.Reader().QueryRow(context.Background(), `SELECT checksum FROM ops_schema_migrations WHERE module='demo'`).Scan(&sum); err != nil || len(sum) != 64 {
@@ -70,8 +70,8 @@ func TestMigrationChecksums(t *testing.T) {
 
 	// Reopen unchanged: nothing is re-applied.
 	db = open(t, path, demo(map[string]string{"0001_init.sql": demoSQL}))
-	if n := count(t, db, `SELECT count(*) FROM ops_migration_run`); n != 3 {
-		t.Fatalf("run rows = %d, want 3", n)
+	if n := count(t, db, `SELECT count(*) FROM ops_migration_run`); n != 4 {
+		t.Fatalf("run rows = %d, want 4", n)
 	}
 	// A new migration is applied.
 	db.Close()
