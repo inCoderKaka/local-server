@@ -35,3 +35,8 @@ Work ledger for the platform track. Convention: `docs/tracks/README.md`. A ticke
 | PLT-F-012 | feat | Host sharing state: pause, resume, quiet hours (Claude, Sonnet) | done | 2026-10-31 | 2026-10-31 | 8d9cf62 | verify: pass (`go test ./internal/host/...`); set D code gate owed |
 | PLT-B-017..B-019 | bug | Step 3 build findings (Windows time zones, policy refusal codes, policy rule versions) | reported | 2026-10-31 | — | bugs.md | B-018, B-019 need a decision |
 | PLT-F-064..F-069 | feat | Builder ideas from step 3 | backlog | 2026-10-31 | — | backlog.md | spin-offs |
+| PLT-F-010, PLT-F-011 | feat | Set D code gate, auth and policy parts: 25 fixes (cache generation, inactive consumer refused, redacted secrets, deny beats window, strict trailing data) | done | 2026-10-31 | 2026-10-31 | 0640bf2 | verify: pass (`CGO_ENABLED=0 go test ./...`); host part owed |
+| PLT-F-013 | feat | Host metrics: `HostMetrics` port on gopsutil, per-minute `hst_metric_minute` sampler, three host settings (Claude, Sonnet) | done | 2026-10-31 | 2026-10-31 | 9a2d64a | verify: pass (`CGO_ENABLED=0 go test ./internal/hostmetrics/...`, full suite, darwin/linux/windows cgo-off builds); I-124..I-135; set D gate host part owed |
+| PLT-B-020, PLT-B-021 | bug | Broken policy rule fails closed silently (D-73); stale metric series on /metrics (D-74) | reported | 2026-10-31 | — | bugs.md | confirmed; B-020 lands with F-018 and F-026 |
+| PLT-F-070 | feat | Opt-in macOS GPU helper (D-75) | backlog | 2026-10-31 | — | backlog.md | spin-off of PLT-F-013 |
+| PLT-C-005 | chore | Up-front decision round D-73..D-90: PLT-B-001, B-007..B-016, B-018, B-019, PLT-F-054, F-055 decided | done | 2026-10-31 | 2026-10-31 | 4d957ec | no verify line |

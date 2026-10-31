@@ -4,6 +4,18 @@ Software choices the AI made that no ticket, design doc or requirement decision 
 
 | ID | Date | Kind | Ticket | Decision | Reverse-by | Status |
 |---|---|---|---|---|---|---|
+| I-135 | 2026-10-31 | scope | PLT-F-013 | Host settings `host.metrics.sample_interval` (15s; zero or less disables sampling), `host.metrics.retention` (168h), `host.metrics.ollama_process_names` (`ollama`, comma-separated, case and `.exe` ignored). | Revert or amend `9a2d64a`: edit the Defs. | unreviewed |
+| I-134 | 2026-10-31 | design | PLT-F-013 | Sample interval defaults to 15 s (D-40 says only "every N s"). | Revert or amend `9a2d64a`: change the Def default. | unreviewed |
+| I-133 | 2026-10-31 | design | PLT-F-013 | Other apps = memory in use − slice, clamped at 0. | Revert or amend `9a2d64a`: use `MemoryTotal` as the base in `Read`. | unreviewed |
+| I-132 | 2026-10-31 | design | PLT-F-013 | The local-server slice is clamped to the host total and flagged `Clamped`. | Revert or amend `9a2d64a`: remove the clamp. | unreviewed |
+| I-131 | 2026-10-31 | design | PLT-F-013 | Slice memory = local-server RSS + Ollama RSS + loaded models' `SizeBytes`; this can double-count a model held in Ollama's RSS. | Revert or amend `9a2d64a`: use max(Ollama RSS, loaded size). | unreviewed |
+| I-130 | 2026-10-31 | design | PLT-F-013 | Process CPU is a share of the whole host (per-core percent ÷ cores), clamped to the host CPU. | Revert or amend `9a2d64a`: drop the division. | unreviewed |
+| I-129 | 2026-10-31 | scope | PLT-F-013 | GPU totals are reported as `unavailable` with a reason; loaded models' VRAM is reported separately, labelled `engine_loaded` (the opt-in helper is PLT-F-070, D-75). | Revert or amend `9a2d64a`: add a probe. | unreviewed |
+| I-128 | 2026-10-31 | design | PLT-F-013 | The `measures` column is a JSON map, one key per value. | Revert or amend `9a2d64a`: split into columns in a new migration. | unreviewed |
+| I-127 | 2026-10-31 | design | PLT-F-013 | One `hst_metric_minute` row per minute (the minute's last sample), primary key the minute start, written with upsert; table name follows D-44, not D-40's prose `host_metric_minute`. | Revert or amend `9a2d64a`: new migration. | unreviewed |
+| I-126 | 2026-10-31 | design | PLT-F-013 | While sampling is off, `Run` rechecks at the sample interval's default (15 s); a `time.Minute` fallback exists only if that default fails to parse. | Revert or amend `9a2d64a`: change the recheck rule. | unreviewed |
+| I-125 | 2026-10-31 | design | PLT-F-013 | Unattributed is a count of processes whose names the OS refused, an unreadable or zero-byte Ollama process, and own-process read failures; no bytes. | Revert or amend `9a2d64a`: change the counting rule. | unreviewed |
+| I-124 | 2026-10-31 | design | PLT-F-013 | The sampler is not wired into `cmd/`; the startup ticket owns wiring. | Revert or amend `9a2d64a`: wire it in `cmd/`. | unreviewed |
 | I-123 | 2026-10-31 | design | PLT-F-012 | `SharingState` is built with `NewSharing(db, st, events.Notifier, Clock)` and registers its own settings. | Revert or amend `8d9cf62`: move registration to the caller. | unreviewed |
 | I-122 | 2026-10-31 | copy | PLT-F-012 | Audit actions `host.paused` and `host.resumed` with detail `{host_id, from, to}`; event payload `{host_id, state}`. | Revert or amend `8d9cf62`: rename the constants. | unreviewed |
 | I-121 | 2026-10-31 | design | PLT-F-012 | A repeated `Pause` or `Resume` is a no-op with no audit row or event. | Revert or amend `8d9cf62`: drop the state guard. | unreviewed |

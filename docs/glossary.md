@@ -31,7 +31,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | System Tailscale | The default transport mode: the host's normal Tailscale app carries traffic. | — | D-23 |
 | Embedded Tailscale | An optional build of local-server with Tailscale (tsnet) inside the binary, so the host installs only one thing. | — | D-23 |
 | Public mode | Opt-in, off by default. Exposes the consumer API on a public `*.ts.net` address through Tailscale Funnel, with TLS ending on the host machine. | Public access | D-24 |
-| Port / adapter | A port is an interface local-server's modules depend on (`Engine`, transport, storage, auth, notify, directory, `Policy`, `Notifier`, `Telemetry`, `HostMetrics`, `Power`, `OffHostSync`). An adapter is one implementation of it (e.g. the Ollama adapter). | — | D-21 |
+| Port / adapter | A port is an interface local-server's modules depend on (`Engine`, transport, storage, auth, notify, directory, `Policy`, `Notifier` (the domain-event bus), `Channel` (notification delivery, D-84), `Telemetry`, `HostMetrics`, `Power`, `OffHostSync`). An adapter is one implementation of it (e.g. the Ollama adapter). | — | D-21 |
 | Module | One internal part of local-server that owns its own packages, tables (by prefix) and port. D-21 names six top-level modules (gateway, control plane, scheduler, ledger, notifier, host-metrics); the LLD module map and the `tools/archcheck` config refine them into 28 modules (storage, settings, telemetry, host, engine, identity, grants, audit, events, auth, policy, scheduler, usage, ledger, limits, gateway, requests, notifier, transport, offhost, admin, consumerauth, bundle, sharing, power, service, directory, api). The control plane is identity, grants, auth, policy, requests, admin and consumerauth; host-metrics is part of host. D-44's twelve table prefixes (`hst_`, `idn_`, `grt_`, `req_`, `sch_`, `use_`, `ldg_`, `ntf_`, `aud_`, `syn_`, `plt_`, `ops_`) name the table owners among them. Each module has an architecture note in `docs/modules/`. | — | D-21, D-28, D-44 |
 | Listener | One of local-server's three network endpoints: consumer API, consumer web page, admin UI. | — | D-10, D-21 |
 | Service mode | How local-server runs in the background: *user* (starts at login, the default) or *system* (starts at boot). | Start at login / Start at boot | D-30 |
@@ -121,4 +121,5 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | user user | Consumer | Ambiguous with host (req_001). |
 | reserved resources | Share budget | req_001 §2 glossary. |
 | platform admin approval | Sharing grant | Generalised to any grantor and grantee (D-43 supersedes D-36). |
+| `Notifier` (notification-delivery port) | `Channel` | `Notifier` names the domain-event bus only (D-84, PLT-B-016, 2026-10-31). |
 | `platform_`, `identity_`, … table prefixes | `plt_`, `idn_`, … | Short prefixes (D-44 supersedes D-37). |

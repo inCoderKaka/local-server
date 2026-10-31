@@ -30,7 +30,7 @@ Each module owns its package, its tables (by prefix), and its port where it has 
 | limits | `internal/limits/` | — | — | PLT-F-017 |
 | gateway | `internal/gateway/` | — | — | PLT-F-018, PLT-F-019 |
 | requests | `internal/requests/` | `req_resource_request`, `req_comment` | — | PLT-F-028 |
-| notifier | `internal/notifier/` | `ntf_notification`, `ntf_pref`, `ntf_webhook_endpoint`, `ntf_outbox_delivery` | `Notifier` | PLT-F-029..F-031 |
+| notifier | `internal/notifier/` | `ntf_notification`, `ntf_pref`, `ntf_webhook_endpoint`, `ntf_outbox_delivery` | `Channel` | PLT-F-029..F-031 |
 | transport | `internal/transport/` | — | transport | PLT-F-038..F-040 |
 | off-host | `internal/offhost/` | `syn_change`, `syn_cursor`, `plt_dataset_key` | `OffHostSync` | PLT-F-044..F-046 |
 | admin | `internal/admin/` | — (writes through the owning modules) | — | PLT-F-024..F-026 |
@@ -83,7 +83,7 @@ type OffHostSync interface {
 }
 ```
 
-`HostMetrics`, `Notifier` (channels: in-app, webhook, desktop), `Power` (sleep lock), the transport, and `directory` follow the same rule. Each is small, role-specific, and comes with a shared contract test suite that every adapter must pass (D-31).
+`HostMetrics`, `Channel` (in-app, webhook, desktop; D-84), `Power` (sleep lock), the transport, and `directory` follow the same rule. Each is small, role-specific, and comes with a shared contract test suite that every adapter must pass (D-31).
 
 ## 3. Data model (D-37 as superseded by D-42 and D-44, plus D-53)
 
@@ -133,8 +133,8 @@ erDiagram
 | `grt_version` | Immutable. Quotas, concurrency, expiry, allowed properties, `on_context_overflow` (`refuse` \| `truncate`, D-48). `grt_grant.current_version_id` points at the live one. |
 | `use_record` | Immutable. Token counts, model, latency, **copies** `consumer_id` and `grant_version_id`, so the hot path needs no joins |
 | `ldg_leaf`, `ldg_hash`, `ldg_checkpoint` | `leaf_index` PK + leaf hash; tlog stored hashes; `tree_size` PK + root + signed note + signing key id |
-| `sch_job_payload`, `sch_job_result` | The only content-bearing tables. Encrypted with the host data key, never synced, deleted at the terminal state or on fetch |
-| `syn_change`, `syn_cursor` | `seq` AUTOINCREMENT, dataset, table, pk, version, op, payload. Written **in the same transaction** as the change it records. The cursor tracks the last seq each target acknowledged |
+| `sch_job_payload`, `sch_job_result` | The only content-bearing tables. Encrypted with the host data key, never synced, deleted at the terminal state, or once a fetch has written the whole result (D-85) |
+| `syn_change`, `syn_cursor` | `seq` AUTOINCREMENT, dataset, table, pk, version, op, payload. Written **in the same transaction** as the change it records. The cursor tracks the last seq each target acknowledged Always captured; rows no target has acknowledged are pruned after `sync.change.retention` (default 30 d, D-77). |
 | `plt_sharing_grant` | grantor and grantee principal, grantee public key, dataset, purpose, terms version, key version, wrapped key, expiry, `revoked_at` |
 | `aud_event` | Append-only, kept forever |
 
@@ -283,7 +283,7 @@ sequenceDiagram
   K->>W: encrypted sch_job_result, status succeeded, ntf_event job.done + outbox row (one transaction)
   O-->>C: webhook job.done (Standard Webhooks, HMAC)
   C->>G: GET /v1/jobs/{id}/result
-  G-->>C: result (deleted on fetch, per setting)
+  G-->>C: result (deleted once fully written, D-85)
 ```
 
 ### F3 — resource request approval (one unit of work)
@@ -294,7 +294,7 @@ sequenceDiagram
   participant R as Requests
   participant H as Host (admin UI)
   participant W as Writer
-  participant N as Notifier
+  participant N as Channel
   Co->>R: POST /v1/resource-requests (+ comments)
   R->>W: insert request + ntf_event
   N-->>H: in-app (SSE) and desktop notification
@@ -375,7 +375,7 @@ Rules:
 |---|---|---|
 | Prompt and response content | client → encrypted transport → gateway memory → Ollama on localhost → back | never on disk or in logs |
 | Queued job content | `sch_job_payload`, encrypted | until the terminal state; never synced; left out of backups by default (D-64) |
-| Job result | `sch_job_result`, encrypted, only to its consumer | until fetched, or 24 h; left out of backups by default (D-64) |
+| Job result | `sch_job_result`, encrypted, only to its consumer | until a fetch has written it whole (D-85), or 24 h; left out of backups by default (D-64) |
 | Access key secret | generated and shown once; only the prefix and hash are stored | never synced |
 | Credentials | argon2id hash or WebAuthn public key | never synced |
 | Consumer personal data | `idn_consumer`; erased on deletion, the row stays | synced encrypted (consumer-directory dataset) |
@@ -384,6 +384,8 @@ Rules:
 | Host readings | sampler → `hst_metric_minute` → `/metrics` and the UI | 7 d; not synced |
 | Logs | slog JSON → lumberjack-rotated files, redacted types | 14 d / 50 MB; not synced |
 | Webhook payloads | event (no content) → outbox → receiver | delivered + 7 d |
+| Domain events | `ntf_event` | 30 d (`events.retention`, D-83); outbox rows never outlive their event |
+| Change feed | `syn_change` | unacknowledged rows 30 d (`sync.change.retention`, D-77) |
 | Secret keys | sealed with a master key in the OS keychain, or a user-only file on headless Linux | never leave the host, except dataset keys wrapped for an approved grantee |
 
 Every retention above is a setting with that default (D-54).
