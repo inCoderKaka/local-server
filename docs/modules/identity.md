@@ -7,7 +7,7 @@ Principals, admin users, consumers, credentials, sessions and consent records. A
 ## Owns
 
 - Packages: `internal/identity/` (built by PLT-F-007).
-- Tables: `idn_*`, migrations in `internal/identity/migrations/`.
+- Tables: `idn_principal`, `idn_admin_user`, `idn_consumer`, `idn_credential`, `idn_invite`, `idn_access_key`, `idn_session`, `idn_consent`; migrations in `internal/identity/migrations/`. Only consumer changes are captured for sync (dataset `consumer_directory`); credentials and keys never sync.
 - Port: none defined here.
 
 ## Imports

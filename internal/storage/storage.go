@@ -17,8 +17,8 @@ import (
 	_ "modernc.org/sqlite" // pure-Go driver; imported only here (D-28, archcheck)
 )
 
-// Defaults for the Config fields left at zero. They are starting values only: the runtime
-// settings module (PLT-F-004) is not built yet, so the caller owns them (D-38, D-54).
+// Defaults for the Config fields left at zero. They are starting values only: startup
+// passes the runtime settings (PLT-F-004) in Config (D-38, D-54).
 const (
 	DefaultBusyTimeout  = 5 * time.Second
 	DefaultBatchMax     = 64

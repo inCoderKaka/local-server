@@ -7,7 +7,7 @@ Per-consumer grants and policy rules, versioned.
 ## Owns
 
 - Packages: `internal/grants/` (built by PLT-F-007).
-- Tables: `grt_*`, migrations in `internal/grants/migrations/`.
+- Tables: `grt_model`, `grt_grant`, `grt_version`, `grt_version_model`, `grt_policy_rule`; migrations in `internal/grants/migrations/`. Triggers refuse any update or delete of `grt_version` and `grt_version_model`, so versions are immutable. Register after identity.
 - Port: none defined here.
 
 ## Imports

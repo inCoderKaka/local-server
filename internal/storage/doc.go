@@ -43,8 +43,9 @@
 //
 // # Configuration
 //
-// Every duration and limit is a Config field with a documented default; the runtime
-// settings module (PLT-F-004) does not exist yet, so the caller passes them in.
+// Every duration and limit is a Config field with a documented default. Storage
+// cannot import the settings module (PLT-F-004), so startup reads the settings and
+// passes them in.
 //
 // Prompts and responses are never written by this package (D-31, D-40).
 package storage
