@@ -18,7 +18,7 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 
 5. ~~S7 **PLT-F-006** Engine port with Ollama adapter, fake engine and adapter contract suite (deps: PLT-C-001)  ∥  S8 **PLT-F-007** Identity and grants data model (deps: PLT-F-002) **gate it**~~ built 2026-10-31, not shipped (`5cd11e2`; set C code gate ran, `fab7890`)
 6. ~~S9 **PLT-F-008** Audit log (deps: PLT-F-007)  ∥  S10 **PLT-F-009** Domain events core (deps: PLT-F-002, PLT-F-007) **gate it**~~ built 2026-10-31, not shipped (`939208f`, `fab7890`; set C code gate ran)
-7. S11 **PLT-F-010** Access keys: issue, authenticate, expire, revoke (deps: PLT-F-007, PLT-F-008, PLT-F-009) **gate it**  ∥  S12 **PLT-F-011** Policy engine for request properties, background hours and priority class (deps: PLT-F-007) **gate it**  ∥  S13 **PLT-F-012** Host sharing state: pause switch and quiet hours (deps: PLT-F-004, PLT-F-005, PLT-F-008, PLT-F-009)
+7. ~~S11 **PLT-F-010** Access keys: issue, authenticate, expire, revoke (deps: PLT-F-007, PLT-F-008, PLT-F-009) **gate it**  ∥  S12 **PLT-F-011** Policy engine for request properties, background hours and priority class (deps: PLT-F-007) **gate it**  ∥  S13 **PLT-F-012** Host sharing state: pause switch and quiet hours (deps: PLT-F-004, PLT-F-005, PLT-F-008, PLT-F-009)~~ built 2026-10-31, not shipped (`8d9cf62`; set D code gate owed)
 8. S14 **PLT-F-013** Host metrics: totals, share-budget slice and other apps (deps: PLT-F-002, PLT-F-004, PLT-F-003, PLT-F-006)
 
 ### B3 — Inference path

@@ -30,3 +30,8 @@ Work ledger for the platform track. Convention: `docs/tracks/README.md`. A ticke
 | PLT-F-004, PLT-F-006, PLT-F-007 | feat | set C code gate `5cd11e2..939208f` covers step 1 too (Claude, gate) | done | 2026-10-31 | 2026-10-31 | fab7890 | gated; 18 actions, 0 skipped |
 | PLT-B-013..B-016 | bug | Set C gate's deferred findings (recovery code shown once, keychain prompt hangs startup, unbounded `ntf_event`, `Notifier` name clash) | reported | 2026-10-31 | — | bugs.md | needs-decision each |
 | PLT-F-056..F-063, PLT-C-011 | feat | Builder ideas from steps 1–2 | backlog | 2026-10-31 | — | backlog.md | spin-offs |
+| PLT-F-010 | feat | Access keys: issue, authenticate with a cache, expire, revoke, narrowing, node binding (Claude, Sonnet) | done | 2026-10-31 | 2026-10-31 | 8d9cf62 | verify: pass (`go test ./internal/auth/...`, FuzzParseHeader listed; fuzz 20 s clean); set D code gate owed |
+| PLT-F-011 | feat | Policy engine: request properties, rule format v1, time windows, caps and priority (Claude, Opus) | done | 2026-10-31 | 2026-10-31 | 8d9cf62 | verify: pass (`go test ./internal/policy/...`, 2 fuzz targets listed; fuzz clean, govulncheck clean); set D code gate owed |
+| PLT-F-012 | feat | Host sharing state: pause, resume, quiet hours (Claude, Sonnet) | done | 2026-10-31 | 2026-10-31 | 8d9cf62 | verify: pass (`go test ./internal/host/...`); set D code gate owed |
+| PLT-B-017..B-019 | bug | Step 3 build findings (Windows time zones, policy refusal codes, policy rule versions) | reported | 2026-10-31 | — | bugs.md | B-018, B-019 need a decision |
+| PLT-F-064..F-069 | feat | Builder ideas from step 3 | backlog | 2026-10-31 | — | backlog.md | spin-offs |

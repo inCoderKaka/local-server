@@ -59,7 +59,7 @@ type Engine interface {
 
 // Policy — D-25, D-39 step 3. Decides only; the gateway enforces.
 type Policy interface {
-    Evaluate(ctx context.Context, in PolicyInput) (Decision, error) // properties, model, time, grant version
+    Evaluate(ctx context.Context, in Input) (Decision, error) // properties, model, time, grant version
 }
 type Decision struct {
     Priority PriorityClass // interactive | background
