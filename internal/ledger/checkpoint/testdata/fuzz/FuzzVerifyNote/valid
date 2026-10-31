@@ -1,0 +1,2 @@
+go test fuzz v1
+string("example.org/ledger\n3\nCQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n\n— example.org/ledger yy6+6AMfYPdWzsA7Lpr1l3ic6zbgqOF8ZYGoJ9dxyMiN7zLaEthVtGCD6naTW4Rj7DuWVevt0WLiY3eG8fAE7bz3YgQ=\n")

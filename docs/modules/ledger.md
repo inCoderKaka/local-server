@@ -6,8 +6,8 @@ The signed usage ledger, checkpoints and receipts.
 
 ## Owns
 
-- Packages: `internal/ledger/` (built by PLT-F-015, PLT-F-016, PLT-F-023).
-- Tables: `ldg_*`, migrations in `internal/ledger/migrations/`. Built so far (PLT-F-015): `ldg_leaf`, `ldg_hash`. The ledger also writes the usage module's `use_record` in the same unit of work, because the receipt it signs commits to both; `ldg_checkpoint` comes with PLT-F-016.
+- Packages: `internal/ledger/` (PLT-F-015) and `internal/ledger/checkpoint/` (PLT-F-016: checkpoint worker, proofs, `/v1/keys` key set, note and receipt verification; PLT-F-023 is still to come).
+- Tables: `ldg_*`, migrations in `internal/ledger/migrations/`. Built so far (PLT-F-015): `ldg_leaf`, `ldg_hash`. The ledger also writes the usage module's `use_record` in the same unit of work, because the receipt it signs commits to both; `ldg_checkpoint` (PLT-F-016, written only by `internal/ledger/checkpoint`, immutable).
 - Port: none defined here.
 
 ## Imports

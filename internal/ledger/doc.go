@@ -19,7 +19,7 @@
 //
 // The log is an RFC 6962 Merkle tree kept with golang.org/x/mod/sumdb/tlog. The leaf hash is
 // tlog.RecordHash(CanonicalLeaf(usage)); ldg_hash holds the tlog stored hashes. Checkpoints
-// (signed tree heads) and proofs are built on top of these tables by PLT-F-016. The log
+// (signed tree heads) and proofs are built on top of these tables by package ledger/checkpoint. The log
 // has one writer, the storage writer goroutine, so leaf indexes have no gaps (D-39).
 //
 // # Canonical leaf (external contract, version 1)
