@@ -3729,12 +3729,30 @@ components:
           description: Every key, current and retired.
           items:
             $ref: '#/components/schemas/HostPublicKey'
+    HostKeyEndorsement:
+      type: object
+      description: |
+        The existing key certificate signature, with the bytes it covers. A verifier checks
+        `signature` over the decoded `certificate` with the identity key of the same key set,
+        then checks that the certificate names this key.
+      required: [certificate, signature]
+      properties:
+        certificate:
+          type: string
+          description: |
+            The signed bytes, base64url without padding. Decoded they are five lines joined by
+            `\n`, without a trailing newline: `local-server/key-certificate/v1`, the host's
+            global id (the identity key's `kid`), the key's `ls_role`, the key's `x`, and the
+            key's creation time as Unix milliseconds UTC in decimal (`ls_created_at`).
+        signature:
+          type: string
+          description: The identity key's Ed25519 signature (64 bytes) over the certificate bytes, base64url without padding.
     HostPublicKey:
       type: object
       description: |
         An Ed25519 public key as an RFC 8037 OKP JWK, with local-server members prefixed
         `ls_`. The identity key is the root; receipt-signing and checkpoint-signing keys carry
-        an endorsement signed by it.
+        an endorsement: the identity key's signature over the key's certificate.
       required: [kty, crv, x, kid, alg, use, ls_role, ls_created_at]
       properties:
         kty:
@@ -3750,7 +3768,11 @@ components:
           description: The public key, base64url without padding.
         kid:
           type: string
-          description: The key id, its RFC 7638 JWK thumbprint (base64url, SHA-256).
+          description: |
+            The key id a receipt or checkpoint names. For the identity key it is the host's
+            global id, the base64url identity public key (the same text as `x`), which is the
+            receipt's `host_kid`. For a receipt or checkpoint key it is the first 8 bytes of
+            the SHA-256 of the public key, in lowercase hex. It is not an RFC 7638 thumbprint.
         alg:
           type: string
           description: Always `Ed25519` (RFC 9864).
@@ -3767,8 +3789,10 @@ components:
           type: [string, 'null']
           description: The key that endorsed this one (the identity key); null for the identity key.
         ls_endorsement:
-          type: [string, 'null']
-          description: 'A compact JWS (alg `Ed25519`) by the parent key whose payload is `{"kid", "ls_role", "x", "ls_created_at"}` of this key; null for the identity key.'
+          description: The identity key's endorsement of this key; null for the identity key.
+          oneOf:
+            - $ref: '#/components/schemas/HostKeyEndorsement'
+            - type: 'null'
         ls_note_verifier_key:
           type: [string, 'null']
           description: For the checkpoint key, its C2SP signed-note verifier key (`<name>+<hash>+<keydata>`); null otherwise.

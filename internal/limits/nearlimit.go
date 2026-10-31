@@ -32,6 +32,9 @@ func (l *Limiter) Record(ctx context.Context, id *auth.Identity) error {
 		return err
 	}
 	for _, q := range qs {
+		if q.unit != UnitTokens {
+			continue // quota.near_limit is a token-quota event (QuotaStatus counts tokens)
+		}
 		if q.limit <= 0 || float64(q.used)*100 < float64(q.limit)*float64(pct) {
 			continue
 		}

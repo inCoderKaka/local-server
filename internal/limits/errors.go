@@ -26,10 +26,17 @@ const (
 	ScopeAccessKey = "access_key"
 )
 
-// QuotaError means a token quota is used up. The gateway answers 429 quota_exceeded with
+// Units a quota is counted in.
+const (
+	UnitTokens   = "tokens"
+	UnitRequests = "requests"
+)
+
+// QuotaError means a token or request quota is used up. The gateway answers 429 quota_exceeded with
 // RetryAfter in the Retry-After header.
 type QuotaError struct {
 	Scope      string // ScopeGrant or ScopeAccessKey
+	Unit       string // UnitTokens or UnitRequests (req_001 D-98)
 	Limit      int64
 	Used       int64
 	Window     time.Duration
@@ -38,7 +45,7 @@ type QuotaError struct {
 }
 
 func (e *QuotaError) Error() string {
-	return fmt.Sprintf("limits: %s token quota used up (%d of %d), retry in %s", e.Scope, e.Used, e.Limit, e.RetryAfter.Round(time.Second))
+	return fmt.Sprintf("limits: %s %s quota used up (%d of %d), retry in %s", e.Scope, e.Unit, e.Used, e.Limit, e.RetryAfter.Round(time.Second))
 }
 
 // Is matches ErrQuotaExceeded.

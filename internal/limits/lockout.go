@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -178,7 +179,8 @@ func (l *Limiter) CheckLockout(ctx context.Context, remoteAddr, header string) e
 // AuthResult feeds an authentication outcome into the lockout counters: pass the error from
 // auth.Service.Authenticate, nil on success. A bad, unknown, revoked or expired key, or one
 // used from the wrong node, counts as a failure against the address and the key prefix; success
-// clears both counters. Any other error (a database failure, a missing grant) is not a failed
+// clears only the key prefix's counter, never the address's: otherwise a holder of one valid
+// key could reset its address counter while guessing other prefixes (req_001 D-99). Any other error (a database failure, a missing grant) is not a failed
 // guess and changes nothing.
 func (l *Limiter) AuthResult(ctx context.Context, remoteAddr, header string, authErr error) {
 	on, c, err := l.lockoutCfg(ctx)
@@ -192,7 +194,7 @@ func (l *Limiter) AuthResult(ctx context.Context, remoteAddr, header string, aut
 	keys := subjects(remoteAddr, header)
 	switch {
 	case authErr == nil:
-		l.fails.clear(keys)
+		l.fails.clear(prefixSubjects(keys))
 	case isCredentialFailure(authErr):
 		l.fails.fail(keys, l.now(), c)
 	}
@@ -205,4 +207,15 @@ func isCredentialFailure(err error) bool {
 		}
 	}
 	return false
+}
+
+// prefixSubjects keeps the key-prefix tracker keys of keys and drops the address ones (D-99).
+func prefixSubjects(keys []string) []string {
+	var out []string
+	for _, k := range keys {
+		if strings.HasPrefix(k, "k:") {
+			out = append(out, k)
+		}
+	}
+	return out
 }

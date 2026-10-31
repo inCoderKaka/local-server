@@ -23,7 +23,7 @@ func Defs() []settings.Def {
 		{Key: KeyPollInterval, Kind: settings.Duration, Default: "5s", Owner: h,
 			Description: "How often the checkpoint worker looks at the ledger to see whether a checkpoint is due."},
 		{Key: KeyOrigin, Kind: settings.String, Default: "", Owner: h,
-			Description: "Origin line of ledger checkpoints, also the name of the checkpoint key in the signed note: no white space and no plus sign. Empty means local-server/ledger/ followed by the host id. Changing it makes later checkpoints verify only with a key published under the new name."},
+			Description: "Origin line of ledger checkpoints, also the name of the checkpoint key in the signed note: no white space and no plus sign. Empty means local-server/ledger/ followed by the host id. It can be changed only until the first checkpoint is signed; after that a change is refused so the log name never forks."},
 		{Key: KeyKeyCheckEvery, Kind: settings.Duration, Default: "1h", Owner: h,
 			Description: "How often the host checks whether a receipt or checkpoint signing key has reached its rotation interval."},
 	}

@@ -25,7 +25,7 @@ func Defs() []settings.Def {
 	h := settings.Host
 	return []settings.Def{
 		{Key: KeyQuotaWindow, Kind: settings.Duration, Default: "24h", Owner: h,
-			Description: "Length of the window a token quota counts over. Windows are fixed and start at multiples of this length from midnight UTC. The quotas of keys and grants are stored as tokens per day; changing this changes what they mean."},
+			Description: "Length of the window a token or request quota counts over. Windows are fixed and start at multiples of this length from midnight UTC. The quotas of keys and grants are stored per day; changing this changes what they mean."},
 		{Key: KeyNearLimitPercent, Kind: settings.Int, Default: "80", Owner: h,
 			Description: "Percent of a quota used at which one quota.near_limit notification is raised for that window. 0 turns the notification off."},
 		{Key: KeyRateEnabled, Kind: settings.Bool, Default: "true", Owner: h,

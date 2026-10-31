@@ -68,7 +68,9 @@ func (w *lockedWriter) Write(p []byte) (int, error) {
 	return w.e.logs.Write(p)
 }
 
-func setup(t *testing.T, grantQuota *int64) *env {
+func setup(t *testing.T, grantQuota *int64) *env { return setupGrant(t, grantQuota, nil) }
+
+func setupGrant(t *testing.T, grantQuota, grantRequests *int64) *env {
 	t.Helper()
 	db, err := storage.Open(context.Background(), storage.DefaultConfig(filepath.Join(t.TempDir(), "t.db"),
 		settings.Module(), identity.Module(), grants.Module(), audit.Module(), events.Module(), usage.Module()))
@@ -112,7 +114,7 @@ func setup(t *testing.T, grantQuota *int64) *env {
 		if err != nil {
 			return err
 		}
-		_, err = gr.Versions.Create(tx, g.ID, grants.NewVersion{QuotaTokensPerDay: grantQuota,
+		_, err = gr.Versions.Create(tx, g.ID, grants.NewVersion{QuotaTokensPerDay: grantQuota, QuotaRequestsPerDay: grantRequests,
 			Models: []grants.VersionModel{{ModelID: m.ID}}})
 		return err
 	}); err != nil {
@@ -223,6 +225,49 @@ func TestKeyNarrowingLimitsOnlyThatKey(t *testing.T) {
 	}
 	if err := e.lim.Check(ctx(), a.id); !errors.Is(err, limits.ErrQuotaExceeded) {
 		t.Fatalf("narrowed key: %v", err)
+	}
+}
+
+// quota_requests_per_day counts calls in the same window as the token quota (req_001 D-98).
+func TestRequestQuotaNPlusOne(t *testing.T) {
+	e := setup(t, nil)
+	k := e.issue(auth.Narrowing{QuotaRequestsPerDay: i64(3)})
+	other := e.issue(auth.Narrowing{})
+	for i := 1; i <= 3; i++ {
+		if err := e.lim.Check(ctx(), k.id); err != nil {
+			t.Fatalf("request %d: %v", i, err)
+		}
+		e.use(k, 0) // a zero-token call still counts as a request
+	}
+	err := e.lim.Check(ctx(), k.id)
+	var qe *limits.QuotaError
+	if !errors.As(err, &qe) || !errors.Is(err, limits.ErrQuotaExceeded) {
+		t.Fatalf("request 4: %v", err)
+	}
+	if qe.Scope != limits.ScopeAccessKey || qe.Unit != limits.UnitRequests || qe.Code() != "quota_exceeded" ||
+		qe.Limit != 3 || qe.Used != 3 || qe.RetryAfter != 14*time.Hour {
+		t.Fatalf("quota error = %+v", qe)
+	}
+	if err := e.lim.Check(ctx(), other.id); err != nil {
+		t.Fatalf("other key must be unaffected: %v", err)
+	}
+	e.advance(14 * time.Hour)
+	if err := e.lim.Check(ctx(), k.id); err != nil {
+		t.Fatalf("new window: %v", err)
+	}
+}
+
+func TestGrantRequestQuotaCountsAllKeysOfConsumer(t *testing.T) {
+	e := setupGrant(t, nil, i64(2))
+	a, b := e.issue(auth.Narrowing{}), e.issue(auth.Narrowing{})
+	e.use(a, 1)
+	if err := e.lim.Check(ctx(), b.id); err != nil {
+		t.Fatalf("request 2: %v", err)
+	}
+	e.use(b, 1)
+	var qe *limits.QuotaError
+	if err := e.lim.Check(ctx(), a.id); !errors.As(err, &qe) || qe.Scope != limits.ScopeGrant || qe.Unit != limits.UnitRequests {
+		t.Fatalf("request 3: %v", err)
 	}
 }
 
@@ -359,16 +404,14 @@ func TestLockout(t *testing.T) {
 		}
 		fail(bad, addr)
 	}
-	// Success clears the counters (address and prefix), so two more failures are fine.
+	// A success does not clear the address counter (D-99): the third failure from addr locks it,
+	// though a valid key succeeded in between.
 	e.lim.AuthResult(ctx(), addr, good.hdr, nil)
-	// (a different prefix, so only the address counter is in play)
 	bad = "Bearer " + auth.FormatKey("abcdef999999", strings.Repeat("0", 64))
-	fail(bad, addr)
-	fail(bad, addr)
 	if err := e.lim.CheckLockout(ctx(), addr, bad); err != nil {
-		t.Fatalf("success must have cleared the counter: %v", err)
+		t.Fatalf("two failures are under the threshold: %v", err)
 	}
-	fail(bad, addr) // third in a row
+	fail(bad, addr) // third failure from the address
 	err := e.lim.CheckLockout(ctx(), addr, bad)
 	var re *limits.RateLimitError
 	if !errors.As(err, &re) || !re.LockedOut || re.Code() != "rate_limit_exceeded" || re.RetryAfter != 15*time.Minute {
@@ -377,9 +420,6 @@ func TestLockout(t *testing.T) {
 	// A good key from the locked address is refused, and so is the locked prefix elsewhere.
 	if err := e.lim.CheckLockout(ctx(), addr, good.hdr); !errors.Is(err, limits.ErrRateLimited) {
 		t.Fatalf("good key from locked address: %v", err)
-	}
-	if err := e.lim.CheckLockout(ctx(), "198.51.100.1:1", bad); !errors.Is(err, limits.ErrRateLimited) {
-		t.Fatalf("locked prefix from other address: %v", err)
 	}
 	if err := e.lim.CheckLockout(ctx(), "198.51.100.1:1", good.hdr); err != nil {
 		t.Fatalf("unrelated caller: %v", err)
@@ -411,6 +451,50 @@ func TestLockout(t *testing.T) {
 	fail(other, "192.0.2.6:1")
 	if err := e.lim.CheckLockout(ctx(), "192.0.2.6:1", other); err != nil {
 		t.Fatalf("stale failures counted: %v", err)
+	}
+}
+
+// A successful authentication clears only its own key prefix's failed-guess counter, never the
+// source address's (req_001 D-99).
+func TestSuccessClearsOnlyKeyPrefixCounter(t *testing.T) {
+	e := setup(t, nil)
+	e.set(limits.KeyLockoutFailures, "3")
+	good := e.issue(auth.Narrowing{})
+	p, err := auth.ParseHeader(good.hdr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guess := func(prefix string) string {
+		return "Bearer " + auth.FormatKey(prefix, strings.Repeat("0", 64))
+	}
+	fail := func(hdr, from string) {
+		t.Helper()
+		e.lim.AuthResult(ctx(), from, hdr, auth.ErrInvalidKey)
+	}
+
+	// Prefix counter: two wrong guesses at good's prefix from address A, then the holder
+	// authenticates from B. One more wrong guess from C must not lock the prefix.
+	fail(guess(p.Prefix), "203.0.113.1:1")
+	fail(guess(p.Prefix), "203.0.113.1:1")
+	e.lim.AuthResult(ctx(), "203.0.113.2:1", good.hdr, nil)
+	fail(guess(p.Prefix), "203.0.113.3:1")
+	if err := e.lim.CheckLockout(ctx(), "203.0.113.4:1", guess(p.Prefix)); err != nil {
+		t.Fatalf("success must clear the key prefix counter: %v", err)
+	}
+	fail(guess(p.Prefix), "203.0.113.3:1")
+	fail(guess(p.Prefix), "203.0.113.3:1") // 3 since the success
+	if err := e.lim.CheckLockout(ctx(), "203.0.113.4:1", guess(p.Prefix)); !errors.Is(err, limits.ErrRateLimited) {
+		t.Fatalf("prefix must lock after 3 failures: %v", err)
+	}
+
+	// Address counter: two failures at other prefixes from address D, then a success from D.
+	// The next failure from D is the third and locks it.
+	fail(guess("aaaaaaaaaaaa"), "198.51.100.7:1")
+	fail(guess("bbbbbbbbbbbb"), "198.51.100.7:1")
+	e.lim.AuthResult(ctx(), "198.51.100.7:1", good.hdr, nil)
+	fail(guess("cccccccccccc"), "198.51.100.7:1")
+	if err := e.lim.CheckLockout(ctx(), "198.51.100.7:1", ""); !errors.Is(err, limits.ErrRateLimited) {
+		t.Fatalf("success must not clear the address counter: %v", err)
 	}
 }
 
@@ -575,6 +659,34 @@ func TestDefsAllHostOwnedWithDefaults(t *testing.T) {
 	for _, d := range limits.Defs() {
 		if d.Owner != settings.Host || d.Default == "" || d.Description == "" || !strings.HasPrefix(d.Key, "limits.") {
 			t.Errorf("def %+v", d)
+		}
+	}
+}
+
+// The quota queries must use the use_record indexes of PLT-B-023, not scan the table.
+func TestQuotaQueriesUseIndexes(t *testing.T) {
+	e := setup(t, nil)
+	for _, c := range []struct{ col, index string }{
+		{"access_key_id", "use_record_key_finished"},
+		{"consumer_id", "use_record_consumer_finished"},
+	} {
+		rows, err := e.db.Reader().Query(ctx(), `EXPLAIN QUERY PLAN SELECT COALESCE(SUM(total_tokens), 0), COUNT(*) FROM use_record WHERE `+
+			c.col+` = ? AND finished_at >= ? AND finished_at < ?`, "x", 0, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var plan strings.Builder
+		for rows.Next() {
+			var id, parent, unused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+				t.Fatal(err)
+			}
+			plan.WriteString(detail + "\n")
+		}
+		rows.Close()
+		if !strings.Contains(plan.String(), "USING INDEX "+c.index) && !strings.Contains(plan.String(), "USING COVERING INDEX "+c.index) {
+			t.Fatalf("%s query plan does not use %s:\n%s", c.col, c.index, plan.String())
 		}
 	}
 }

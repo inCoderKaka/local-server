@@ -380,3 +380,38 @@ func TestMasterKeyFileKeptWhenKeychainReturns(t *testing.T) {
 		t.Fatalf("after keychain returns: %v, %v, same key %v", src, err, bytes.Equal(k1, k2))
 	}
 }
+
+// A rotation that happens while the signed input is being built must not make the input name
+// a key other than the one that signs (PLT-B-022).
+func TestSignWithKeyIDNamesTheSigningKeyAcrossRotation(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	k := e.keys
+	oldID := k.CurrentKeyID(Receipt)
+	var named string
+	var msg []byte
+	e.now = e.now.Add(time.Hour)
+	kid, sig, err := k.SignWithKeyID(Receipt, func(id string) []byte {
+		named = id
+		if _, err := k.Rotate(ctx, Receipt); err != nil { // the rotation slips in
+			t.Error(err)
+		}
+		msg = []byte("input naming " + id)
+		return msg
+	})
+	if err != nil || kid != oldID || named != oldID {
+		t.Fatalf("SignWithKeyID = %q, %v; build saw %q; want the key live at the start, %q", kid, err, named, oldID)
+	}
+	pks, _ := k.PublicKeys(ctx)
+	for _, pk := range pks {
+		if pk.ID == kid && !ed25519.Verify(pk.Key, msg, sig) {
+			t.Fatal("signature does not verify under the key the message names")
+		}
+	}
+	if k.CurrentKeyID(Receipt) == oldID {
+		t.Fatal("test did not rotate")
+	}
+	if _, _, err := k.SignWithKeyID(Identity, func(string) []byte { return nil }); !errors.Is(err, ErrNotSigningPurpose) {
+		t.Fatalf("SignWithKeyID(Identity) = %v", err)
+	}
+}

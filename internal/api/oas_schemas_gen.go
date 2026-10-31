@@ -3432,6 +3432,41 @@ func (s *HostInfoEngineState) UnmarshalText(data []byte) error {
 	}
 }
 
+// The existing key certificate signature, with the bytes it covers. A verifier checks `signature` over
+// the decoded `certificate` with the identity key of the same key set, then checks that the
+// certificate names this key.
+// Ref: #/components/schemas/HostKeyEndorsement
+type HostKeyEndorsement struct {
+	// The signed bytes, base64url without padding. Decoded they are five lines joined by `\n`, without a
+	// trailing newline: `local-server/key-certificate/v1`, the host's global id (the identity key's
+	// `kid`), the key's `ls_role`, the key's `x`, and the key's creation time as Unix milliseconds UTC in
+	// decimal (`ls_created_at`).
+	Certificate string `json:"certificate"`
+	// The identity key's Ed25519 signature (64 bytes) over the certificate bytes, base64url without
+	// padding.
+	Signature string `json:"signature"`
+}
+
+// GetCertificate returns the value of Certificate.
+func (s *HostKeyEndorsement) GetCertificate() string {
+	return s.Certificate
+}
+
+// GetSignature returns the value of Signature.
+func (s *HostKeyEndorsement) GetSignature() string {
+	return s.Signature
+}
+
+// SetCertificate sets the value of Certificate.
+func (s *HostKeyEndorsement) SetCertificate(val string) {
+	s.Certificate = val
+}
+
+// SetSignature sets the value of Signature.
+func (s *HostKeyEndorsement) SetSignature(val string) {
+	s.Signature = val
+}
+
 // The host's public keys as a JWK Set (RFC 7517).
 // Ref: #/components/schemas/HostKeySet
 type HostKeySet struct {
@@ -3755,7 +3790,8 @@ func (s *HostPausedEventData) SetSharingResumesAt(val OptNilDateTime) {
 }
 
 // An Ed25519 public key as an RFC 8037 OKP JWK, with local-server members prefixed `ls_`. The identity
-// key is the root; receipt-signing and checkpoint-signing keys carry an endorsement signed by it.
+// key is the root; receipt-signing and checkpoint-signing keys carry an endorsement: the identity
+// key's signature over the key's certificate.
 // Ref: #/components/schemas/HostPublicKey
 type HostPublicKey struct {
 	// Always `OKP`.
@@ -3764,7 +3800,10 @@ type HostPublicKey struct {
 	Crv string `json:"crv"`
 	// The public key, base64url without padding.
 	X string `json:"x"`
-	// The key id, its RFC 7638 JWK thumbprint (base64url, SHA-256).
+	// The key id a receipt or checkpoint names. For the identity key it is the host's global id, the
+	// base64url identity public key (the same text as `x`), which is the receipt's `host_kid`. For a
+	// receipt or checkpoint key it is the first 8 bytes of the SHA-256 of the public key, in lowercase
+	// hex. It is not an RFC 7638 thumbprint.
 	Kid string `json:"kid"`
 	// Always `Ed25519` (RFC 9864).
 	Alg string `json:"alg"`
@@ -3775,9 +3814,8 @@ type HostPublicKey struct {
 	LsRole HostPublicKeyLsRole `json:"ls_role"`
 	// The key that endorsed this one (the identity key); null for the identity key.
 	LsParentKid OptNilString `json:"ls_parent_kid"`
-	// A compact JWS (alg `Ed25519`) by the parent key whose payload is
-	// `{"kid", "ls_role", "x", "ls_created_at"}` of this key; null for the identity key.
-	LsEndorsement OptNilString `json:"ls_endorsement"`
+	// The identity key's endorsement of this key; null for the identity key.
+	LsEndorsement OptNilHostKeyEndorsement `json:"ls_endorsement"`
 	// For the checkpoint key, its C2SP signed-note verifier key (`<name>+<hash>+<keydata>`); null
 	// otherwise.
 	LsNoteVerifierKey OptNilString `json:"ls_note_verifier_key"`
@@ -3828,7 +3866,7 @@ func (s *HostPublicKey) GetLsParentKid() OptNilString {
 }
 
 // GetLsEndorsement returns the value of LsEndorsement.
-func (s *HostPublicKey) GetLsEndorsement() OptNilString {
+func (s *HostPublicKey) GetLsEndorsement() OptNilHostKeyEndorsement {
 	return s.LsEndorsement
 }
 
@@ -3888,7 +3926,7 @@ func (s *HostPublicKey) SetLsParentKid(val OptNilString) {
 }
 
 // SetLsEndorsement sets the value of LsEndorsement.
-func (s *HostPublicKey) SetLsEndorsement(val OptNilString) {
+func (s *HostPublicKey) SetLsEndorsement(val OptNilHostKeyEndorsement) {
 	s.LsEndorsement = val
 }
 
@@ -6104,6 +6142,74 @@ func (o OptNilFloat64) Get() (v float64, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptNilFloat64) Or(d float64) float64 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptNilHostKeyEndorsement returns new OptNilHostKeyEndorsement with value set to v.
+func NewOptNilHostKeyEndorsement(v HostKeyEndorsement) OptNilHostKeyEndorsement {
+	return OptNilHostKeyEndorsement{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNilHostKeyEndorsement is optional nullable HostKeyEndorsement.
+type OptNilHostKeyEndorsement struct {
+	Value HostKeyEndorsement
+	Set   bool
+	Null  bool
+}
+
+// IsSet returns true if OptNilHostKeyEndorsement was set.
+func (o OptNilHostKeyEndorsement) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNilHostKeyEndorsement) Reset() {
+	var v HostKeyEndorsement
+	o.Value = v
+	o.Set = false
+	o.Null = false
+}
+
+// SetTo sets value to v.
+func (o *OptNilHostKeyEndorsement) SetTo(v HostKeyEndorsement) {
+	o.Set = true
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o OptNilHostKeyEndorsement) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *OptNilHostKeyEndorsement) SetToNull() {
+	o.Set = true
+	o.Null = true
+	var v HostKeyEndorsement
+	o.Value = v
+}
+
+// IsEmpty returns true if the field was omitted from the payload (not Set and not Null).
+func (o OptNilHostKeyEndorsement) IsEmpty() bool {
+	return !o.Set && !o.Null
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNilHostKeyEndorsement) Get() (v HostKeyEndorsement, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNilHostKeyEndorsement) Or(d HostKeyEndorsement) HostKeyEndorsement {
 	if v, ok := o.Get(); ok {
 		return v
 	}

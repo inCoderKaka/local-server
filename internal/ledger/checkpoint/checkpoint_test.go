@@ -531,6 +531,46 @@ func TestKeySetMatchesOpenAPIAndVerifiesReceipts(t *testing.T) {
 	if _, err := ks.VerifyReceipt("not.a.jws"); err == nil {
 		t.Fatal("garbage verified")
 	}
+	// A client verifies every endorsement from the published set alone (D-96) ...
+	if err := ks.VerifyEndorsement(); err != nil {
+		t.Fatal(err)
+	}
+	for _, j := range ks.Keys {
+		if (j.LsRole == "identity") != (j.LsEndorsement == nil) {
+			t.Fatalf("endorsement on %s key: %+v", j.LsRole, j.LsEndorsement)
+		}
+	}
+	// ... and a swapped, altered or missing endorsement fails.
+	var a, b int // two non-identity entries, one checkpoint and one receipt key
+	for i, j := range ks.Keys {
+		switch j.LsRole {
+		case "checkpoint":
+			a = i
+		case "receipt":
+			b = i
+		}
+	}
+	tamper := func(name string, f func(set KeySet)) {
+		t.Helper()
+		var set KeySet
+		b, _ := json.Marshal(ks)
+		if err := json.Unmarshal(b, &set); err != nil {
+			t.Fatal(err)
+		}
+		f(set)
+		if err := set.VerifyEndorsement(); !errors.Is(err, ErrBadEndorsement) {
+			t.Fatalf("%s: VerifyEndorsement = %v; want ErrBadEndorsement", name, err)
+		}
+	}
+	tamper("missing", func(s KeySet) { s.Keys[a].LsEndorsement = nil })
+	tamper("signature of another key", func(s KeySet) {
+		s.Keys[a].LsEndorsement.Signature = s.Keys[b].LsEndorsement.Signature
+	})
+	tamper("certificate of another key", func(s KeySet) {
+		s.Keys[a].LsEndorsement.Certificate = s.Keys[b].LsEndorsement.Certificate
+	})
+	tamper("role changed", func(s KeySet) { s.Keys[a].LsRole, s.Keys[b].LsRole = "receipt", "checkpoint" })
+	tamper("key replaced", func(s KeySet) { s.Keys[a].X = s.Keys[b].X })
 	// The keys chain to the host identity.
 	pks, _ := e.keys.PublicKeys(ctx)
 	for _, pk := range pks {
@@ -550,6 +590,30 @@ func TestCheckpointRowIsImmutable(t *testing.T) {
 			t.Fatalf("%q succeeded", q)
 		}
 	}
+}
+
+// The origin can be set until the first checkpoint is signed and never after (req_001 D-97).
+func TestOriginSettingRefusedOnceACheckpointExists(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	e.record(t, 1)
+	e.set(t, KeyOrigin, "example.org/log-a") // no checkpoint yet: allowed
+	cp := e.build(t)
+	if !strings.HasPrefix(cp.Note, "example.org/log-a\n") {
+		t.Fatalf("note = %q", cp.Note)
+	}
+	err := e.st.Set(ctx, settings.Host, KeyOrigin, "", "example.org/log-b")
+	if !errors.Is(err, settings.ErrRejected) || !errors.Is(err, ErrOriginLocked) {
+		t.Fatalf("Set after the first checkpoint = %v; want ErrRejected and ErrOriginLocked", err)
+	}
+	if err := e.st.Reset(ctx, settings.Host, KeyOrigin, ""); !errors.Is(err, ErrOriginLocked) {
+		t.Fatalf("Reset after the first checkpoint = %v; want ErrOriginLocked", err)
+	}
+	if v, _ := e.st.String(ctx, KeyOrigin, ""); v != "example.org/log-a" {
+		t.Fatalf("origin = %q after the refused writes", v)
+	}
+	// Other settings of the package stay writable.
+	e.set(t, KeyMinLeaves, "5")
 }
 
 func TestBadOriginSettingIsRefused(t *testing.T) {

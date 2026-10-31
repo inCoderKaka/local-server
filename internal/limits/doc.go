@@ -10,7 +10,7 @@
 //   - Limiter.CheckLockout before auth.Service.Authenticate, so a locked-out address or key
 //     prefix is refused without verifying the secret;
 //   - Limiter.AuthResult with Authenticate's error (nil on success): failures count toward
-//     lockout, success clears the counters;
+//     lockout, success clears only the key prefix's counter, never the address's (req_001 D-99);
 //   - Limiter.LimitBody before it reads the body;
 //   - Limiter.Check after auth: rate limit, then a fresh check that the key and consumer are
 //     still active, then quotas. A refusal is a *RateLimitError, *QuotaError, or one of
@@ -23,7 +23,11 @@
 // grants.Version store it as quota_tokens_per_day; the window length is the setting
 // limits.quota_window, one day by default). Usage is the sum of use_record.total_tokens of
 // calls that finished in the current fixed window, aligned to UTC multiples of the window length,
-// so Retry-After is the time to the end of the window. The key's quota counts that key's
+// so Retry-After is the time to the end of the window. A request quota
+// (quota_requests_per_day, req_001 D-98) is the same figure per request: Check counts the
+// use_record rows of that window against it, with the same scope rules and the same
+// quota_exceeded refusal (QuotaError.Unit says which). Unmetered calls leave no record and are
+// not counted. The key's quota counts that key's
 // records; the grant's quota counts all records of the grant's consumer. Check does not count
 // tokens of calls still running, so concurrent calls can overshoot a quota by what is in flight.
 //

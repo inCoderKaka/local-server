@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
@@ -25,12 +26,19 @@ type JWK struct {
 	Alg string `json:"alg"`
 	Use string `json:"use"`
 	// LsRole is "identity", "receipt" or "checkpoint".
-	LsRole            string  `json:"ls_role"`
-	LsParentKid       *string `json:"ls_parent_kid"`
-	LsEndorsement     *string `json:"ls_endorsement"`
-	LsNoteVerifierKey *string `json:"ls_note_verifier_key"`
-	LsCreatedAt       string  `json:"ls_created_at"`
-	LsRetiredAt       *string `json:"ls_retired_at"`
+	LsRole            string       `json:"ls_role"`
+	LsParentKid       *string      `json:"ls_parent_kid"`
+	LsEndorsement     *Endorsement `json:"ls_endorsement"`
+	LsNoteVerifierKey *string      `json:"ls_note_verifier_key"`
+	LsCreatedAt       string       `json:"ls_created_at"`
+	LsRetiredAt       *string      `json:"ls_retired_at"`
+}
+
+// Endorsement is the HostKeyEndorsement schema: the identity key's signature over a key's
+// certificate bytes, with those bytes, both base64url without padding (req_001 D-96).
+type Endorsement struct {
+	Certificate string `json:"certificate"`
+	Signature   string `json:"signature"`
 }
 
 // KeySet is the /v1/keys body: the HostKeySet schema.
@@ -62,6 +70,9 @@ func buildKeySet(hostID, origin string, pks []hostkeys.PublicKey) (KeySet, error
 		} else {
 			parent := hostID
 			j.LsParentKid = &parent
+			j.LsEndorsement = &Endorsement{
+				Certificate: base64.RawURLEncoding.EncodeToString(pk.Certificate(hostID)),
+				Signature:   base64.RawURLEncoding.EncodeToString(pk.Signature)}
 		}
 		if pk.Purpose == hostkeys.Checkpoint {
 			vk, err := VerifierKey(origin, pk.Key)
@@ -131,4 +142,48 @@ func (k KeySet) VerifyReceipt(jws string) (ledger.Receipt, error) {
 		return ledger.Receipt{}, ErrWrongHost
 	}
 	return r, nil
+}
+
+// ErrBadEndorsement is returned by VerifyEndorsement when a key's endorsement is missing, does
+// not verify with the set's identity key, or certifies something other than the entry it is on.
+var ErrBadEndorsement = errors.New("checkpoint: key endorsement does not verify against the identity key of the set")
+
+// VerifyEndorsement checks every receipt and checkpoint key of the set against the identity
+// key of the same set, with nothing else: the endorsement's signature must verify over its
+// certificate bytes, and the certificate must name the identity (as host id), the key's role,
+// public key and creation time (req_001 D-96). The identity entry itself must have kid equal to
+// its own public key (D-94).
+func (k KeySet) VerifyEndorsement() error {
+	var idJWK *JWK
+	for i := range k.Keys {
+		if k.Keys[i].LsRole == string(hostkeys.Identity) {
+			idJWK = &k.Keys[i]
+		}
+	}
+	if idJWK == nil || idJWK.Kid != idJWK.X {
+		return ErrBadEndorsement
+	}
+	idPub, err := base64.RawURLEncoding.Strict().DecodeString(idJWK.X)
+	if err != nil || len(idPub) != ed25519.PublicKeySize {
+		return ErrBadEndorsement
+	}
+	for _, j := range k.Keys {
+		if j.LsRole == string(hostkeys.Identity) {
+			continue
+		}
+		if j.LsEndorsement == nil {
+			return fmt.Errorf("%w: key %s has none", ErrBadEndorsement, j.Kid)
+		}
+		cert, err1 := base64.RawURLEncoding.Strict().DecodeString(j.LsEndorsement.Certificate)
+		sig, err2 := base64.RawURLEncoding.Strict().DecodeString(j.LsEndorsement.Signature)
+		created, err3 := time.Parse(time.RFC3339Nano, j.LsCreatedAt)
+		if err1 != nil || err2 != nil || err3 != nil || !ed25519.Verify(idPub, cert, sig) {
+			return fmt.Errorf("%w: key %s", ErrBadEndorsement, j.Kid)
+		}
+		want := "local-server/key-certificate/v1\n" + idJWK.Kid + "\n" + j.LsRole + "\n" + j.X + "\n" + strconv.FormatInt(created.UnixMilli(), 10)
+		if string(cert) != want {
+			return fmt.Errorf("%w: key %s: the certificate names another key", ErrBadEndorsement, j.Kid)
+		}
+	}
+	return nil
 }

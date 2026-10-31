@@ -98,7 +98,26 @@ func newService(db *storage.DB, keys Keys, st *settings.Store, c Clock) (*Servic
 	if err := st.Register(Defs()...); err != nil {
 		return nil, err
 	}
-	return &Service{db: db, keys: keys, settings: st, clock: c}, nil
+	svc := &Service{db: db, keys: keys, settings: st, clock: c}
+	if err := st.SetValidator(KeyOrigin, svc.originWritable); err != nil {
+		return nil, err
+	}
+	return svc, nil
+}
+
+// ErrOriginLocked is returned (inside settings.ErrRejected) by a write to ledger.checkpoint_origin
+// once a checkpoint has been signed: the log name never forks (req_001 D-97).
+var ErrOriginLocked = errors.New("checkpoint: the origin cannot change once a checkpoint has been signed")
+
+// originWritable is the settings write validator of KeyOrigin. A checkpoint built between this
+// check and the write is not caught; the setting is host-owned and the window is one write.
+func (s *Service) originWritable(ctx context.Context, _ string) error {
+	if _, err := s.Latest(ctx); err == nil {
+		return ErrOriginLocked
+	} else if !errors.Is(err, ErrNoCheckpoint) {
+		return err
+	}
+	return nil
 }
 
 // origin returns the origin line and key name in force.

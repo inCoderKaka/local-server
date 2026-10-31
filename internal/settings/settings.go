@@ -41,6 +41,9 @@ var (
 	ErrKind         = errors.New("settings: setting has a different type")
 	ErrScope        = errors.New("settings: scope does not match the setting")
 	ErrDefinition   = errors.New("settings: invalid or conflicting definition")
+	// ErrRejected wraps the error of a write validator (SetValidator): the value parses but
+	// its module refuses it now.
+	ErrRejected = errors.New("settings: the owning module refuses this change")
 )
 
 // Def defines one setting.
@@ -109,9 +112,10 @@ type Store struct {
 	db  *storage.DB
 	now func() time.Time
 
-	mu    sync.RWMutex
-	defs  map[string]Def
-	rules []Rule
+	mu         sync.RWMutex
+	defs       map[string]Def
+	rules      []Rule
+	validators map[string]func(ctx context.Context, value string) error
 }
 
 // New returns a Store over db, which must have been opened with Module(). It registers
@@ -145,6 +149,37 @@ func (s *Store) Register(defs ...Def) error {
 			return fmt.Errorf("%w: %s is already registered differently", ErrDefinition, d.Key)
 		}
 		s.defs[d.Key] = d
+	}
+	return nil
+}
+
+// SetValidator makes fn run before every Set and Reset of key, with the value about to be
+// stored (the default's value for Reset). A non-nil error refuses the write; Set and Reset
+// return it wrapped in ErrRejected. It is for a rule only the owning module can know, for
+// example a setting that is frozen once something exists (req_001 D-97). The key must be
+// registered; a later call for the same key replaces the validator. fn runs before the write and not in its transaction.
+func (s *Store) SetValidator(key string, fn func(ctx context.Context, value string) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.defs[key]; !ok {
+		return fmt.Errorf("%w: %s", ErrUnknownKey, key)
+	}
+	if s.validators == nil {
+		s.validators = map[string]func(context.Context, string) error{}
+	}
+	s.validators[key] = fn
+	return nil
+}
+
+func (s *Store) validate(ctx context.Context, key, value string) error {
+	s.mu.RLock()
+	fn := s.validators[key]
+	s.mu.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	if err := fn(ctx, value); err != nil {
+		return fmt.Errorf("%w: %s: %w", ErrRejected, key, err)
 	}
 	return nil
 }
@@ -251,6 +286,9 @@ func (s *Store) Set(ctx context.Context, by Owner, key, scope, value string) err
 	if err := checkValue(d.Kind, value); err != nil {
 		return fmt.Errorf("%w: %s: %v", ErrInvalidValue, key, err)
 	}
+	if err := s.validate(ctx, key, value); err != nil {
+		return err
+	}
 	at := s.now().UnixMilli()
 	return s.db.Write(ctx, func(tx *storage.Tx) error {
 		_, err := tx.Exec(`INSERT INTO hst_setting (key, scope, value, updated_by, updated_at) VALUES (?, ?, ?, ?, ?)
@@ -268,6 +306,9 @@ func (s *Store) Reset(ctx context.Context, by Owner, key, scope string) error {
 	}
 	if d.Owner != by {
 		return fmt.Errorf("%w: %s is owned by %s, not %s", ErrNotOwner, key, d.Owner, by)
+	}
+	if err := s.validate(ctx, key, d.Default); err != nil {
+		return err
 	}
 	return s.db.Write(ctx, func(tx *storage.Tx) error {
 		_, err := tx.Exec(`DELETE FROM hst_setting WHERE key = ? AND scope = ?`, key, scope)

@@ -55,6 +55,15 @@ type PublicKey struct {
 	RetiredAt *time.Time // set once the key stops signing; the key stays for verification
 }
 
+// Certificate returns the bytes the identity key signed to certify this key, which Signature
+// covers; nil for the identity key. /v1/keys publishes them with the signature (req_001 D-96).
+func (pk PublicKey) Certificate(hostID string) []byte {
+	if pk.Purpose == Identity {
+		return nil
+	}
+	return certificate(hostID, pk.Purpose, pk.Key, pk.CreatedAt)
+}
+
 type signer struct {
 	id      string
 	priv    ed25519.PrivateKey
@@ -333,6 +342,21 @@ func (k *Keys) Sign(p Purpose, msg []byte) (keyID string, sig []byte, err error)
 	s := k.signers[p]
 	k.mu.RUnlock()
 	return s.id, ed25519.Sign(s.priv, msg), nil
+}
+
+// SignWithKeyID signs the message that build returns for the live key of purpose Receipt or
+// Checkpoint, and returns the id of the key that signed it. build is called with the id of the
+// key about to sign, so a message that names its signing key (a JWS header) names the right
+// one even if the key rotates meanwhile: the key and its id are taken together, once
+// (PLT-B-022; req_001 D-27). build must not call back into Keys.Sign.
+func (k *Keys) SignWithKeyID(p Purpose, build func(keyID string) []byte) (keyID string, sig []byte, err error) {
+	if p != Receipt && p != Checkpoint {
+		return "", nil, ErrNotSigningPurpose
+	}
+	k.mu.RLock()
+	s := k.signers[p]
+	k.mu.RUnlock()
+	return s.id, ed25519.Sign(s.priv, build(s.id)), nil
 }
 
 // CurrentKeyID returns the id of the live key of purpose p.

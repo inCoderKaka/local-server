@@ -346,10 +346,26 @@ func TestTamperedReceiptFailsVerify(t *testing.T) {
 		"alg none":  enc.EncodeToString([]byte(`{"alg":"none","kid":"k","typ":"ls-receipt+jws"}`)) + "." + parts[1] + "." + parts[2],
 		"wrong typ": enc.EncodeToString([]byte(`{"alg":"Ed25519","kid":"k","typ":"JWT"}`)) + "." + parts[1] + "." + parts[2],
 		"padded":    parts[0] + "." + parts[1] + "." + parts[2] + "==",
+		// base64 decoders skip CR and LF; the signature still covers the raw text (PLT-B-024).
+		"newline in header":    parts[0][:10] + "\n" + parts[0][10:] + "." + parts[1] + "." + parts[2],
+		"newline in payload":   parts[0] + "." + parts[1][:10] + "\r\n" + parts[1][10:] + "." + parts[2],
+		"newline in signature": parts[0] + "." + parts[1] + "." + parts[2][:10] + "\n" + parts[2][10:],
 	} {
 		if _, err := Verify(bad, key); err == nil {
 			t.Errorf("%s: Verify accepted it", name)
 		}
+	}
+}
+
+func TestReceiptWithNewlineRejectedByParseHeader(t *testing.T) {
+	e := newEnv(t)
+	rec, err := e.l.Record(context.Background(), sample(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(rec.Receipt.JWS, ".")
+	if _, err := ReceiptKeyID(parts[0][:10] + "\n" + parts[0][10:] + "." + parts[1] + "." + parts[2]); !errors.Is(err, ErrMalformedReceipt) {
+		t.Fatalf("ReceiptKeyID with a newline = %v; want ErrMalformedReceipt", err)
 	}
 }
 
@@ -438,11 +454,10 @@ func newFixedSigner() fixedSigner {
 	return fixedSigner{ed25519.NewKeyFromSeed([]byte("local-server golden receipt key!"))}
 }
 
-func (s fixedSigner) Sign(_ hostkeys.Purpose, msg []byte) (string, []byte, error) {
-	return "golden-kid", ed25519.Sign(s.priv, msg), nil
+func (s fixedSigner) SignWithKeyID(_ hostkeys.Purpose, build func(string) []byte) (string, []byte, error) {
+	return "golden-kid", ed25519.Sign(s.priv, build("golden-kid")), nil
 }
-func (s fixedSigner) CurrentKeyID(hostkeys.Purpose) string { return "golden-kid" }
-func (s fixedSigner) HostID() string                       { return "golden-host" }
+func (s fixedSigner) HostID() string { return "golden-host" }
 
 func goldenUsage() Usage {
 	return Usage{

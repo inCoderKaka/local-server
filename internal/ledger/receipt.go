@@ -62,8 +62,7 @@ type Signed struct {
 
 // Signer is the receipt-signing key custody; *hostkeys.Keys implements it.
 type Signer interface {
-	Sign(p hostkeys.Purpose, msg []byte) (keyID string, sig []byte, err error)
-	CurrentKeyID(p hostkeys.Purpose) string
+	SignWithKeyID(p hostkeys.Purpose, build func(keyID string) []byte) (keyID string, sig []byte, err error)
 	HostID() string
 }
 
@@ -102,26 +101,27 @@ func (l *Ledger) SignReceipt(r Receipt) (Signed, error) {
 		return Signed{}, err
 	}
 	enc := base64.RawURLEncoding
-	// The header names the key that signs, so read the id first and retry if a rotation
-	// slipped in between reading it and signing.
-	for range 3 {
-		kid := l.signer.CurrentKeyID(hostkeys.Receipt)
+	// The header names the key that signs, so the signer hands the key id to build the signed
+	// input from: the id and the key are taken together, however the keys rotate (PLT-B-022).
+	var input string
+	var buildErr error
+	kid, sig, err := l.signer.SignWithKeyID(hostkeys.Receipt, func(kid string) []byte {
 		kidJSON, err := json.Marshal(kid)
 		if err != nil {
-			return Signed{}, err
+			buildErr = err
+			return nil
 		}
 		header := `{"alg":"` + ReceiptAlg + `","kid":` + string(kidJSON) + `,"typ":"` + ReceiptTyp + `"}`
-		input := enc.EncodeToString([]byte(header)) + "." + enc.EncodeToString(payload)
-		gotKID, sig, err := l.signer.Sign(hostkeys.Receipt, []byte(input))
-		if err != nil {
-			return Signed{}, err
-		}
-		if gotKID != kid {
-			continue
-		}
-		return Signed{JWS: input + "." + enc.EncodeToString(sig), KeyID: kid, Signature: sig}, nil
+		input = enc.EncodeToString([]byte(header)) + "." + enc.EncodeToString(payload)
+		return []byte(input)
+	})
+	if err != nil {
+		return Signed{}, err
 	}
-	return Signed{}, errors.New("ledger: the receipt key kept rotating while signing")
+	if buildErr != nil {
+		return Signed{}, buildErr
+	}
+	return Signed{JWS: input + "." + enc.EncodeToString(sig), KeyID: kid, Signature: sig}, nil
 }
 
 // SignUnmetered signs the receipt for a call that was answered but could not be recorded
@@ -153,7 +153,7 @@ func parseHeader(jws string) (parts []string, h header, err error) {
 	if len(parts) != 3 {
 		return nil, h, fmt.Errorf("%w: want 3 parts", ErrMalformedReceipt)
 	}
-	raw, err := base64.RawURLEncoding.Strict().DecodeString(parts[0])
+	raw, err := decodeB64(parts[0])
 	if err != nil {
 		return nil, h, fmt.Errorf("%w: header: %v", ErrMalformedReceipt, err)
 	}
@@ -164,6 +164,19 @@ func parseHeader(jws string) (parts []string, h header, err error) {
 		return nil, h, fmt.Errorf("%w: header must be alg %s, typ %s and name a kid", ErrMalformedReceipt, ReceiptAlg, ReceiptTyp)
 	}
 	return parts, h, nil
+}
+
+// decodeB64 decodes unpadded base64url strictly. The decoder skips CR and LF, so a segment is
+// accepted only if it is the canonical encoding of what it decodes to (PLT-B-024).
+func decodeB64(s string) ([]byte, error) {
+	b, err := base64.RawURLEncoding.Strict().DecodeString(s)
+	if err != nil {
+		return nil, err
+	}
+	if base64.RawURLEncoding.EncodeToString(b) != s {
+		return nil, errors.New("not canonical base64url")
+	}
+	return b, nil
 }
 
 func strictJSON(raw []byte, v any) error {
@@ -198,14 +211,14 @@ func Verify(jws string, key ed25519.PublicKey) (Receipt, error) {
 	if err != nil {
 		return r, err
 	}
-	sig, err := base64.RawURLEncoding.Strict().DecodeString(parts[2])
+	sig, err := decodeB64(parts[2])
 	if err != nil {
 		return r, fmt.Errorf("%w: signature: %v", ErrMalformedReceipt, err)
 	}
 	if !ed25519.Verify(key, []byte(parts[0]+"."+parts[1]), sig) {
 		return r, ErrBadSignature
 	}
-	raw, err := base64.RawURLEncoding.Strict().DecodeString(parts[1])
+	raw, err := decodeB64(parts[1])
 	if err != nil {
 		return r, fmt.Errorf("%w: payload: %v", ErrMalformedReceipt, err)
 	}

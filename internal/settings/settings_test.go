@@ -251,3 +251,42 @@ func TestSyncChangeRetentionPrunesOldRows(t *testing.T) {
 		t.Fatalf("syn_change after prune = %v; want [new]", pks)
 	}
 }
+
+func TestSetValidatorRefusesSetAndReset(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if err := s.Register(Def{Key: "t.frozen", Kind: String, Default: "d", Owner: Host}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetValidator("nope", nil); !errors.Is(err, ErrUnknownKey) {
+		t.Fatalf("SetValidator on an unknown key = %v", err)
+	}
+	frozen := false
+	cause := errors.New("frozen")
+	var seen []string
+	if err := s.SetValidator("t.frozen", func(_ context.Context, v string) error {
+		seen = append(seen, v)
+		if frozen {
+			return cause
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set(ctx, Host, "t.frozen", "", "a"); err != nil {
+		t.Fatal(err)
+	}
+	frozen = true
+	if err := s.Set(ctx, Host, "t.frozen", "", "b"); !errors.Is(err, ErrRejected) || !errors.Is(err, cause) {
+		t.Fatalf("Set = %v; want ErrRejected wrapping the cause", err)
+	}
+	if err := s.Reset(ctx, Host, "t.frozen", ""); !errors.Is(err, ErrRejected) {
+		t.Fatalf("Reset = %v; want ErrRejected", err)
+	}
+	if v, _ := s.String(ctx, "t.frozen", ""); v != "a" {
+		t.Fatalf("value = %q after refused writes", v)
+	}
+	if len(seen) != 3 || seen[1] != "b" || seen[2] != "d" {
+		t.Fatalf("validator saw %v; want the new value, then the default for Reset", seen)
+	}
+}
