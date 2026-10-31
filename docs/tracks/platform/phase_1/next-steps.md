@@ -68,6 +68,6 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 
 31. S52 **PLT-C-004** Host setup guide and README (deps: PLT-F-043, PLT-F-039)
 
-Early starters (narrow deps, can fill a free builder slot ahead of their position): PLT-F-006, PLT-F-045. PLT-C-002 done 2026-10-31 (`3cf4f3f`).
+Early starters (narrow deps, can fill a free builder slot ahead of their position): PLT-F-045. PLT-F-006 done 2026-10-31 (`5cd11e2`). PLT-C-002 done 2026-10-31 (`3cf4f3f`).
 
 Before the consumer-accounts ticket (PLT-F-027) builds: the user approves the legal drafts (PLT-C-002, built; open points in each draft's review note).

@@ -3,8 +3,8 @@
 Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-workflow-skills/agents/implementation-status-reporter.md`). Requirement: `requirements/req_001.md` · log: `requirements/req_001.decisions.md` · ADR 0001, 0002, 0003, 0004, 0005. Last updated 2026-10-31.
 
 ## Position + next action
-- **Position:** req_001 is the phase's only requirement; 83 ticket rows are tracked: 60 features (PLT-F-001..PLT-F-060), 11 chores and 12 bugs. Done (10): design close-out PLT-C-005 and PLT-C-007 (docs), PLT-C-001 (`37c2603`, gate fixes `d588ee1`), PLT-C-002 (legal drafts, not in force until the owner approves; `3cf4f3f`), PLT-F-001 (`f00fa8a`), PLT-F-002 (`6839035`), PLT-F-003 (`ef86df3`), which the set B code gate covered (`2da4671`), and PLT-F-004, PLT-F-006, PLT-F-007 (all `5cd11e2`; close-out `d6538e3`), which no gate has covered yet (set C gate owed). 54 features are `idea` (PLT-F-054 and PLT-F-055 are `needs-decision` gate spin-offs), 5 chores are `idea` and 2 `designed` (PLT-C-003, PLT-C-004). Bugs: PLT-B-002 `fixed` (`2da4671`), 11 `reported` (PLT-B-001, PLT-B-003..PLT-B-012; PLT-B-007..PLT-B-012 each need a decision). PLT-C-001's CI has never run on GitHub (worklog). 38 commits are unpushed (`git log origin/main..HEAD`); the working tree is clean. req_001 has no open question (Open and Deferred are empty in its log), so it is not blocked (D-17). Pre-build confirmations that remain: PLT-F-018 SLO approval as a D-NN row (D-55, before its gate); PLT-B-001 needs a D-row next to D-62 before PLT-C-003.
-- **Next action:** B1/S6 **PLT-F-005** (host identity, signing subkeys and sealed secrets; Sonnet; depends on PLT-F-002 and PLT-F-004, both done; gate it). The set C code gate over PLT-F-004, PLT-F-006 and PLT-F-007 is owed alongside it (see Gate ledger). B2 slices S9 PLT-F-008 and S10 PLT-F-009 (both depend only on done tickets) can fill a free builder slot.
+- **Position:** req_001 is the phase's only requirement; 90 ticket rows are tracked: 63 features (PLT-F-001..PLT-F-063), 11 chores and 16 bugs. Done (13): design close-out PLT-C-005 and PLT-C-007 (docs), PLT-C-001 (`37c2603`, gate fixes `d588ee1`), PLT-C-002 (legal drafts, not in force until the owner approves; `3cf4f3f`), and PLT-F-001..PLT-F-003 (`f00fa8a`, `6839035`, `ef86df3`; set B gate `2da4671`), PLT-F-004, PLT-F-006, PLT-F-007 (`5cd11e2`) and PLT-F-005, PLT-F-008, PLT-F-009 (`939208f`), the last six covered by the set C gate (`fab7890`). B1 is complete except spin-off PLT-F-053; B2 slices S7..S10 are done. 54 features are `idea` (PLT-F-054 and PLT-F-055 are `needs-decision` gate spin-offs), 5 chores are `idea` and 2 `designed` (PLT-C-003, PLT-C-004). Bugs: PLT-B-002 `fixed` (`2da4671`), 15 `reported` (PLT-B-001, PLT-B-003..PLT-B-016; PLT-B-007..PLT-B-016 each need a decision). PLT-C-001's CI has never run on GitHub (worklog). 42 commits are unpushed (`git log origin/main..HEAD`); the working tree is clean. req_001 has no open question (Open and Deferred are empty in its log), so it is not blocked (D-17). Pre-build confirmations that remain: PLT-F-018 SLO approval as a D-NN row (D-55, before its gate); PLT-B-001 needs a D-row next to D-62 before PLT-C-003.
+- **Next action:** B2 S11 **PLT-F-010** (access keys; Sonnet; depends on PLT-F-007, PLT-F-008, PLT-F-009, all done; gate it), per `next-steps.md` item 7, which runs it in parallel with S12 **PLT-F-011** (policy engine; Opus; gate it) and S13 **PLT-F-012** (sharing state; Sonnet); B2 S14 **PLT-F-013** (host metrics; dependencies done) can fill a free builder slot.
 
 ## Progress table
 | Batch | Slice | Ticket | Status | Owner | Model | Gate-covered |
@@ -18,12 +18,12 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | B1 | S4 | PLT-F-003 | done | Claude | Sonnet | yes (2da4671, set B gate) |
 | B1 | S4 | PLT-F-053 | idea | Claude | Sonnet | no |
 | B1 | S4 | PLT-B-002 | fixed | Claude | Sonnet | yes (2da4671, set B gate) |
-| B1 | S5 | PLT-F-004 | done | Claude | Sonnet | no |
-| B1 | S6 | PLT-F-005 | idea (designed) | Claude | Sonnet | no |
-| B2 | S7 | PLT-F-006 | done | Claude | Sonnet | no |
-| B2 | S8 | PLT-F-007 | done | Claude | Sonnet | no |
-| B2 | S9 | PLT-F-008 | idea (designed) | Claude | Sonnet | no |
-| B2 | S10 | PLT-F-009 | idea (designed) | Claude | Sonnet | no |
+| B1 | S5 | PLT-F-004 | done | Claude | Sonnet | yes (fab7890, set C gate) |
+| B1 | S6 | PLT-F-005 | done | Claude | Sonnet | yes (fab7890, set C gate) |
+| B2 | S7 | PLT-F-006 | done | Claude | Sonnet | yes (fab7890, set C gate) |
+| B2 | S8 | PLT-F-007 | done | Claude | Sonnet | yes (fab7890, set C gate) |
+| B2 | S9 | PLT-F-008 | done | Claude | Sonnet | yes (fab7890, set C gate) |
+| B2 | S10 | PLT-F-009 | done | Claude | Sonnet | yes (fab7890, set C gate) |
 | B2 | S11 | PLT-F-010 | idea (designed) | Claude | Sonnet | no |
 | B2 | S12 | PLT-F-011 | idea (designed) | Claude | Opus | no |
 | B2 | S13 | PLT-F-012 | idea (designed) | Claude | Sonnet | no |
@@ -81,13 +81,15 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | — | — | PLT-F-054 | idea (needs-decision) | Claude | Sonnet | no |
 | — | — | PLT-F-055 | idea (needs-decision) | Claude | Sonnet | no |
 | — | — | PLT-F-056, PLT-F-057, PLT-F-058, PLT-F-059, PLT-F-060 | idea | Claude | Sonnet | no |
+| — | — | PLT-F-061, PLT-F-062, PLT-F-063 | idea | Claude | Sonnet | no |
 | — | — | PLT-C-011 | idea | Claude | Sonnet | no |
 | — | — | PLT-B-007, PLT-B-008, PLT-B-009, PLT-B-010, PLT-B-011, PLT-B-012 | reported (needs-decision) | — | — | no |
+| — | — | PLT-B-013, PLT-B-014, PLT-B-015, PLT-B-016 | reported (needs-decision) | — | — | no |
 
 ## Gate ledger
-- Last review gate: 2da4671 (`fix(platform): review-gate fixes for 9853112..ef86df3 (set B, PLT-F-001..F-003, PLT-B-002; ...)`), a code gate over PLT-F-001, PLT-F-002 and PLT-F-003; it fixed PLT-B-002 and deferred PLT-B-007..PLT-B-012, PLT-F-054 and PLT-F-055. Since 2da4671: 5 commits: 1 `feat(` (`5cd11e2`, PLT-F-004, PLT-F-006, PLT-F-007) and 4 `docs(` (`52a3a2c`, `117355f`, `7b309dd`, `d6538e3`). Uncommitted paths: 0. Earlier gate runs: d588ee1 (set A, PLT-C-001/002), d986f37, def3ea8, 7bcd3c7 (docs fixes), 6520214 (design close-out and ticketization, 29 approved findings plus the glossary Module row).
-- Shared contracts touched since the last gate (`git diff --name-only 2da4671..HEAD`): `docs/tracks/README.md` (ticket schema and format spec); migrations `internal/settings/migrations/0001_setting.sql`, `internal/identity/migrations/0001_identity_tables.sql`, `internal/grants/migrations/0001_grants_tables.sql`. No `ops/bin/**`, public API route (`api/openapi.yaml`) or installed skill/agent change. New ports/modules: `internal/settings`, `internal/engine` (+ ollama, fake), `internal/identity`, `internal/grants`.
-- Next gate: due — a `feat(` commit (`5cd11e2`) has no gate over it, and migrations plus the tracks ticket-format doc changed since 2da4671 (set C gate owed over PLT-F-004, PLT-F-006, PLT-F-007; PLT-F-004 and PLT-F-007 are tagged "gate it").
+- Last review gate: fab7890 (`fix(platform): review-gate fixes for 5cd11e2..939208f (set C, PLT-F-004..F-009; ...)`), a code gate over PLT-F-004..PLT-F-009 (18 actions applied, 0 skipped); it deferred PLT-B-013..PLT-B-016. Since fab7890: 1 commit, `0f182c8` (`docs(`: close-out step 2 and set C gate; no `feat(` or `fix(`). Uncommitted paths: 0. Earlier gate runs: 2da4671 (set B, PLT-F-001..F-003, PLT-B-002; deferred PLT-B-007..PLT-B-012, PLT-F-054, PLT-F-055), d588ee1 (set A, PLT-C-001/002), d986f37, def3ea8, 7bcd3c7 (docs fixes), 6520214 (design close-out and ticketization, 29 approved findings plus the glossary Module row).
+- Shared contracts touched since the last gate (`git diff --name-only fab7890..HEAD`): none. The changed paths are `docs/modules/{audit,events,host,telemetry}.md` and the phase's tracking files (`backlog.md`, `bugs.md`, `implicit-decisions.md`, `next-steps.md`, `worklog.md`); no ticket schema or format spec, `ops/bin/**`, port, migration, public API route or installed skill/agent.
+- Next gate: not due — the only commit since fab7890 is docs, and no shared contract changed. The next code gate falls due once the next `feat(` commits land (PLT-F-010 and PLT-F-011 are tagged "gate it").
 
 ## Drift & bugs inbox
 - uncaptured — `design-status.md` still says req_001 stage 6 (`ticketize`) is "not started" and "Next: run `ticketize platform 1 1`", but 52 tickets exist (6e8f4eb); its stage 6 row and Position need updating. (now fixed: stage 6 is `done`, verified 2026-10-30)
@@ -120,10 +122,14 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 - PLT-B-011 — reported (P3, review-gate): `Tx.Capture` always writes `syn_change`, though D-41 makes change-row sync opt-in and nothing prunes the rows; needs-decision.
 - PLT-B-012 — reported (P2, review-gate): a failing log sink drops every log line silently (weakens D-39 step 9); needs-decision on how the host admin is told.
 - PLT-F-054, PLT-F-055 — spin-offs (Source `review-gate`, idea 2026-10-31, P3, `needs-decision`): Idempotency-Key on resource-request creation; audit of failed admin logins. No plan position and not in `next-steps.md`. Not named as a next action.
-- uncaptured — `next-steps.md` items 3 (PLT-F-004) and 5 (PLT-F-006, PLT-F-007) are not marked done though the tickets are `done` (`5cd11e2`, `d6538e3`); item 3 and the early-starter note still read as pending.
+- uncaptured — `next-steps.md` items 3 (PLT-F-004) and 5 (PLT-F-006, PLT-F-007) are not marked done though the tickets are `done` (`5cd11e2`, `d6538e3`); item 3 and the early-starter note still read as pending. (now fixed: next-steps marks items 3 to 6 done, `0f182c8`)
 - PLT-F-056, PLT-F-057, PLT-F-058, PLT-F-059, PLT-F-060, PLT-C-011 — spin-offs (Source `build`, idea 2026-10-31, from PLT-F-004, PLT-F-006, PLT-F-007): no plan position (`—` Ref cells) and none listed in `next-steps.md`. PLT-C-011 (P2) is the live Ollama contract run that confirms the `overflowMarkers` texts and the 0.12.6 minimum (D-48); PLT-F-059 is needs-scoping. Not named as a next action.
-- uncaptured — `implicit-decisions.md` now holds I-041..I-072 added by PLT-F-004, PLT-F-006, PLT-F-007 (per `d6538e3`), awaiting owner review.
+- uncaptured — `implicit-decisions.md` now holds I-041..I-072 added by PLT-F-004, PLT-F-006, PLT-F-007 (per `d6538e3`), awaiting owner review. (now: it also holds I-073..I-089 added by PLT-F-005, PLT-F-008, PLT-F-009 per `0f182c8`; all awaiting owner review)
 - uncaptured — PLT-B-007..PLT-B-012 and PLT-F-054/055 have no plan position and no Model in their rows, and `next-steps.md` does not list them.
+- PLT-B-013, PLT-B-014, PLT-B-015, PLT-B-016 — reported (P2, P2, P2, P3; review-gate set C `5cd11e2..939208f`), each needs-decision: recovery code is shown once and cannot be re-shown (PLT-B-013); a locked Linux Secret Service prompt blocks startup forever (PLT-B-014); `ntf_event` has no retention rule (PLT-B-015); the `Notifier` name is claimed by both `internal/notifier/events` and the LLD's channel-adapter port (PLT-B-016). No plan position, no Model, not in `next-steps.md`.
+- PLT-F-061, PLT-F-062, PLT-F-063 — spin-offs (Source `build`, idea 2026-10-31, P3, from PLT-F-009, PLT-F-005, PLT-F-008): no plan position and not in `next-steps.md`; PLT-F-061 is needs-scoping and PLT-F-062 overlaps the PLT-B-013 decision. Not named as a next action.
+- uncaptured — `next-steps.md` "Early starters" still lists PLT-F-006, which is `done`.
+- `bugs.md` now holds sixteen rows: PLT-B-002 `fixed`, the other fifteen (PLT-B-001, PLT-B-003..PLT-B-016) `reported`. The earlier bullet counting twelve is superseded. `ops/bin/ticket-drift` does not exist in this repo, so no automated drift check ran.
 
 ## Token ledger
 | Ticket | Model | Input | Output | Cache (write / read) | Attribution |
