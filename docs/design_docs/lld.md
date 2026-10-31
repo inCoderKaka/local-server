@@ -327,6 +327,7 @@ sequenceDiagram
   participant Y as Sync worker
   participant PG as Platform Postgres (Supabase / Cloud SQL)
   B->>DB: VACUUM INTO temp file
+  B->>B: delete rows of tables set to minimize (default: job content, sessions)
   B->>B: compress, encrypt (host data key)
   B->>S: multipart upload, verify, prune old snapshots
   Y->>DB: syn_change rows past syn_cursor (batch)
@@ -392,12 +393,14 @@ flowchart TB
   SEAL --> DSK["Dataset keys (usage, audit, consumer directory)"]
   SEAL --> WHS["Webhook secrets, bucket and Postgres credentials"]
   ID -- signs --> RK["Receipt-signing subkeys (rotating; retired, never deleted)"]
+  ID -- signs --> CK["Checkpoint-signing key (rotates rarely)"]
+  CK -- signs --> CP["C2SP ledger checkpoints"]
   RK -- signs --> RCPT["JWS usage receipts"]
   DSK -- "wrapped to grantee X25519 key" --> SG["Sharing grants"]
   DK --> RC["Recovery code (shown once) for restore"]
 ```
 
-Which key signs ledger checkpoints is still open. A `D-NN` row must settle it before PLT-F-016 builds.
+Checkpoints have their own signing key (D-65): stable, so verifiers and future witnesses can follow the log, and separate from the receipt subkeys, so a leaked receipt key cannot forge tree heads. All three public keys are published at `/v1/keys`.
 
 ## 9. Error model
 

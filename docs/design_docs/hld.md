@@ -286,7 +286,8 @@ Each feature names what it does, how it works, the engineering ideas it rests on
   - **Backups:** encrypted whole-database snapshots (`VACUUM INTO` → compress → encrypt) go to a local folder or the host's own S3-compatible bucket: Cloudflare R2 by default, or **Google Cloud Storage** through its XML API.
   - **Platform sync (opt-in):** encrypted change rows go to the platform admin's Postgres, through a **generic Postgres adapter**. Supabase is the default configuration, and Cloud SQL or AlloyDB works by configuration.
   - **Dataset keys:** each dataset (usage, audit, consumer directory) has its own key. A sharing grant **wraps** that key to the grantee's X25519 public key, and revoking or expiring the grant rotates the key.
-  - **What never leaves the host:** prompts, job content, sessions, credentials and private keys.
+  - **What goes into a backup is the host's choice, per table (D-64):** each table is either *minimized* (its rows are removed from the snapshot copy) or *kept as is*. By default, job content and login sessions are minimized and everything else is kept, so a fetched job result is gone from future backups too.
+  - **What never leaves the host unencrypted:** prompts, job content, sessions, credentials and private keys. Platform sync never carries them at all.
 - **Ideas in play:**
   - **Envelope encryption:** data keys wrapped by key-encryption keys, the model Cloud KMS uses.
   - **Client-side encryption,** so the server only ever holds ciphertext.
@@ -349,7 +350,7 @@ The [developer guide](../developer-guide.md) shows these from a client app's sid
 | Remote admin takeover | Admin listener on localhost by default, never public, behind a login when on the tailnet |
 | Host inflates a bill | Merkle ledger with consumer-held receipts; consistency proofs reveal rewrites |
 | Malformed or hostile input | Explicit field rejection, size limits, typed parsers with **fuzz tests** on every untrusted input (D-60) |
-| A consumer's webhook used to reach the host's network (SSRF) | http(s) URLs only; the resolved IP is checked at dial time, so DNS rebinding cannot bypass it; loopback, link-local, unspecified, multicast and the host machine's own addresses are refused; redirects are not followed (PLT-F-030) |
+| A consumer's webhook used to reach the host's network (SSRF) | http(s) URLs only; the resolved IP is checked at dial time, so DNS rebinding cannot bypass it; loopback, link-local, unspecified, multicast and the host machine's own addresses are refused; private and tailnet targets are refused unless the host allows them (D-66); redirects are not followed |
 | A web page driving the admin or consumer UI (DNS rebinding, CSRF) | The admin listener accepts only a loopback or configured tailnet Host header, and cookie-authenticated writes need a same-origin Origin header (PLT-F-024, PLT-F-027) |
 | Script injection through consumer-written text | Both web UIs are served with a strict Content-Security-Policy, and comments and names are rendered as text, never as HTML (PLT-F-032) |
 | Supply-chain tampering | Checksums, SLSA provenance, `govulncheck` in CI (D-62) |

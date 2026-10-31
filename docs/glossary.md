@@ -58,6 +58,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Quiet hours | A schedule during which sharing is paused automatically. | Quiet hours | D-06 |
 | Host identity key | The Ed25519 key pair each install generates. Its public key is the host's global ID. | Host ID | D-25 |
 | Receipt-signing key | A rotating key, signed by the host identity key, that signs usage receipts. | — | D-27 |
+| Checkpoint-signing key | A rarely rotated key, signed by the host identity key, that signs ledger checkpoints. Separate from the receipt-signing keys. | — | D-65 |
 | Policy rule | A versioned, declarative rule the host edits through a form (request properties, time windows, priority class, caps). Set per grant or globally. | Rule | D-25 |
 | Priority class | *Interactive* (someone is waiting) or *background* (can wait). Interactive runs first, and background ages up so it is never starved. | Interactive / Background | D-26 |
 | Quota | A grant's or key's token allowance for a period. Going over it returns `quota_exceeded`, and a near-limit notice is sent first. | Quota | D-25, D-29 |
@@ -92,7 +93,8 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Sharing grant | A grantor's time-boxed permission for a grantee to read one dataset, with a stated purpose and terms version. It can be revoked. | Data sharing | D-43 |
 | Consent record | A stored acceptance of a policy (terms, privacy, a sharing grant) with its version and evidence. It can be withdrawn. | Consent | D-44, D-45 |
 | Data classification | The label on every table and column: `public`, `internal`, `personal`, `sensitive` or `content`, plus a *billable* flag. | — | D-44 |
-| Off-host backup | Encrypted whole-database snapshots the host machine sends to a bucket the host owns. The default. | Backup | D-41 |
+| Off-host backup | Encrypted database snapshots the host machine sends to a folder or a bucket the host owns. The default. Which tables are minimized (left empty) is the host's choice (D-64). | Backup | D-41, D-64 |
+| Backup minimization | The host's per-table backup choice: *minimize* (rows left out of the snapshot) or *keep as is*. Job content and sessions are minimized by default. | Leave out of backups | D-64 |
 | Platform sync | Opt-in per host. Encrypted change rows sent to the platform's database, needed only for platform features such as sharing grants. | Platform sync | D-41 |
 | Recovery code | The host data key, shown once at setup, needed to restore encrypted backups. | Recovery code | D-41 |
 | Module table prefix | The short prefix on every table name naming its owning module: `hst_` host, `idn_` identity, `grt_` grants, `req_` requests, `sch_` scheduler, `use_` usage, `ldg_` ledger, `ntf_` notify, `aud_` audit, `syn_` sync, `plt_` platform, `ops_` ops. | — | D-44 |

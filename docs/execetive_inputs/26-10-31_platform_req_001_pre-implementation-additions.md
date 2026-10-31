@@ -1,4 +1,4 @@
-> **Provenance note.** Verbatim from the implementation-planning chat of 2026-10-30/31, before the first build. Round 1 came from the `/orchestrate-implement platform 1` plan call; round 2 followed the owner's private notes (not in the repo). Recorded as D-57..D-63.
+> **Provenance note.** Verbatim from the implementation-planning chat of 2026-10-30/31, before the first build. Round 1 came from the `/orchestrate-implement platform 1` plan call; round 2 followed the owner's private notes (not in the repo). Recorded as D-57..D-67. Round 3 settled the review gate's deferred findings.
 
 agent questions (round 1):
 1. "PLT-F-001 needs a code generator and spec linter for the OpenAPI 3.1 spec (D-32 says only 'spec-first, server interfaces generated'; no decision row names a tool). Which should the builder use? It will be recorded as a D-NN row."
@@ -36,3 +36,19 @@ user response (round 2):
 2. "ADRs (Recommended), Curated ROADMAP.md (Recommended), Raw decisions logs, AI workflow files, "You know what make everything public, its fine (except the mnp_nt.md).""
 3. "GCS backup + future GCP server but keep adapters such that this can be shifted to GCP if at all required. even the platform sync decisions dont change if adapters are the way we're implementing them."
 4. "Fuzz tests on untrusted input (Recommended), Race detector in CI (Recommended), Signed provenance + govulncheck (Recommended)"
+
+agent questions (round 3):
+1. "Backups vs. 'content never leaves the host': whole-database snapshots (VACUUM INTO → encrypt → your bucket) would also copy encrypted queued-job content, job results and login sessions, and keep them until old snapshots are pruned. That breaks the promise 'deleted when you fetch the result'. What should backups contain? (Concept: data minimisation vs. a byte-exact restore.)"
+   - Strip content first (Recommended) · Keep everything, reword docs
+2. "Which key signs ledger checkpoints (the signed tree heads consumers use to verify their receipts)? Today only receipts have a key rule. (Concept: key hierarchy, and a stable key so outside witnesses can follow the log, as in Certificate Transparency.)"
+   - Dedicated checkpoint key (Recommended) · Host identity key directly · Receipt-signing subkey
+3. "Consumers can register webhook URLs. Should webhooks to private addresses (home LAN 192.168.x, 10.x; tailnet 100.64.0.0/10; localhost) be allowed? Allowing them by default lets a consumer use your host to probe your home network: server-side request forgery (SSRF)."
+   - Deny by default, host can allow (Recommended) · Always deny · Allow tailnet, deny LAN/loopback
+4. "Opt-in platform sync retries forever. If the platform's Supabase project pauses (it does after a week idle on the free plan), sync silently stops. How should failures surface? (Concept: alert on symptoms, not causes, as in Google's SRE guidance.)"
+   - Alert the host after a threshold (Recommended) · Status only, no alert
+
+user response (round 3):
+1. "this should be selectable by the user as to whether the data should be minimized or all the info is saved. users can select which data to minimize and which to save as is."
+2. "Dedicated checkpoint key (Recommended)"
+3. "Deny by default, host can allow (Recommended)"
+4. "Alert the host after a threshold (Recommended)"

@@ -46,7 +46,7 @@ The dashboard shows current use and use over time: per person, per app and per m
 
 ### Backups
 
-Turn on backups to a folder or to a storage bucket you own (Cloudflare R2 or Google Cloud Storage). Backups are encrypted on your computer before they leave it. Keep the **recovery code** you are shown; it is the only way to restore.
+Turn on backups to a folder or to a storage bucket you own (Cloudflare R2 or Google Cloud Storage). Backups are encrypted on your computer before they leave it. You choose what goes in: by default, background-job content and login sessions are left out, and you can keep or leave out any kind of data. Keep the **recovery code** you are shown; it is the only way to restore.
 
 ## For consumers
 
