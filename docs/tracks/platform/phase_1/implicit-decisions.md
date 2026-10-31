@@ -1,0 +1,21 @@
+# platform / phase_1 — implicit decisions
+
+Software choices the AI made that no ticket, design doc or requirement decision dictated. Newest on top. Only the Status column changes after a row is written. Status: `unreviewed`, `accepted`, `reverted`, `needs-ruling`.
+
+| ID | Date | Kind | Ticket | Decision | Reverse-by | Status |
+|---|---|---|---|---|---|---|
+| I-015 | 2026-10-31 | scope | PLT-C-002 | Account deletion and consent withdrawal are done by contacting the host, not self-service. | Edit `docs/legal/privacy-consent.md` when a self-service flow is decided (from `3cf4f3f`). | unreviewed |
+| I-014 | 2026-10-31 | copy | PLT-C-002 | Privacy notice: "If platform sync is on, the erasure is sent like any other change". | Delete the line in `docs/legal/privacy-consent.md` (from `3cf4f3f`). | unreviewed |
+| I-013 | 2026-10-31 | design | PLT-C-002 | Sharing-grant consent names the privacy notice's version, assuming `plt_sharing_grant.terms_version` points to the same id. | Add a D-row for PLT-F-047 and edit `docs/legal/privacy-consent.md` (from `3cf4f3f`). | unreviewed |
+| I-012 | 2026-10-31 | copy | PLT-C-002 | Privacy notice tells consumers to "only use hosts you trust". | Delete the line in `docs/legal/privacy-consent.md` (from `3cf4f3f`). | unreviewed |
+| I-011 | 2026-10-31 | copy | PLT-C-002 | Terms add three consumer duties: keep keys secret, report a leaked key, don't circumvent limits. | Delete the lines in `docs/legal/terms-of-use.md` (from `3cf4f3f`). | unreviewed |
+| I-010 | 2026-10-31 | scope | PLT-C-002 | Terms carry no warranty, liability or indemnity clauses. | Add clauses after a legal review (`docs/legal/terms-of-use.md`, from `3cf4f3f`). | unreviewed |
+| I-009 | 2026-10-31 | copy | PLT-C-002 | The host is named as the consumer's counterparty and contact; no operator name, address, governing law or jurisdiction. | Add a D-row with those facts and a clause (`docs/legal/terms-of-use.md`, from `3cf4f3f`). | unreviewed |
+| I-008 | 2026-10-31 | design | PLT-C-002 | Policy version ids are `<doc>-<YYYY-MM>-v<N>` (`terms-2026-10-v1`, `privacy-2026-10-v1`); a draft keeps its id while under review. | Change both `**Version:**` lines before PLT-F-027 stores them (from `3cf4f3f`). | unreviewed |
+| I-007 | 2026-10-31 | design | PLT-C-001 | `go.mod` declares `go 1.27.3`, the installed toolchain. | Lower the `go` line in `go.mod` (from `37c2603`). | unreviewed |
+| I-006 | 2026-10-31 | design | PLT-C-001 | `Directory` interface has one method, `Discover(ctx)`, plus a `Noop` implementation that returns nothing. | Edit `internal/directory/directory.go` (from `37c2603`). | unreviewed |
+| I-005 | 2026-10-31 | design | PLT-C-001 | `ContentCapture` and `ConsentRef` live in `internal/identity` (identity owns `idn_consent`); the method signature is the builder's. | Move `internal/identity/capture.go` and update importers (from `37c2603`). | unreviewed |
+| I-004 | 2026-10-31 | scope | PLT-C-001 | No per-module "may import" allow-lists; archcheck enforces forbidden imports only (LLD module map updated to match in `d588ee1`). | Add an `Imports` field to `tools/archcheck/config.go` once module imports exist. | unreviewed |
+| I-003 | 2026-10-31 | design | PLT-C-001 | archcheck rules: config consistency; layout, `migrations/` folder and architecture note per module; adapters imported only from `cmd/` (or their own directory, `d588ee1`); no module import cycles; drivers confined to their module; `internal/` never imports `cmd/` or `tools/`. A sub-directory belongs to its nearest listed ancestor package. | Edit `Restricted`, `Adapters`, `owner()` and `check.go` in `tools/archcheck/` (from `37c2603`, `d588ee1`). | unreviewed |
+| I-002 | 2026-10-31 | design | PLT-C-001 | 28 modules, reconciling D-21, D-44 and the LLD map, split finer where one LLD row mixed separate table prefixes or ports; glossary Module row updated to match. | Edit `DefaultConfig()` in `tools/archcheck/config.go`, `internal/`, `docs/modules/` and `docs/glossary.md` (from `37c2603`). | unreviewed |
+| I-001 | 2026-10-31 | design | PLT-C-001 | Go module path is `github.com/inCoderKaka/local-server`, from `git remote -v`. | Edit the `module` line in `go.mod` and every import (from `37c2603`). | unreviewed |

@@ -124,7 +124,7 @@ Deliveries follow [Standard Webhooks](https://www.standardwebhooks.com/): the `w
 - No C toolchain is needed: builds are pure Go (`CGO_ENABLED=0`).
 - To run the race detector locally, you need a C toolchain (Xcode command-line tools on macOS).
 
-### Commands (once the code scaffold exists)
+### Commands
 
 ```bash
 CGO_ENABLED=0 go build ./...          # build
@@ -138,7 +138,7 @@ go test -fuzz=FuzzXxx ./internal/auth/  # fuzz one target
 ### How the code is organised
 
 - **Layout:** core modules live in `internal/<module>/`. Each owns its tables and depends only on ports (interfaces). Adapters (Ollama, Tailscale, SQLite, S3, Postgres, OS integrations) implement the ports.
-- **Boundaries:** `tools/archcheck` fails the build on imports outside the module map. The map is in [LLD §1](design_docs/lld.md#1-module-map).
+- **Boundaries:** `tools/archcheck` fails the build on forbidden imports: an adapter imported outside `cmd/`, a module import cycle, a driver used outside its module, or `internal/` importing `cmd/` or `tools/`. The map is in [LLD §1](design_docs/lld.md#1-module-map).
 - **Contract first:** the API starts from `api/openapi.yaml`. Server interfaces are generated with ogen into `internal/api/` and never edited by hand. Change the spec, then run `go generate ./internal/api/...`.
 
 ### Rules contributors follow

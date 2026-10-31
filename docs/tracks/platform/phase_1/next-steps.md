@@ -9,7 +9,7 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 
 ### B1 — Foundations
 
-1. S1 **PLT-C-001** Go module scaffold, CI on 3 OSes and module-boundary check (deps: —) **gate it**
+1. ~~S1 **PLT-C-001** Go module scaffold, CI on 3 OSes and module-boundary check (deps: —) **gate it**~~ done 2026-10-31 (`37c2603`, `d588ee1`)
 2. S2 **PLT-F-001** OpenAPI 3.1 contract v1 (consumer, consumer self-service and admin) with generated server code (deps: PLT-C-001) **gate it**  ∥  S3 **PLT-F-002** Storage foundation: single writer, cross-module unit of work, migrations, change capture, data catalog (deps: PLT-C-001) **gate it**  ∥  S4 **PLT-F-003** Telemetry port: slog JSON, redaction, Prometheus metrics, request id, log rotation (deps: PLT-C-001)
 3. S5 **PLT-F-004** Runtime settings with owners, plus retention registry (deps: PLT-F-002) **gate it**
 4. S6 **PLT-F-005** Host identity, signing subkeys and sealed secrets (deps: PLT-F-002, PLT-F-004) **gate it**
@@ -68,6 +68,6 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 
 31. S52 **PLT-C-004** Host setup guide and README (deps: PLT-F-043, PLT-F-039)
 
-Early starters (narrow deps, can fill a free builder slot ahead of their position): PLT-F-006, PLT-C-002, PLT-F-045.
+Early starters (narrow deps, can fill a free builder slot ahead of their position): PLT-F-006, PLT-F-045. PLT-C-002 done 2026-10-31 (`3cf4f3f`).
 
-Before the consumer-accounts ticket (PLT-F-027) builds: the user approves the legal drafts (PLT-C-002).
+Before the consumer-accounts ticket (PLT-F-027) builds: the user approves the legal drafts (PLT-C-002, built; open points in each draft's review note).

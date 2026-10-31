@@ -6,7 +6,7 @@ Phase 1 is fully designed ([HLD](docs/design_docs/hld.md), [LLD](docs/design_doc
 
 | Batch | What it delivers | Status |
 |---|---|---|
-| B1 Foundations | Go module and 3-OS CI with boundary, race, fuzz and vulnerability checks; the OpenAPI 3.1 contract; the storage foundation (single writer, migrations, data catalog); telemetry; runtime settings; host identity and sealed secrets | next |
+| B1 Foundations | Go module and 3-OS CI with boundary, race, fuzz and vulnerability checks; the OpenAPI 3.1 contract; the storage foundation (single writer, migrations, data catalog); telemetry; runtime settings; host identity and sealed secrets | in progress: Go module, CI and boundary check built |
 | B2 Core domain | Engine port with the Ollama adapter; identity and grants; audit log; domain events; access keys; policy rules; host metrics; pause sharing and quiet hours | planned |
 | B3 Inference path | Scheduler with memory admission; usage records, Merkle ledger and signed receipts; checkpoints and proofs; quotas and rate limits; the OpenAI-compatible gateway with streaming; jobs API; usage rollups; host status, capabilities and models endpoints; startup and the `doctor` command | planned |
 | B4 Control plane and accounts | Admin API; consumers, invites and keys; grants, models and policy; consumer accounts with password and passkey login; resource requests; terms and privacy drafts | planned |
