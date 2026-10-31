@@ -16,7 +16,7 @@ Each module owns its package, its tables (by prefix), and its port where it has 
 | Module | Package | Owns tables | Port it defines | Ticket |
 |---|---|---|---|---|
 | storage | `internal/storage/` | `ops_schema_migrations`, `ops_migration_run`, `ops_data_catalog` | repositories, unit of work | PLT-F-002 |
-| settings | `internal/settings/` | settings store | settings owner model | PLT-F-004 |
+| settings | `internal/settings/` | `hst_setting` | settings owner model | PLT-F-004 |
 | telemetry | `internal/telemetry/` | — | `Telemetry` | PLT-F-003 |
 | host | `internal/hostkeys/`, `internal/hostmetrics/`, `internal/host/` | `hst_host`, `hst_key`, `hst_metric_minute` | `HostMetrics` | PLT-F-005, PLT-F-012, PLT-F-013 |
 | engine | `internal/engine/` | — | `Engine` | PLT-F-006 |
@@ -155,6 +155,7 @@ stateDiagram-v2
   running --> succeeded: engine done (metered, receipt, encrypted result)
   running --> failed: engine error or timeout (tokens metered)
   running --> failed: host restart (reason host_restart)
+  queued --> failed: restored from a snapshot without its payload (reason payload_minimized)
   running --> cancelled: consumer cancels
   succeeded --> [*]
   failed --> [*]
@@ -337,7 +338,7 @@ sequenceDiagram
   Y->>DB: advance syn_cursor (backoff on failure)
 ```
 
-Minimization (D-64) runs on the temp copy, never on the live database. The setting is one `hst_setting` entry per table in `ops_data_catalog`; the catalog itself is rebuilt at startup (D-44) and holds no settings. Deletes run with `foreign_keys=ON`. A table can be set to minimize only when every table that references it is also minimized, so a kept table never holds a dangling reference and a CASCADE never empties a table the host chose to keep. After the deletes commit, the copy is vacuumed, so freed pages keep no deleted rows.
+Minimization (D-64) runs on the temp copy, never on the live database. The setting is one entry per table in `ops_data_catalog`, kept in `hst_setting` (PLT-F-004); the catalog itself is rebuilt at startup (D-44) and holds no settings. Deletes run with `foreign_keys=ON`. A table can be set to minimize only when every table that references it is also minimized (D-69), so a kept table never holds a dangling reference and a CASCADE never empties a table the host chose to keep. After the deletes commit, the copy is vacuumed, so freed pages keep no deleted rows.
 
 ### F4, F7, F8, F9
 

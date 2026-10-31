@@ -1,4 +1,4 @@
-> **Provenance note.** Verbatim from the implementation-planning chat of 2026-10-30/31, before the first build. Round 1 came from the `/orchestrate-implement platform 1` plan call; round 2 followed the owner's private notes (not in the repo). Recorded as D-57..D-67. Round 3 settled the review gate's deferred findings.
+> **Provenance note.** Verbatim from the implementation-planning chat of 2026-10-30/31, before the first build. Round 1 came from the `/orchestrate-implement platform 1` plan call; round 2 followed the owner's private notes (not in the repo). Recorded as D-57..D-69. Rounds 3 and 4 settled the review gates' deferred findings.
 
 agent questions (round 1):
 1. "PLT-F-001 needs a code generator and spec linter for the OpenAPI 3.1 spec (D-32 says only 'spec-first, server interfaces generated'; no decision row names a tool). Which should the builder use? It will be recorded as a D-NN row."
@@ -52,3 +52,13 @@ user response (round 3):
 2. "Dedicated checkpoint key (Recommended)"
 3. "Deny by default, host can allow (Recommended)"
 4. "Alert the host after a threshold (Recommended)"
+
+agent questions (round 4):
+1. "D-64 leaves job content out of backups by default. So after a restore, jobs that were still queued at backup time come back with no payload, and the job state machine (D-54) has no state for that. How should restore treat them? (Concept: explicit, terminal failure states, like the existing failed(host_restart).)"
+   - Fail them: payload_minimized (Recommended) · Leave queued until expiry
+2. "The gate added a backup rule: a table can only be left out (minimized) if every table that references it is also left out. Otherwise SQLite's foreign-key CASCADE would silently empty tables you chose to keep. Record this as a decision?"
+   - Yes, record it (Recommended) · Auto-include dependents
+
+user response (round 4):
+1. "Fail them: payload_minimized (Recommended)"
+2. "Yes, record it (Recommended)"

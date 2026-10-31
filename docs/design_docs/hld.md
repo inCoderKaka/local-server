@@ -375,7 +375,7 @@ The [developer guide](../developer-guide.md) shows these from a client app's sid
 | Metering write fails repeatedly | The answer is still returned with an `unmetered` signed receipt. The failure is logged, counted and alerted (D-51) |
 | Webhook receiver down | Exponential backoff from the outbox. The endpoint is disabled after `410` or N failures |
 | Platform sync keeps failing (e.g. a paused Supabase project) | Retries continue with backoff. Past a host-owned threshold the host admin gets an in-app notification with no content, and `doctor` and the admin UI show the last successful sync (D-67) |
-| Disk loss | Restore from encrypted snapshots with the recovery code |
+| Disk loss | Restore from encrypted snapshots with the recovery code. Queued jobs whose payload was left out of the backup come back `failed(payload_minimized)` (D-68) |
 
 ### 8.4 Scalability
 

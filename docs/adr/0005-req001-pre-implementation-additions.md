@@ -4,7 +4,7 @@
 **Date:** 2026-10-31
 **Extends:** [ADR 0002](0002-req001-system-design.md), [ADR 0004](0004-req001-pre-implementation-confirmations.md)
 **Requirement:** `docs/tracks/platform/phase_1/requirements/req_001.md`
-**Decisions:** D-57..D-67 in [`req_001.decisions.md`](../tracks/platform/phase_1/requirements/req_001.decisions.md). The log is the source.
+**Decisions:** D-57..D-69 in [`req_001.decisions.md`](../tracks/platform/phase_1/requirements/req_001.decisions.md). The log is the source.
 **executive_inputs_reference:** docs/execetive_inputs/26-10-31_platform_req_001_pre-implementation-additions.md
 
 ## Context
@@ -24,6 +24,8 @@ The first implementation plan found two dependencies no decision had named: the 
 - **D-65:** a dedicated checkpoint-signing key, signed by the host identity key and rotated rarely, signs ledger checkpoints.
 - **D-66:** webhooks to private or tailnet addresses are denied by default, and the host can allow them.
 - **D-67:** the host is alerted when platform sync has failed for longer than a threshold it owns.
+- **D-68:** after a restore, queued jobs that lost their payload to minimization fail with `payload_minimized`.
+- **D-69:** a table can be minimized only when every table that references it is minimized too.
 
 ## Alternatives considered
 
@@ -35,12 +37,14 @@ The first implementation plan found two dependencies no decision had named: the 
 - **D-65:** the host identity key, or the receipt subkey.
 - **D-66:** always deny, or allow tailnet targets by default.
 - **D-67:** status only, with no alert.
+- **D-68:** leave them queued until they expire.
+- **D-69:** automatically minimize the dependent tables.
 
 ## Consequences
 
-D-64..D-67 settle four questions the review gate of this session deferred to the owner.
+D-64..D-69 settle the questions the review gate of this session deferred to the owner.
 
-- **Tickets (D-64..D-67):** PLT-F-005, F-016, F-030, F-044 and F-046.
+- **Tickets (D-64..D-69):** PLT-F-005, F-016, F-030, F-044 and F-046.
 - **Tickets:** PLT-F-001, F-003, F-010, F-011, F-016, F-018, F-044, F-045, F-046 and PLT-C-001, C-003, C-004 carry the new artifacts and verify lines.
 - **cgo:** the race job is the only place cgo is used. The release matrix stays pure Go.
 - **Fuzzing:** each fuzz target's seed corpus becomes part of the regression suite.
