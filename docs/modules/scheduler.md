@@ -8,7 +8,7 @@ Admission, queueing and the job state machine for interactive requests and queue
 
 - Packages: `internal/scheduler/`, `internal/jobs/` (built by PLT-F-014, PLT-F-022).
 - Tables: `sch_*`, migrations in `internal/scheduler/migrations/`.
-- Port: none defined here.
+- Port: none exported. It defines consumer-side `Engine` and `Sharing` interfaces for what it calls.
 
 ## Imports
 

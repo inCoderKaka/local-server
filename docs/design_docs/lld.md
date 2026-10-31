@@ -421,6 +421,10 @@ The OpenAI error envelope (`{"error": {"message", "type", "code"}}`) plus local-
 | `model_not_granted` | Model not in the grant | Use `/v1/capabilities`, or file a resource request |
 | `context_too_long` | Prompt exceeds the grant's context cap (overflow policy `refuse`) | Shorten the prompt |
 | `engine_unavailable` | Ollama not reachable | Fall back |
+| `over_budget` | The request can never fit the share budget (D-93) | Use a smaller model or context |
+| `policy_denied` | A deny rule, or a request property the grant does not allow (D-79) | Change the request; the error names the rule and properties |
+| `outside_time_window` | A policy rule's time window is closed (D-79) | Retry after `Retry-After`; jobs wait in the queue |
+| `invalid_request_properties` | Malformed `LS-Request-Properties` header (D-79) | Fix the header |
 
 ## 10. Testing and verification
 

@@ -41,3 +41,8 @@ Work ledger for the platform track. Convention: `docs/tracks/README.md`. A ticke
 | PLT-F-070 | feat | Opt-in macOS GPU helper (D-75) | backlog | 2026-10-31 | — | backlog.md | spin-off of PLT-F-013 |
 | PLT-C-005 | chore | Up-front decision round D-73..D-90: PLT-B-001, B-007..B-016, B-018, B-019, PLT-F-054, F-055 decided | done | 2026-10-31 | 2026-10-31 | 4d957ec | no verify line |
 | PLT-F-012, PLT-F-013 | feat | Set D code gate, host part: 12 fixes (paused event key, tzdata, ErrNoHost, empty zone, unavailable process CPU, serialised Read, accelerator gauge); slice memory per D-91 | done | 2026-10-31 | 2026-10-31 | ac8a183 | verify: pass (`CGO_ENABLED=0 go test ./...`); set D gate complete; D-91, D-92 decided |
+| PLT-F-014 | feat | Scheduler, share budget and model lifecycle (Claude, Sonnet) | done | 2026-10-31 | 2026-10-31 | e1089c9 | verify: pass (`CGO_ENABLED=1 go test -race ./internal/scheduler/...`); set E gate owed (after step 6) |
+| PLT-F-015 | feat | Usage records, Merkle ledger leaves and signed receipts; fixes PLT-B-007, PLT-B-010, PLT-B-011 (Claude, Sonnet) | done | 2026-10-31 | 2026-10-31 | 5cf1311 | verify: pass (`go test ./internal/ledger/...`, full suite); set E gate owed (after step 6) |
+| PLT-B-007, PLT-B-010, PLT-B-011 | bug | Streamed receipt header optional; synchronous FULL setting; syn_change retention | fixed | 2026-10-31 | 2026-10-31 | 5cf1311 | D-78, D-76, D-77; startup wiring is PLT-F-020 |
+| PLT-B-022 | bug | Receipt key id read separately from signing | reported | 2026-10-31 | — | bugs.md | ledger retries around it |
+| PLT-C-005 | chore | Decisions D-93..D-95 (over_budget 422, host_kid, ollama_num_parallel 1) | done | 2026-10-31 | 2026-10-31 | this commit | no verify line |
