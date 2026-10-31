@@ -9676,7 +9676,7 @@ func (s *Server) handleGetJobResultRequest(args [1]string, argsEscaped bool, w h
 
 	var rawBody []byte
 
-	var response *ChatCompletionHeaders
+	var response *JobResultHeaders
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
 			Context:          ctx,
@@ -9697,7 +9697,7 @@ func (s *Server) handleGetJobResultRequest(args [1]string, argsEscaped bool, w h
 		type (
 			Request  = struct{}
 			Params   = GetJobResultParams
-			Response = *ChatCompletionHeaders
+			Response = *JobResultHeaders
 		)
 		response, err = middleware.HookMiddleware[
 			Request,

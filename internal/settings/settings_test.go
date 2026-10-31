@@ -198,3 +198,56 @@ func TestRunStopsOnCancel(t *testing.T) {
 		t.Fatal("Run did not stop")
 	}
 }
+
+// PLT-B-011 (req_001 D-77): unacknowledged syn_change rows older than sync.change.retention
+// are pruned; newer ones stay. PLT-B-010 (D-76): the synchronous setting defaults to FULL.
+func TestSyncChangeRetentionPrunesOldRows(t *testing.T) {
+	ctx := context.Background()
+	s := newStore(t)
+	if err := s.RegisterStorage(); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := s.String(ctx, storage.KeySynchronous, ""); v != storage.SyncFull {
+		t.Fatalf("storage.synchronous default = %q; want FULL", v)
+	}
+	if d, _ := s.Duration(ctx, KeySyncChangeRetention, ""); d != 720*time.Hour {
+		t.Fatalf("default retention = %v; want 720h", d)
+	}
+	now := time.Now()
+	s.now = func() time.Time { return now }
+	err := s.db.Write(ctx, func(tx *storage.Tx) error {
+		return errors.Join(
+			tx.Capture(storage.Change{Dataset: "usage", Table: "use_record", PK: "old", Version: 1, Op: "insert"}),
+			tx.Capture(storage.Change{Dataset: "usage", Table: "use_record", PK: "new", Version: 1, Op: "insert"}),
+		)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := now.Add(-721 * time.Hour).UnixMilli()
+	if err := s.db.Write(ctx, func(tx *storage.Tx) error {
+		_, err := tx.Exec(`UPDATE syn_change SET created_at = ? WHERE pk = 'old'`, old)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PruneOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var pks []string
+	rows, err := s.db.Reader().Query(ctx, `SELECT pk FROM syn_change ORDER BY seq`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var pk string
+		if err := rows.Scan(&pk); err != nil {
+			t.Fatal(err)
+		}
+		pks = append(pks, pk)
+	}
+	if len(pks) != 1 || pks[0] != "new" {
+		t.Fatalf("syn_change after prune = %v; want [new]", pks)
+	}
+}

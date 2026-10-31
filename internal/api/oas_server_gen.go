@@ -474,7 +474,7 @@ type Handler interface {
 	// not succeeded returns `409`.
 	//
 	// GET /v1/jobs/{job_id}/result
-	GetJobResult(ctx context.Context, params GetJobResultParams) (*ChatCompletionHeaders, error)
+	GetJobResult(ctx context.Context, params GetJobResultParams) (*JobResultHeaders, error)
 	// GetLedgerCheckpoint implements getLedgerCheckpoint operation.
 	//
 	// The latest signed checkpoint (a C2SP tlog-checkpoint signed note, verbatim). With `from_tree_size`,

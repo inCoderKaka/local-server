@@ -58,6 +58,33 @@ type Config struct {
 	BatchWindow time.Duration
 	// ReadPoolSize is the number of read connections. Zero means DefaultReadPoolSize.
 	ReadPoolSize int
+	// Synchronous is the SQLite synchronous mode of the write connection under WAL: SyncFull
+	// or SyncNormal. Zero means SyncFull, so a committed batch (and the receipt signed after
+	// it) survives power loss (D-76). The host-owned setting is KeySynchronous; it applies on
+	// the next start.
+	Synchronous string
+}
+
+// The values of Config.Synchronous and of the host setting KeySynchronous (D-76).
+const (
+	SyncFull   = "FULL"
+	SyncNormal = "NORMAL"
+)
+
+// KeySynchronous is the host-owned setting key that startup reads into Config.Synchronous
+// (D-76, D-38). The Def is registered by settings (internal/settings/storage_keys.go) because
+// storage cannot import settings.
+const KeySynchronous = "storage.synchronous"
+
+// ParseSynchronous validates a setting or config value. "" means SyncFull. Matching ignores case.
+func ParseSynchronous(v string) (string, error) {
+	switch strings.ToUpper(strings.TrimSpace(v)) {
+	case "", SyncFull:
+		return SyncFull, nil
+	case SyncNormal:
+		return SyncNormal, nil
+	}
+	return "", fmt.Errorf("storage: synchronous must be %s or %s, got %q", SyncFull, SyncNormal, v)
 }
 
 // DefaultConfig returns a Config for path with every default filled in.
@@ -79,7 +106,7 @@ type DB struct {
 	once   sync.Once
 }
 
-func dsn(path string, busy time.Duration, readOnly bool) string {
+func dsn(path string, busy time.Duration, readOnly bool, mode string) string {
 	q := url.Values{}
 	q.Add("_pragma", "foreign_keys(1)")
 	q.Add("_pragma", "busy_timeout("+strconv.FormatInt(busy.Milliseconds(), 10)+")")
@@ -87,7 +114,7 @@ func dsn(path string, busy time.Duration, readOnly bool) string {
 		q.Add("_pragma", "query_only(1)")
 	} else {
 		q.Add("_pragma", "journal_mode(WAL)")
-		q.Add("_pragma", "synchronous(NORMAL)")
+		q.Add("_pragma", "synchronous("+mode+")")
 	}
 	return "file:" + uriPathEscaper.Replace(path) + "?" + q.Encode()
 }
@@ -105,6 +132,11 @@ func Open(ctx context.Context, cfg Config) (*DB, error) {
 	if cfg.BusyTimeout < 0 || cfg.BatchMax < 0 || cfg.BatchWindow < 0 || cfg.ReadPoolSize < 0 {
 		return nil, errors.New("storage: Config values must not be negative")
 	}
+	mode, err := ParseSynchronous(cfg.Synchronous)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Synchronous = mode
 	if cfg.BusyTimeout == 0 {
 		cfg.BusyTimeout = DefaultBusyTimeout
 	}
@@ -126,7 +158,7 @@ func Open(ctx context.Context, cfg Config) (*DB, error) {
 	}
 	mods := append([]Module{{Name: "storage", Prefixes: []string{"ops_", "syn_"}, Migrations: sub}}, cfg.Modules...)
 
-	w, err := sql.Open("sqlite", dsn(cfg.Path, cfg.BusyTimeout, false))
+	w, err := sql.Open("sqlite", dsn(cfg.Path, cfg.BusyTimeout, false, cfg.Synchronous))
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +179,7 @@ func Open(ctx context.Context, cfg Config) (*DB, error) {
 	if err := syncCatalog(ctx, conn, mods); err != nil {
 		return fail(err)
 	}
-	r, err := sql.Open("sqlite", dsn(cfg.Path, cfg.BusyTimeout, true))
+	r, err := sql.Open("sqlite", dsn(cfg.Path, cfg.BusyTimeout, true, cfg.Synchronous))
 	if err != nil {
 		return fail(err)
 	}

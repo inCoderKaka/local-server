@@ -7,7 +7,7 @@ Metering of tokens and request counts per consumer.
 ## Owns
 
 - Packages: `internal/usage/` (built by PLT-F-015, PLT-F-016, PLT-F-023).
-- Tables: `use_*`, migrations in `internal/usage/migrations/`.
+- Tables: `use_*`, migrations in `internal/usage/migrations/`. Built so far (PLT-F-015): `use_record`, written by `internal/ledger` together with its ledger leaf.
 - Port: none defined here.
 
 ## Imports

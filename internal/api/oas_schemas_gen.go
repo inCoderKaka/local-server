@@ -1157,12 +1157,12 @@ func (s *ChatCompletionChoice) SetFinishReason(val FinishReason) {
 
 // ChatCompletionHeaders wraps ChatCompletion with response headers.
 type ChatCompletionHeaders struct {
-	LSReceipt string
+	LSReceipt OptString
 	Response  ChatCompletion
 }
 
 // GetLSReceipt returns the value of LSReceipt.
-func (s *ChatCompletionHeaders) GetLSReceipt() string {
+func (s *ChatCompletionHeaders) GetLSReceipt() OptString {
 	return s.LSReceipt
 }
 
@@ -1172,7 +1172,7 @@ func (s *ChatCompletionHeaders) GetResponse() ChatCompletion {
 }
 
 // SetLSReceipt sets the value of LSReceipt.
-func (s *ChatCompletionHeaders) SetLSReceipt(val string) {
+func (s *ChatCompletionHeaders) SetLSReceipt(val OptString) {
 	s.LSReceipt = val
 }
 
@@ -2280,12 +2280,12 @@ func (s CreateChatCompletionOKTextEventStream) Read(p []byte) (n int, err error)
 
 // CreateChatCompletionOKTextEventStreamHeaders wraps CreateChatCompletionOKTextEventStream with response headers.
 type CreateChatCompletionOKTextEventStreamHeaders struct {
-	LSReceipt string
+	LSReceipt OptString
 	Response  CreateChatCompletionOKTextEventStream
 }
 
 // GetLSReceipt returns the value of LSReceipt.
-func (s *CreateChatCompletionOKTextEventStreamHeaders) GetLSReceipt() string {
+func (s *CreateChatCompletionOKTextEventStreamHeaders) GetLSReceipt() OptString {
 	return s.LSReceipt
 }
 
@@ -2295,7 +2295,7 @@ func (s *CreateChatCompletionOKTextEventStreamHeaders) GetResponse() CreateChatC
 }
 
 // SetLSReceipt sets the value of LSReceipt.
-func (s *CreateChatCompletionOKTextEventStreamHeaders) SetLSReceipt(val string) {
+func (s *CreateChatCompletionOKTextEventStreamHeaders) SetLSReceipt(val OptString) {
 	s.LSReceipt = val
 }
 
@@ -4647,6 +4647,111 @@ func (s *JobDoneEventDataStatus) UnmarshalText(data []byte) error {
 	default:
 		return errors.Errorf("invalid value: %q", data)
 	}
+}
+
+// A succeeded job's chat completion, the same shape as `ChatCompletion`. It is a separate schema so
+// that the job result's response, which always carries a receipt header, is described apart from
+// `createChatCompletion`, whose header is optional because a stream carries its receipt in the final
+// event (D-78).
+// Ref: #/components/schemas/JobResult
+type JobResult struct {
+	// The completion's id.
+	ID string `json:"id"`
+	// Always `chat.completion`.
+	Object string `json:"object"`
+	// Unix seconds.
+	Created int64 `json:"created"`
+	// The model that answered.
+	Model string `json:"model"`
+	// The single choice (`n` is not supported).
+	Choices []ChatCompletionChoice `json:"choices"`
+	Usage   CompletionUsage        `json:"usage"`
+}
+
+// GetID returns the value of ID.
+func (s *JobResult) GetID() string {
+	return s.ID
+}
+
+// GetObject returns the value of Object.
+func (s *JobResult) GetObject() string {
+	return s.Object
+}
+
+// GetCreated returns the value of Created.
+func (s *JobResult) GetCreated() int64 {
+	return s.Created
+}
+
+// GetModel returns the value of Model.
+func (s *JobResult) GetModel() string {
+	return s.Model
+}
+
+// GetChoices returns the value of Choices.
+func (s *JobResult) GetChoices() []ChatCompletionChoice {
+	return s.Choices
+}
+
+// GetUsage returns the value of Usage.
+func (s *JobResult) GetUsage() CompletionUsage {
+	return s.Usage
+}
+
+// SetID sets the value of ID.
+func (s *JobResult) SetID(val string) {
+	s.ID = val
+}
+
+// SetObject sets the value of Object.
+func (s *JobResult) SetObject(val string) {
+	s.Object = val
+}
+
+// SetCreated sets the value of Created.
+func (s *JobResult) SetCreated(val int64) {
+	s.Created = val
+}
+
+// SetModel sets the value of Model.
+func (s *JobResult) SetModel(val string) {
+	s.Model = val
+}
+
+// SetChoices sets the value of Choices.
+func (s *JobResult) SetChoices(val []ChatCompletionChoice) {
+	s.Choices = val
+}
+
+// SetUsage sets the value of Usage.
+func (s *JobResult) SetUsage(val CompletionUsage) {
+	s.Usage = val
+}
+
+// JobResultHeaders wraps JobResult with response headers.
+type JobResultHeaders struct {
+	LSReceipt string
+	Response  JobResult
+}
+
+// GetLSReceipt returns the value of LSReceipt.
+func (s *JobResultHeaders) GetLSReceipt() string {
+	return s.LSReceipt
+}
+
+// GetResponse returns the value of Response.
+func (s *JobResultHeaders) GetResponse() JobResult {
+	return s.Response
+}
+
+// SetLSReceipt sets the value of LSReceipt.
+func (s *JobResultHeaders) SetLSReceipt(val string) {
+	s.LSReceipt = val
+}
+
+// SetResponse sets the value of Response.
+func (s *JobResultHeaders) SetResponse(val JobResult) {
+	s.Response = val
 }
 
 // The job's state. `succeeded`, `failed`, `cancelled` and `expired` are terminal.

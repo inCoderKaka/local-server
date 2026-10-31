@@ -3347,7 +3347,8 @@ func decodeCommentOnResourceRequestParams(args [1]string, argsEscaped bool, r *h
 type CreateChatCompletionParams struct {
 	// Request properties the host's policy rules understand (D-15, D-25, D-33), as an RFC 9651 Structured
 	// Field Dictionary. Keys are property names; a bare key means `true`. Values are tokens, strings,
-	// integers or booleans. Example: `LS-Request-Properties: background, purpose=summarize`. A property
+	// integers or booleans. Stricter than RFC 9651: parameters, the other item types and a key given more
+	// than once are refused. Example: `LS-Request-Properties: background, purpose=summarize`. A property
 	// the caller's grant does not allow is refused by policy.
 	LSRequestProperties OptString `json:",omitempty,omitzero"`
 }
@@ -3413,7 +3414,8 @@ func decodeCreateChatCompletionParams(args [0]string, argsEscaped bool, r *http.
 type CreateEmbeddingParams struct {
 	// Request properties the host's policy rules understand (D-15, D-25, D-33), as an RFC 9651 Structured
 	// Field Dictionary. Keys are property names; a bare key means `true`. Values are tokens, strings,
-	// integers or booleans. Example: `LS-Request-Properties: background, purpose=summarize`. A property
+	// integers or booleans. Stricter than RFC 9651: parameters, the other item types and a key given more
+	// than once are refused. Example: `LS-Request-Properties: background, purpose=summarize`. A property
 	// the caller's grant does not allow is refused by policy.
 	LSRequestProperties OptString `json:",omitempty,omitzero"`
 }
@@ -3482,7 +3484,8 @@ type CreateJobParams struct {
 	IdempotencyKey string
 	// Request properties the host's policy rules understand (D-15, D-25, D-33), as an RFC 9651 Structured
 	// Field Dictionary. Keys are property names; a bare key means `true`. Values are tokens, strings,
-	// integers or booleans. Example: `LS-Request-Properties: background, purpose=summarize`. A property
+	// integers or booleans. Stricter than RFC 9651: parameters, the other item types and a key given more
+	// than once are refused. Example: `LS-Request-Properties: background, purpose=summarize`. A property
 	// the caller's grant does not allow is refused by policy.
 	LSRequestProperties OptString `json:",omitempty,omitzero"`
 }

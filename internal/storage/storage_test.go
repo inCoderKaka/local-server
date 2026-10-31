@@ -429,7 +429,7 @@ func TestApplySkipsMigrationAppliedMeanwhile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "r.db")
 	db := open(t, path)
 	ctx := context.Background()
-	other, err := sql.Open("sqlite", dsn(path, time.Second, false))
+	other, err := sql.Open("sqlite", dsn(path, time.Second, false, SyncFull))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,5 +481,46 @@ func TestSchemaDoc(t *testing.T) {
 	}
 	if string(want) != got {
 		t.Fatal("docs/schema-reference.md is out of date; run go generate ./internal/storage")
+	}
+}
+
+func pragmaSync(t *testing.T, db *DB) int {
+	t.Helper()
+	// The write connection is the one the DSN's synchronous pragma applies to.
+	var n int
+	err := db.Write(context.Background(), func(tx *Tx) error { return tx.QueryRow(`PRAGMA synchronous`).Scan(&n) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// PLT-B-010 (req_001 D-76): FULL by default, NORMAL when configured, other values refused.
+func TestSynchronousDefaultsToFull(t *testing.T) {
+	db := open(t, filepath.Join(t.TempDir(), "a.db"))
+	if n := pragmaSync(t, db); n != 2 {
+		t.Fatalf("PRAGMA synchronous = %d; want 2 (FULL)", n)
+	}
+}
+
+func TestSynchronousNormalHonoured(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "a.db"))
+	cfg.Synchronous = "normal"
+	db, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if n := pragmaSync(t, db); n != 1 {
+		t.Fatalf("PRAGMA synchronous = %d; want 1 (NORMAL)", n)
+	}
+}
+
+func TestSynchronousInvalidRefused(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "a.db"))
+	cfg.Synchronous = "OFF"
+	if db, err := Open(context.Background(), cfg); err == nil {
+		db.Close()
+		t.Fatal("Open accepted synchronous=OFF")
 	}
 }

@@ -37,7 +37,7 @@ type chatStub struct {
 func (h *chatStub) CreateChatCompletion(_ context.Context, req *ChatCompletionRequest, _ CreateChatCompletionParams) (CreateChatCompletionRes, error) {
 	h.called = true
 	return &ChatCompletionHeaders{
-		LSReceipt: "aGVhZGVy.cGF5bG9hZA.c2ln",
+		LSReceipt: NewOptString("aGVhZGVy.cGF5bG9hZA.c2ln"),
 		Response: ChatCompletion{
 			ID:      "c1",
 			Object:  "chat.completion",
@@ -143,4 +143,32 @@ func TestRemoteImageURLRejected(t *testing.T) {
 	if *decodeErr == nil {
 		t.Fatal("want a decode error for a remote image URL")
 	}
+}
+
+// streamStub answers a request like the gateway does for a stream: no receipt header,
+// because the receipt travels in the final SSE event (D-27, D-39, D-78, PLT-B-007).
+type streamStub struct{ chatStub }
+
+func (h *streamStub) CreateChatCompletion(_ context.Context, _ *ChatCompletionRequest, _ CreateChatCompletionParams) (CreateChatCompletionRes, error) {
+	return &ChatCompletionHeaders{Response: ChatCompletion{ID: "c1", Object: "chat.completion", Model: "m",
+		Choices: []ChatCompletionChoice{{Message: ChatCompletionMessage{Role: ChatCompletionMessageRoleAssistant}, FinishReason: FinishReasonStop}}}}, nil
+}
+
+func TestStreamedChatHasNoReceiptHeader(t *testing.T) {
+	srv, decodeErr := newTestServer(t, &streamStub{})
+	rec := post(srv, "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	if *decodeErr != nil {
+		t.Fatalf("unexpected decode error: %v", *decodeErr)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+	if v := rec.Header().Values("LS-Receipt"); len(v) != 0 {
+		t.Fatalf("a streamed response must not carry LS-Receipt, got %q", v)
+	}
+}
+
+// getJobResult keeps a required receipt header: a job result is never streamed (D-78).
+func TestJobResultReceiptHeaderIsRequired(t *testing.T) {
+	var _ func(JobResultHeaders) string = func(h JobResultHeaders) string { return h.LSReceipt }
 }

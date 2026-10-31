@@ -686,7 +686,7 @@ func (UnimplementedHandler) GetJob(ctx context.Context, params GetJobParams) (r 
 // not succeeded returns `409`.
 //
 // GET /v1/jobs/{job_id}/result
-func (UnimplementedHandler) GetJobResult(ctx context.Context, params GetJobResultParams) (r *ChatCompletionHeaders, _ error) {
+func (UnimplementedHandler) GetJobResult(ctx context.Context, params GetJobResultParams) (r *JobResultHeaders, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

@@ -762,7 +762,10 @@ func encodeCreateChatCompletionResponse(response CreateChatCompletionRes, w http
 					Explode: false,
 				}
 				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-					return e.EncodeValue(conv.StringToString(response.LSReceipt))
+					if val, ok := response.LSReceipt.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
 				}); err != nil {
 					return errors.Wrap(err, "encode LS-Receipt header")
 				}
@@ -791,7 +794,10 @@ func encodeCreateChatCompletionResponse(response CreateChatCompletionRes, w http
 					Explode: false,
 				}
 				if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
-					return e.EncodeValue(conv.StringToString(response.LSReceipt))
+					if val, ok := response.LSReceipt.Get(); ok {
+						return e.EncodeValue(conv.StringToString(val))
+					}
+					return nil
 				}); err != nil {
 					return errors.Wrap(err, "encode LS-Receipt header")
 				}
@@ -1090,7 +1096,7 @@ func encodeGetJobResponse(response *Job, w http.ResponseWriter) error {
 	return nil
 }
 
-func encodeGetJobResultResponse(response *ChatCompletionHeaders, w http.ResponseWriter) error {
+func encodeGetJobResultResponse(response *JobResultHeaders, w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Access-Control-Expose-Headers", "Ls-Receipt")
 	// Encoding response headers.

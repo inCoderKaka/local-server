@@ -167,7 +167,7 @@ paths:
           description: The completion, or a stream of chunks when `stream` is true.
           headers:
             LS-Receipt:
-              $ref: '#/components/headers/LSReceipt'
+              $ref: '#/components/headers/LSReceiptUnlessStreamed'
           content:
             application/json:
               schema:
@@ -368,7 +368,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ChatCompletion'
+                $ref: '#/components/schemas/JobResult'
         default:
           $ref: '#/components/responses/Error'
 
@@ -2262,6 +2262,20 @@ components:
       description: The admin UI's session cookie (HttpOnly, Secure, SameSite=Strict). State-changing requests also need a same-origin `Origin` header.
 
   headers:
+    LSReceiptUnlessStreamed:
+      description: |
+        The signed usage receipt for this call: a JWS in compact serialization (RFC 7515),
+        protected header `{"alg": "Ed25519", "kid": "<receipt-signing key id>", "typ": "ls-receipt+jws"}`,
+        payload a `UsageReceipt`. Verify it with the receipt-signing key from `/v1/keys`.
+        Absent on a streamed response (`stream: true`): the stream's receipt is not known until
+        the stream ends, so it travels in the final SSE event before `[DONE]` (D-27, D-39, D-78).
+      required: false
+      schema:
+        type: string
+        contentMediaType: application/jose
+        contentSchema:
+          $ref: '#/components/schemas/UsageReceipt'
+        pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
     LSReceipt:
       description: |
         The signed usage receipt for this call: a JWS in compact serialization (RFC 7515),
@@ -2842,6 +2856,36 @@ components:
     ChatCompletion:
       type: object
       description: A chat completion, as in the OpenAI API.
+      required: [id, object, created, model, choices, usage]
+      properties:
+        id:
+          type: string
+          description: The completion's id.
+        object:
+          type: string
+          description: Always `chat.completion`.
+          const: chat.completion
+        created:
+          type: integer
+          description: Unix seconds.
+          format: int64
+        model:
+          type: string
+          description: The model that answered.
+        choices:
+          type: array
+          description: The single choice (`n` is not supported).
+          items:
+            $ref: '#/components/schemas/ChatCompletionChoice'
+        usage:
+          $ref: '#/components/schemas/CompletionUsage'
+    JobResult:
+      type: object
+      description: |
+        A succeeded job's chat completion, the same shape as `ChatCompletion`. It is a
+        separate schema so that the job result's response, which always carries a receipt
+        header, is described apart from `createChatCompletion`, whose header is optional
+        because a stream carries its receipt in the final event (D-78).
       required: [id, object, created, model, choices, usage]
       properties:
         id:
