@@ -1,0 +1,4762 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://spec.openapis.org/oas/3.1/dialect/base
+info:
+  title: local-server API
+  summary: Share a host machine's AI inference with invited consumers and client apps.
+  version: 1.0.0
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  contact:
+    name: local-server
+    url: https://github.com/inCoderKaka/local-server
+  description: |
+    Contract v1 of local-server's HTTP API. This file is the source of truth: the server
+    interfaces in `internal/api/` are generated from it with ogen, and client apps test
+    against it (D-32, D-57).
+
+    ## Surfaces
+
+    - **Standard, as published.** `/v1/chat/completions` (with streaming and
+      `stream_options.include_usage`), `/v1/embeddings` and `/v1/models` follow the OpenAI API.
+      Webhooks follow Standard Webhooks, receipts are JWS (RFC 7515) signed with the fully
+      specified `Ed25519` algorithm (RFC 9864, RFC 8037 keys), ledger checkpoints are C2SP
+      tlog-checkpoint signed notes, and `/v1/keys` is a JWK Set (RFC 7517). These are never
+      modified; local-server features are separate, additive contracts.
+    - **Additive local-server contracts** under `/v1`: host status, capabilities, jobs, resource
+      requests, usage, ledger proofs, notification preferences, webhook endpoints and consumer
+      self-service.
+    - **Admin API** under `/admin/v1`. It is served only on the admin listener (localhost by
+      default, optionally the host's tailnet address behind a login), never on the consumer
+      listener and never on the public internet (D-10).
+
+    ## Extensions on OpenAI-compatible calls
+
+    The request and response bodies stay standard OpenAI. Extensions travel in headers (D-33):
+    `LS-Request-Properties` on the request and `LS-Receipt` on the response. HTTP header names
+    are case-insensitive.
+
+    ## Unsupported fields
+
+    Request bodies of the OpenAI-compatible operations accept only the fields this file lists.
+    Any other field, including OpenAI fields local-server does not support (for example `n`,
+    `logit_bias`, `tool_choice`, `user`, `logprobs`), is rejected with `400` and code
+    `unsupported_parameter`, with `param` naming the field. Nothing is silently ignored (D-32).
+
+    ## Errors
+
+    Every error uses the OpenAI error envelope `{"error": {"message", "type", "param", "code"}}`.
+    `code` is one of local-server's typed codes, one of the OpenAI codes below, or `null`.
+
+    | `code` | HTTP status | `type` | `Retry-After` | Meaning |
+    |---|---|---|---|---|
+    | `quota_exceeded` | 429 | `insufficient_quota` | yes | The token quota for the window is used up |
+    | `queue_full` | 503 | `server_error` | yes | The host's admission queue is full |
+    | `host_paused` | 503 | `server_error` | when the end of quiet hours is known | The host paused sharing or is in quiet hours |
+    | `model_not_granted` | 403 | `invalid_request_error` | no | The model is not in the grant or key |
+    | `context_too_long` | 400 | `invalid_request_error` | no | The prompt exceeds the grant's context limit and the grant's context overflow is `refuse` |
+    | `engine_unavailable` | 503 | `server_error` | no | The engine (Ollama) is not reachable |
+    | `unsupported_parameter` | 400 | `invalid_request_error` | no | A request field is not supported (OpenAI's code) |
+    | `invalid_api_key` | 401 | `invalid_request_error` | no | Missing, unknown, expired or revoked credential (OpenAI's code) |
+    | `rate_limit_exceeded` | 429 | `requests` | yes | Rate limit or lockout after failed attempts (OpenAI's code) |
+
+    Other failures use their HTTP status with `code: null`, for example `404`, `409`, `410` and
+    `413`. Every operation documents its success responses; every error shares the `default`
+    response.
+
+    ## Conventions
+
+    - **IDs** are UUIDv7 strings.
+    - **Times** are RFC 3339 date-times in UTC on local-server's own contracts. The
+      OpenAI-compatible bodies keep OpenAI's Unix-seconds `created`.
+    - **Durations** are whole seconds in fields ending `_seconds`.
+    - **Settings.** Every time, retention, TTL, retry, threshold and limit (queue length,
+      page size, body size, quotas, lockout) is a runtime setting owned by one party (platform
+      admin, host or consumer), with a default; nothing here hard-codes one (D-54).
+    - **Content privacy.** Prompts and responses are never logged or stored by default
+      (D-31, D-40). Webhook payloads and notifications never carry content. Queued job
+      content and job results are the only content at rest, encrypted, and deleted at a
+      terminal state or on fetch.
+    - **Lists** use cursor paging: pass `cursor` from the previous page's `next_cursor`; the
+      host's page-size setting caps `limit`.
+    - **Versioning.** The major version is in the path. Changes within a major version are
+      additive only. Deprecations are announced with the `Deprecation` and `Sunset` response
+      headers.
+servers:
+  - url: https://{hostMachine}
+    description: Consumer listener, on the host's tailnet address (or a public `*.ts.net` address in public mode). Serves `/v1`.
+    variables:
+      hostMachine:
+        default: host-machine.tailnet.ts.net
+        description: The host machine's tailnet name and the consumer port the host configured.
+  - url: http://{adminAddress}
+    description: Admin listener, on localhost by default. Serves `/admin/v1` only.
+    variables:
+      adminAddress:
+        default: localhost
+        description: localhost and the admin port the host configured, or the host's tailnet address when the host enabled remote admin.
+tags:
+  - name: openai
+    description: OpenAI-compatible surfaces, implemented as published.
+  - name: host
+    description: Host status and what the caller may use.
+  - name: jobs
+    description: Background work that outlives a request (D-26).
+  - name: resource-requests
+    description: Asking the host for more, with comments.
+  - name: usage
+    description: Usage over time.
+  - name: ledger
+    description: Keys, checkpoints and proofs for verifying receipts (D-27, D-52).
+  - name: notifications
+    description: Notification preferences and webhook endpoints (D-29).
+  - name: account
+    description: Consumer self-service (invite redemption, password and passkey ceremonies, sessions, profile, limits, access keys and consumer-owned settings).
+  - name: admin-session
+    description: First-run setup and admin login. Admin listener only.
+  - name: admin-host
+    description: Host state, settings, metrics and audit log. Admin listener only.
+  - name: admin-consumers
+    description: Consumers, invites and access keys. Admin listener only.
+  - name: admin-grants
+    description: Grants, models and policy rules. Admin listener only.
+  - name: admin-requests
+    description: Deciding resource requests. Admin listener only.
+  - name: admin-usage
+    description: Usage across consumers. Admin listener only.
+  - name: admin-notifications
+    description: The host admin's notification preferences and webhook endpoints. Admin listener only.
+
+paths:
+  # ---------------------------------------------------------------- OpenAI-compatible
+  /v1/chat/completions:
+    post:
+      operationId: createChatCompletion
+      tags: [openai]
+      summary: Create a chat completion
+      description: |
+        OpenAI-compatible chat completion. With `stream: true` the response is a
+        `text/event-stream` of `ChatCompletionChunk` objects in `data:` lines, ending with
+        `data: [DONE]`. With `stream_options.include_usage` the last chunk before `[DONE]`
+        carries `usage` and an empty `choices`, as published.
+
+        **Receipt.** A non-streamed response carries the signed receipt in `LS-Receipt`. A
+        streamed response carries it in an SSE comment line `: ls-receipt <JWS>` sent after the
+        last chunk and before `data: [DONE]`; standard SSE clients skip comment lines.
+
+        `max_tokens` (or `max_completion_tokens`) is capped by the grant. A prompt longer than
+        the grant's context limit fails with `context_too_long` unless the grant's context
+        overflow is `truncate` (D-48).
+      security:
+        - accessKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LSRequestProperties'
+      requestBody:
+        description: The chat completion request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: The completion, or a stream of chunks when `stream` is true.
+          headers:
+            LS-Receipt:
+              $ref: '#/components/headers/LSReceipt'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletion'
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ChatCompletionEventStream'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/embeddings:
+    post:
+      operationId: createEmbedding
+      tags: [openai]
+      summary: Create embeddings
+      description: OpenAI-compatible embeddings. The signed receipt is in `LS-Receipt`.
+      security:
+        - accessKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LSRequestProperties'
+      requestBody:
+        description: The embeddings request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbeddingRequest'
+      responses:
+        '200':
+          description: The embeddings.
+          headers:
+            LS-Receipt:
+              $ref: '#/components/headers/LSReceipt'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingList'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/models:
+    get:
+      operationId: listModels
+      tags: [openai]
+      summary: List models
+      description: OpenAI-compatible model list, filtered to the models the caller's grant (and key) allows.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      responses:
+        '200':
+          description: The models the caller may use.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelList'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- host status
+  /v1/health:
+    get:
+      operationId: getHealth
+      tags: [host]
+      summary: Host status
+      description: |
+        Online, paused or quiet, engine availability, loaded models and queue depth, so a
+        client app can decide quickly whether to fall back (D-05). A response at all means the
+        host is online. Requires a credential like every consumer route, so public mode leaks
+        nothing to anonymous callers.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      responses:
+        '200':
+          description: Current host status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostHealth'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/capabilities:
+    get:
+      operationId: getCapabilities
+      tags: [host]
+      summary: What the caller may use
+      description: The caller's models, context and output limits, concurrency, request properties and remaining quota, after the key's narrowing. Benchmark fields are reserved (D-45).
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      responses:
+        '200':
+          description: The caller's effective limits and remaining quota.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capabilities'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- jobs
+  /v1/jobs:
+    post:
+      operationId: createJob
+      tags: [jobs]
+      summary: Submit a background job
+      description: |
+        Queues a chat completion as a background job. The body is the same as
+        `/v1/chat/completions`, except that `stream` must be absent or false.
+
+        **Idempotency.** A duplicate `Idempotency-Key` from the same access key returns the
+        existing job with `200`. The exception is a job that ended `failed` with reason
+        `host_restart` or `payload_minimized`: the same key starts a new attempt (`202`).
+      security:
+        - accessKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/LSRequestProperties'
+      requestBody:
+        description: The chat completion request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatCompletionRequest'
+      responses:
+        '200':
+          description: A job with this Idempotency-Key already exists; it is returned unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '202':
+          description: The job is queued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/jobs/{job_id}:
+    get:
+      operationId: getJob
+      tags: [jobs]
+      summary: Get a job
+      description: The job's status. A job that ended `failed`, `cancelled` or `expired` shows its reason here.
+      security:
+        - accessKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: The job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/jobs/{job_id}/cancel:
+    post:
+      operationId: cancelJob
+      tags: [jobs]
+      summary: Cancel a job
+      description: Cancels a queued or running job. Tokens a running job already used are metered. A job in a terminal state is returned unchanged with `409`.
+      security:
+        - accessKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: The cancelled job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/jobs/{job_id}/result:
+    get:
+      operationId: getJobResult
+      tags: [jobs]
+      summary: Fetch a job's result
+      description: |
+        The result of a `succeeded` job, with its receipt in `LS-Receipt`. The result is
+        deleted when it is fetched (per the consumer's setting) or when the consumer's
+        job-result TTL passes; afterwards this returns `410`. A job that has not succeeded
+        returns `409`.
+      security:
+        - accessKeyAuth: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: The job's chat completion.
+          headers:
+            LS-Receipt:
+              $ref: '#/components/headers/LSReceipt'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatCompletion'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- resource requests
+  /v1/resource-requests:
+    get:
+      operationId: listResourceRequests
+      tags: [resource-requests]
+      summary: List my resource requests
+      description: The caller's resource requests, newest first.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceRequestStatusFilter'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of resource requests, without comments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceRequestList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createResourceRequest
+      tags: [resource-requests]
+      summary: Ask the host for more
+      description: Opens a resource request. The host is notified. An open request expires after the host's request TTL setting.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      requestBody:
+        description: The new resource request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceRequestCreate'
+      responses:
+        '201':
+          description: The new resource request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceRequest'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/resource-requests/{resource_request_id}:
+    get:
+      operationId: getResourceRequest
+      tags: [resource-requests]
+      summary: Get one of my resource requests
+      description: The request with its comments.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceRequestId'
+      responses:
+        '200':
+          description: The resource request with comments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceRequest'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/resource-requests/{resource_request_id}/comments:
+    post:
+      operationId: commentOnResourceRequest
+      tags: [resource-requests]
+      summary: Comment on my resource request
+      description: Adds a comment to an open request. A request in a terminal state returns `409`.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceRequestId'
+      requestBody:
+        description: The comment.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentCreate'
+      responses:
+        '201':
+          description: The request with the new comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceRequest'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/resource-requests/{resource_request_id}/withdraw:
+    post:
+      operationId: withdrawResourceRequest
+      tags: [resource-requests]
+      summary: Withdraw my resource request
+      description: Moves an open request to `withdrawn`. A request in a terminal state returns `409`.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceRequestId'
+      responses:
+        '200':
+          description: The withdrawn request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceRequest'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- usage and ledger
+  /v1/usage:
+    get:
+      operationId: getUsage
+      tags: [usage]
+      summary: My usage over time
+      description: Usage rollups for the caller's consumer, per access key and model.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Granularity'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/ModelFilter'
+        - $ref: '#/components/parameters/AccessKeyFilter'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of usage rollups, oldest bucket first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageRollupList'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/usage/{usage_id}/proof:
+    get:
+      operationId: getUsageProof
+      tags: [ledger]
+      summary: Inclusion proof for one receipt
+      description: |
+        The first signed checkpoint that covers the usage record's leaf, plus the inclusion
+        proof from the leaf to that checkpoint's root (D-52). Until a checkpoint covers the
+        leaf this returns `409` with `Retry-After`. An `unmetered` receipt has no proof
+        (`404`).
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/UsageId'
+      responses:
+        '200':
+          description: The covering checkpoint and the inclusion proof.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageProof'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/keys:
+    get:
+      operationId: getHostKeys
+      tags: [ledger]
+      summary: Host public keys
+      description: The host identity key, the receipt-signing keys and the checkpoint-signing key, current and retired, as a JWK Set (D-27, D-65). Retired keys stay listed so old receipts and checkpoints still verify.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      responses:
+        '200':
+          description: The host's public keys.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostKeySet'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/ledger/checkpoint:
+    get:
+      operationId: getLedgerCheckpoint
+      tags: [ledger]
+      summary: Latest ledger checkpoint
+      description: |
+        The latest signed checkpoint (a C2SP tlog-checkpoint signed note, verbatim). With
+        `from_tree_size`, the response also carries the consistency proof from that earlier
+        tree size to this checkpoint, so a consumer can show the ledger only grew.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      parameters:
+        - name: from_tree_size
+          in: query
+          required: false
+          description: Tree size of a checkpoint the caller kept earlier; asks for a consistency proof from it.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '200':
+          description: The checkpoint, and the consistency proof when asked for.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerCheckpoint'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- notifications
+  /v1/notification-preferences:
+    get:
+      operationId: getNotificationPreferences
+      tags: [notifications]
+      summary: My notification preferences
+      description: Which events reach the caller, and through which channels.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      responses:
+        '200':
+          description: One preference per event type.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferenceList'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: replaceNotificationPreferences
+      tags: [notifications]
+      summary: Replace my notification preferences
+      description: Replaces the caller's preferences. Event types left out return to their defaults.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      requestBody:
+        description: The preferences to store.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferenceList'
+      responses:
+        '200':
+          description: The stored preferences.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferenceList'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/webhook-endpoints:
+    get:
+      operationId: listWebhookEndpoints
+      tags: [notifications]
+      summary: List my webhook endpoints
+      description: The caller's webhook endpoints. Secrets are never returned after creation.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      responses:
+        '200':
+          description: The caller's endpoints.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createWebhookEndpoint
+      tags: [notifications]
+      summary: Register a webhook endpoint
+      description: |
+        Registers an http(s) URL for Standard Webhooks deliveries. The signing secret is
+        returned once. A URL whose address resolves to loopback, link-local, unspecified,
+        multicast or the host machine's own addresses never receives deliveries; private and
+        tailnet addresses receive them only when the host allows it (D-66). The address is
+        checked when each delivery is sent.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      requestBody:
+        description: The endpoint to register.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointCreate'
+      responses:
+        '201':
+          description: The endpoint and its signing secret, shown once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointCreated'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/webhook-endpoints/{webhook_endpoint_id}:
+    get:
+      operationId: getWebhookEndpoint
+      tags: [notifications]
+      summary: Get one of my webhook endpoints
+      description: One endpoint, without its secret.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookEndpointId'
+      responses:
+        '200':
+          description: The endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateWebhookEndpoint
+      tags: [notifications]
+      summary: Change one of my webhook endpoints
+      description: Changes the URL, description or event types, or re-enables a disabled endpoint with `status` `active`.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookEndpointId'
+      requestBody:
+        description: The changes to the endpoint.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointUpdate'
+      responses:
+        '200':
+          description: The changed endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteWebhookEndpoint
+      tags: [notifications]
+      summary: Delete one of my webhook endpoints
+      description: Stops deliveries to the endpoint and removes it from listings.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookEndpointId'
+      responses:
+        '204':
+          description: Deleted.
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- consumer self-service
+  /v1/invite-redemptions/password:
+    post:
+      operationId: redeemInviteWithPassword
+      tags: [account]
+      summary: Redeem an invite with a password
+      description: Creates the consumer and its first credential from a one-time invite token, records consent to the accepted terms and privacy versions, and starts a session.
+      security: []
+      requestBody:
+        description: The invite token, profile, password and consent.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteRedemptionPassword'
+      responses:
+        '201':
+          description: The new consumer; the session cookie is set.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetConsumerSessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consumer'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/invite-redemptions/passkey/begin:
+    post:
+      operationId: beginInviteRedemptionWithPasskey
+      tags: [account]
+      summary: Start redeeming an invite with a passkey
+      description: Checks the invite token and starts a WebAuthn registration ceremony. Nothing is created until the ceremony finishes.
+      security: []
+      requestBody:
+        description: The invite token, profile and consent.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteRedemptionPasskeyBegin'
+      responses:
+        '200':
+          description: The ceremony id and the WebAuthn creation options.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyCeremony'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/invite-redemptions/passkey/finish:
+    post:
+      operationId: finishInviteRedemptionWithPasskey
+      tags: [account]
+      summary: Finish redeeming an invite with a passkey
+      description: Verifies the WebAuthn attestation, creates the consumer and its passkey, records consent, and starts a session.
+      security: []
+      requestBody:
+        description: "The authenticator's response."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyCeremonyFinish'
+      responses:
+        '201':
+          description: The new consumer; the session cookie is set.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetConsumerSessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consumer'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/session:
+    delete:
+      operationId: deleteConsumerSession
+      tags: [account]
+      summary: Log out
+      description: Ends the current consumer session and clears the cookie.
+      security:
+        - consumerSessionAuth: []
+      responses:
+        '204':
+          description: Logged out; the cookie is cleared.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetConsumerSessionCookie'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/session/password:
+    post:
+      operationId: createConsumerSessionWithPassword
+      tags: [account]
+      summary: Log in with a password
+      description: Starts a consumer session. Repeated failures lock the login out for the host's lockout settings (`rate_limit_exceeded`).
+      security: []
+      requestBody:
+        description: The login.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordLogin'
+      responses:
+        '200':
+          description: The consumer; the session cookie is set.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetConsumerSessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consumer'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/session/passkey/begin:
+    post:
+      operationId: beginConsumerSessionWithPasskey
+      tags: [account]
+      summary: Start a passkey login
+      description: Starts a discoverable WebAuthn login ceremony (no username needed).
+      security: []
+      responses:
+        '200':
+          description: The ceremony id and the WebAuthn request options.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyCeremony'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/session/passkey/finish:
+    post:
+      operationId: finishConsumerSessionWithPasskey
+      tags: [account]
+      summary: Finish a passkey login
+      description: Verifies the WebAuthn assertion and starts a consumer session.
+      security: []
+      requestBody:
+        description: "The authenticator's response."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyCeremonyFinish'
+      responses:
+        '200':
+          description: The consumer; the session cookie is set.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetConsumerSessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consumer'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/me:
+    get:
+      operationId: getMe
+      tags: [account]
+      summary: My consumer account
+      description: The calling consumer's account.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      responses:
+        '200':
+          description: The consumer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consumer'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/me/limits:
+    get:
+      operationId: getMyLimits
+      tags: [account]
+      summary: My limits
+      description: The consumer's current grant version, before any key narrows it. For one key's effective limits and remaining quota, use `/v1/capabilities`.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      responses:
+        '200':
+          description: The current grant version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrantVersion'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/me/access-keys:
+    get:
+      operationId: listMyAccessKeys
+      tags: [account]
+      summary: My access keys
+      description: The consumer's access keys, by prefix. Secrets are never shown again after the host issued them.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      responses:
+        '200':
+          description: The consumer's access keys.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessKeyList'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/me/settings:
+    get:
+      operationId: getMySettings
+      tags: [account]
+      summary: My settings
+      description: The settings the consumer owns (for example job deadline, job-result TTL, webhook settings), with their defaults. There is no bounds hierarchy (D-54).
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      responses:
+        '200':
+          description: The consumer-owned settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingList'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: updateMySettings
+      tags: [account]
+      summary: Change my settings
+      description: Sets consumer-owned settings by key. A `null` value returns that setting to its default. A key the consumer does not own returns `403`.
+      security:
+        - accessKeyAuth: []
+        - consumerSessionAuth: []
+      requestBody:
+        description: The new setting values.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsUpdate'
+      responses:
+        '200':
+          description: The consumer-owned settings after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingList'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/me/password:
+    put:
+      operationId: setMyPassword
+      tags: [account]
+      summary: Set or change my password
+      description: Sets the consumer's password, or changes it when one exists (then `current_password` is required).
+      security:
+        - consumerSessionAuth: []
+      requestBody:
+        description: The new password.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordChange'
+      responses:
+        '204':
+          description: The password is set.
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/me/passkeys/begin:
+    post:
+      operationId: beginMyPasskeyRegistration
+      tags: [account]
+      summary: Start adding a passkey
+      description: Starts a WebAuthn registration ceremony for the logged-in consumer.
+      security:
+        - consumerSessionAuth: []
+      responses:
+        '200':
+          description: The ceremony id and the WebAuthn creation options.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasskeyCeremony'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/me/passkeys/finish:
+    post:
+      operationId: finishMyPasskeyRegistration
+      tags: [account]
+      summary: Finish adding a passkey
+      description: Verifies the WebAuthn attestation and stores the new passkey.
+      security:
+        - consumerSessionAuth: []
+      requestBody:
+        description: "The authenticator's response."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyCeremonyFinish'
+      responses:
+        '204':
+          description: The passkey is stored.
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- admin: setup and session
+  /admin/v1/setup:
+    get:
+      operationId: adminGetSetupStatus
+      tags: [admin-session]
+      summary: First-run status
+      description: Whether a host admin exists yet.
+      security: []
+      responses:
+        '200':
+          description: The first-run status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSetupStatus'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: adminCreateFirstAdmin
+      tags: [admin-session]
+      summary: Create the first host admin
+      description: Creates exactly one host admin on first run and starts its session. Once an admin exists this returns `409`.
+      security: []
+      requestBody:
+        description: "The admin's login."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCredentials'
+      responses:
+        '201':
+          description: The new admin; the session cookie is set.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetAdminSessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/session:
+    get:
+      operationId: adminGetSession
+      tags: [admin-session]
+      summary: Current admin
+      description: The host admin of the current session.
+      security:
+        - adminSessionAuth: []
+      responses:
+        '200':
+          description: The admin.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: adminCreateSession
+      tags: [admin-session]
+      summary: Admin login
+      description: Starts an admin session. Repeated failures lock the login out (`rate_limit_exceeded`).
+      security: []
+      requestBody:
+        description: "The admin's login."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCredentials'
+      responses:
+        '200':
+          description: The admin; the session cookie is set.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetAdminSessionCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: adminDeleteSession
+      tags: [admin-session]
+      summary: Admin logout
+      description: Ends the admin session and clears the cookie.
+      security:
+        - adminSessionAuth: []
+      responses:
+        '204':
+          description: Logged out; the cookie is cleared.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetAdminSessionCookie'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- admin: host
+  /admin/v1/host:
+    get:
+      operationId: adminGetHost
+      tags: [admin-host]
+      summary: Host state
+      description: The host's identity, sharing state and engine.
+      security:
+        - adminSessionAuth: []
+      responses:
+        '200':
+          description: The host state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostInfo'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/host/pause:
+    post:
+      operationId: adminPauseSharing
+      tags: [admin-host]
+      summary: Pause sharing
+      description: Stops accepting new work at once; running requests finish and queued jobs wait (D-06). Audited.
+      security:
+        - adminSessionAuth: []
+      responses:
+        '200':
+          description: The host state after pausing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostInfo'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/host/resume:
+    post:
+      operationId: adminResumeSharing
+      tags: [admin-host]
+      summary: Resume sharing
+      description: Ends a manual pause. Quiet hours still apply by their schedule. Audited.
+      security:
+        - adminSessionAuth: []
+      responses:
+        '200':
+          description: The host state after resuming.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostInfo'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/host-metrics:
+    get:
+      operationId: adminGetHostMetrics
+      tags: [admin-host]
+      summary: Current host metrics
+      description: Host totals, the share-budget slice, other apps and unattributed use, each value labelled with how it is measured (D-31).
+      security:
+        - adminSessionAuth: []
+      responses:
+        '200':
+          description: The latest sample.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostMetricsSample'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/host-metrics/history:
+    get:
+      operationId: adminGetHostMetricsHistory
+      tags: [admin-host]
+      summary: Host metrics over time
+      description: Per-minute samples kept for the host's metrics retention setting.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+      responses:
+        '200':
+          description: The samples, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostMetricsHistory'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/settings:
+    get:
+      operationId: adminGetSettings
+      tags: [admin-host]
+      summary: Host settings
+      description: The settings the host owns (retention, TTLs, queue limits, retry policy, quiet hours, share budget, and so on), with their defaults.
+      security:
+        - adminSessionAuth: []
+      responses:
+        '200':
+          description: The host-owned settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingList'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: adminUpdateSettings
+      tags: [admin-host]
+      summary: Change host settings
+      description: Sets host-owned settings by key. A `null` value returns that setting to its default. A key the host does not own returns `403`. Every change is audited.
+      security:
+        - adminSessionAuth: []
+      requestBody:
+        description: The new setting values.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingsUpdate'
+      responses:
+        '200':
+          description: The host-owned settings after the change.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettingList'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/audit-events:
+    get:
+      operationId: adminListAuditEvents
+      tags: [admin-host]
+      summary: Audit log
+      description: Admin actions and other audited changes, newest first (D-07).
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: action
+          in: query
+          required: false
+          description: Only events with this action.
+          schema:
+            type: string
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of audit events.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventList'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- admin: consumers, invites, keys
+  /admin/v1/consumers:
+    get:
+      operationId: adminListConsumers
+      tags: [admin-consumers]
+      summary: List consumers
+      description: Consumers, newest first. Deleted consumers are listed only when asked for by status.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: Only consumers in this state.
+          schema:
+            $ref: '#/components/schemas/ConsumerStatus'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of consumers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsumerList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: adminCreateConsumer
+      tags: [admin-consumers]
+      summary: Create a consumer
+      description: Creates a consumer without a login (a key-only consumer), for example a client app. People usually join through an invite instead. Audited.
+      security:
+        - adminSessionAuth: []
+      requestBody:
+        description: The new consumer.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsumerCreate'
+      responses:
+        '201':
+          description: The new consumer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consumer'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/consumers/{consumer_id}:
+    get:
+      operationId: adminGetConsumer
+      tags: [admin-consumers]
+      summary: Get a consumer
+      description: One consumer.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      responses:
+        '200':
+          description: The consumer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consumer'
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: adminUpdateConsumer
+      tags: [admin-consumers]
+      summary: Change a consumer
+      description: Changes a consumer's display name or email. Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      requestBody:
+        description: The changes to the consumer.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsumerUpdate'
+      responses:
+        '200':
+          description: The changed consumer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consumer'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: adminDeleteConsumer
+      tags: [admin-consumers]
+      summary: Delete a consumer
+      description: Soft-deletes the consumer, revokes its keys and erases its personal fields; its usage records and ledger leaves stay (D-40). Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      responses:
+        '204':
+          description: Deleted.
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/consumers/{consumer_id}/suspend:
+    post:
+      operationId: adminSuspendConsumer
+      tags: [admin-consumers]
+      summary: Suspend a consumer
+      description: Blocks the consumer's keys and sessions until reactivated. Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      responses:
+        '200':
+          description: The suspended consumer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consumer'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/consumers/{consumer_id}/reactivate:
+    post:
+      operationId: adminReactivateConsumer
+      tags: [admin-consumers]
+      summary: Reactivate a consumer
+      description: Ends a suspension. Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      responses:
+        '200':
+          description: The active consumer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Consumer'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/consumers/{consumer_id}/access-keys:
+    get:
+      operationId: adminListAccessKeys
+      tags: [admin-consumers]
+      summary: List a consumer's access keys
+      description: The consumer's access keys, by prefix.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      responses:
+        '200':
+          description: The consumer's access keys.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessKeyList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: adminIssueAccessKey
+      tags: [admin-consumers]
+      summary: Issue an access key
+      description: Issues a key for the consumer. The secret is returned once and only its prefix and hash are stored. Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      requestBody:
+        description: "The new key's options."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessKeyCreate'
+      responses:
+        '201':
+          description: The key and its secret, shown once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessKeyIssued'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/access-keys/{access_key_id}:
+    patch:
+      operationId: adminUpdateAccessKey
+      tags: [admin-consumers]
+      summary: Change an access key
+      description: Changes a key's name, expiry, narrowing or bound node. Narrowing can only narrow the grant, never widen it. Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AccessKeyId'
+      requestBody:
+        description: The changes to the key.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessKeyUpdate'
+      responses:
+        '200':
+          description: The changed key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessKey'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/access-keys/{access_key_id}/revoke:
+    post:
+      operationId: adminRevokeAccessKey
+      tags: [admin-consumers]
+      summary: Revoke an access key
+      description: Revokes the key at once. Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AccessKeyId'
+      responses:
+        '200':
+          description: The revoked key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessKey'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/invites:
+    get:
+      operationId: adminListInvites
+      tags: [admin-consumers]
+      summary: List invites
+      description: Invites, newest first.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of invites.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InviteList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: adminCreateInvite
+      tags: [admin-consumers]
+      summary: Create an invite
+      description: Creates a one-time sign-up invite. The token and link are returned once and only a hash is stored. Without `expires_at`, the host's invite TTL setting applies. Audited.
+      security:
+        - adminSessionAuth: []
+      requestBody:
+        description: "The new invite's options."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteCreate'
+      responses:
+        '201':
+          description: The invite, its token and its link, shown once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InviteIssued'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/invites/{invite_id}/revoke:
+    post:
+      operationId: adminRevokeInvite
+      tags: [admin-consumers]
+      summary: Revoke an invite
+      description: Revokes a pending invite. Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/InviteId'
+      responses:
+        '200':
+          description: The revoked invite.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Invite'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- admin: grants, models, policy
+  /admin/v1/consumers/{consumer_id}/grant:
+    get:
+      operationId: adminGetGrant
+      tags: [admin-grants]
+      summary: A consumer's current grant
+      description: The consumer's current grant version.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      responses:
+        '200':
+          description: The current grant version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrantVersion'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: adminSetGrant
+      tags: [admin-grants]
+      summary: Set a consumer's grant
+      description: Creates a new immutable grant version and makes it current; earlier versions stay (D-25). Audited, and the key cache is cleared.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+      requestBody:
+        description: The limits of the new grant version.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GrantLimits'
+      responses:
+        '200':
+          description: The new current grant version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrantVersion'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/consumers/{consumer_id}/grant/versions:
+    get:
+      operationId: adminListGrantVersions
+      tags: [admin-grants]
+      summary: A consumer's grant history
+      description: Every grant version of the consumer, newest first.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ConsumerId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of grant versions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GrantVersionList'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/models:
+    get:
+      operationId: adminListModels
+      tags: [admin-grants]
+      summary: Host models
+      description: The engine's models with the host's sharing configuration for each.
+      security:
+        - adminSessionAuth: []
+      responses:
+        '200':
+          description: The host's models.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostModelList'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/models/{model_id}:
+    patch:
+      operationId: adminUpdateModel
+      tags: [admin-grants]
+      summary: Configure a model
+      description: Changes whether a model is shared, preloaded, and its keep-alive. Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ModelId'
+      requestBody:
+        description: "The changes to the model's configuration."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HostModelUpdate'
+      responses:
+        '200':
+          description: The changed model.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostModel'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/policy-rules:
+    get:
+      operationId: adminListPolicyRules
+      tags: [admin-grants]
+      summary: List policy rules
+      description: Policy rules, global and per grant.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - name: grant_id
+          in: query
+          required: false
+          description: Only rules for this grant.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The policy rules.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyRuleList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: adminCreatePolicyRule
+      tags: [admin-grants]
+      summary: Create a policy rule
+      description: Creates a rule for one grant or, with `grant_id` null, for the whole host. Audited.
+      security:
+        - adminSessionAuth: []
+      requestBody:
+        description: The new rule.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyRuleCreate'
+      responses:
+        '201':
+          description: The new rule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyRule'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/policy-rules/{policy_rule_id}:
+    get:
+      operationId: adminGetPolicyRule
+      tags: [admin-grants]
+      summary: Get a policy rule
+      description: One rule, current version.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PolicyRuleId'
+      responses:
+        '200':
+          description: The rule.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyRule'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: adminReplacePolicyRule
+      tags: [admin-grants]
+      summary: Replace a policy rule
+      description: Stores a new version of the rule. Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PolicyRuleId'
+      requestBody:
+        description: "The rule's new version."
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyRuleUpdate'
+      responses:
+        '200':
+          description: The rule's new version.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyRule'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: adminDeletePolicyRule
+      tags: [admin-grants]
+      summary: Delete a policy rule
+      description: Soft-deletes the rule; it stops applying at once. Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PolicyRuleId'
+      responses:
+        '204':
+          description: Deleted.
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- admin: resource requests
+  /admin/v1/resource-requests:
+    get:
+      operationId: adminListResourceRequests
+      tags: [admin-requests]
+      summary: List resource requests
+      description: Resource requests from every consumer, newest first.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceRequestStatusFilter'
+        - name: consumer_id
+          in: query
+          required: false
+          description: Only requests from this consumer.
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of resource requests, without comments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceRequestList'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/resource-requests/{resource_request_id}:
+    get:
+      operationId: adminGetResourceRequest
+      tags: [admin-requests]
+      summary: Get a resource request
+      description: One request with its comments.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceRequestId'
+      responses:
+        '200':
+          description: The resource request with comments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceRequest'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/resource-requests/{resource_request_id}/approve:
+    post:
+      operationId: adminApproveResourceRequest
+      tags: [admin-requests]
+      summary: Approve a resource request
+      description: In one unit of work, creates the new grant version from `limits`, makes it current, marks the request `approved`, and writes the audit event, domain event and sync change (D-39 F3). A request in a terminal state returns `409`.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceRequestId'
+      requestBody:
+        description: The limits of the new grant version, and an optional comment.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceRequestApproval'
+      responses:
+        '200':
+          description: The approved request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceRequest'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/resource-requests/{resource_request_id}/reject:
+    post:
+      operationId: adminRejectResourceRequest
+      tags: [admin-requests]
+      summary: Reject a resource request
+      description: Marks the request `rejected`, with an optional comment. A request in a terminal state returns `409`. Audited.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceRequestId'
+      requestBody:
+        description: An optional comment for the consumer.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceRequestRejection'
+      responses:
+        '200':
+          description: The rejected request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceRequest'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/resource-requests/{resource_request_id}/comments:
+    post:
+      operationId: adminCommentOnResourceRequest
+      tags: [admin-requests]
+      summary: Comment on a resource request
+      description: Adds the host's comment to an open request. A request in a terminal state returns `409`.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ResourceRequestId'
+      requestBody:
+        description: The comment.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentCreate'
+      responses:
+        '201':
+          description: The request with the new comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResourceRequest'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- admin: usage
+  /admin/v1/usage:
+    get:
+      operationId: adminGetUsage
+      tags: [admin-usage]
+      summary: Usage across consumers
+      description: Usage rollups for every consumer, filterable by consumer, key and model.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Granularity'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - name: consumer_id
+          in: query
+          required: false
+          description: Only this consumer's usage.
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/AccessKeyFilter'
+        - $ref: '#/components/parameters/ModelFilter'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of usage rollups, oldest bucket first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageRollupList'
+        default:
+          $ref: '#/components/responses/Error'
+
+  # ---------------------------------------------------------------- admin: notifications
+  /admin/v1/notification-preferences:
+    get:
+      operationId: adminGetNotificationPreferences
+      tags: [admin-notifications]
+      summary: The admin's notification preferences
+      description: Which events reach the host admin, and through which channels (in-app, webhook, desktop).
+      security:
+        - adminSessionAuth: []
+      responses:
+        '200':
+          description: One preference per event type.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferenceList'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: adminReplaceNotificationPreferences
+      tags: [admin-notifications]
+      summary: Replace the admin's notification preferences
+      description: Replaces the admin's preferences. Event types left out return to their defaults.
+      security:
+        - adminSessionAuth: []
+      requestBody:
+        description: The preferences to store.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferenceList'
+      responses:
+        '200':
+          description: The stored preferences.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferenceList'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/webhook-endpoints:
+    get:
+      operationId: adminListWebhookEndpoints
+      tags: [admin-notifications]
+      summary: List the admin's webhook endpoints
+      description: The host admin's webhook endpoints. Secrets are never returned after creation.
+      security:
+        - adminSessionAuth: []
+      responses:
+        '200':
+          description: The admin's endpoints.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointList'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: adminCreateWebhookEndpoint
+      tags: [admin-notifications]
+      summary: Register an admin webhook endpoint
+      description: Registers an http(s) URL for Standard Webhooks deliveries to the host admin. The signing secret is returned once.
+      security:
+        - adminSessionAuth: []
+      requestBody:
+        description: The endpoint to register.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointCreate'
+      responses:
+        '201':
+          description: The endpoint and its signing secret, shown once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpointCreated'
+        default:
+          $ref: '#/components/responses/Error'
+  /admin/v1/webhook-endpoints/{webhook_endpoint_id}:
+    patch:
+      operationId: adminUpdateWebhookEndpoint
+      tags: [admin-notifications]
+      summary: Change an admin webhook endpoint
+      description: Changes the URL, description or event types, or re-enables a disabled endpoint with `status` `active`.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookEndpointId'
+      requestBody:
+        description: The changes to the endpoint.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WebhookEndpointUpdate'
+      responses:
+        '200':
+          description: The changed endpoint.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookEndpoint'
+        default:
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: adminDeleteWebhookEndpoint
+      tags: [admin-notifications]
+      summary: Delete an admin webhook endpoint
+      description: Stops deliveries to the endpoint and removes it from listings.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookEndpointId'
+      responses:
+        '204':
+          description: Deleted.
+        default:
+          $ref: '#/components/responses/Error'
+
+# ------------------------------------------------------------------ webhooks (Standard Webhooks)
+webhooks:
+  job.done:
+    post:
+      operationId: webhookJobDone
+      tags: [notifications]
+      summary: A job succeeded
+      description: Sent to the job's consumer when a job reaches `succeeded`. Fetch the result from `/v1/jobs/{job_id}/result`.
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+        - $ref: '#/components/parameters/WebhookTimestamp'
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        description: The event.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobDoneEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/WebhookAccepted'
+        '410':
+          $ref: '#/components/responses/WebhookGone'
+  resource_request.created:
+    post:
+      operationId: webhookResourceRequestCreated
+      tags: [notifications]
+      summary: A resource request was opened
+      description: Sent to the host admin when a consumer opens a resource request.
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+        - $ref: '#/components/parameters/WebhookTimestamp'
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        description: The event.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceRequestCreatedEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/WebhookAccepted'
+        '410':
+          $ref: '#/components/responses/WebhookGone'
+  resource_request.decided:
+    post:
+      operationId: webhookResourceRequestDecided
+      tags: [notifications]
+      summary: A resource request was decided
+      description: Sent to the requesting consumer when the host approves or rejects a request.
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+        - $ref: '#/components/parameters/WebhookTimestamp'
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        description: The event.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResourceRequestDecidedEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/WebhookAccepted'
+        '410':
+          $ref: '#/components/responses/WebhookGone'
+  quota.near_limit:
+    post:
+      operationId: webhookQuotaNearLimit
+      tags: [notifications]
+      summary: A quota is near its limit
+      description: Sent once per window when usage crosses the near-limit threshold setting.
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+        - $ref: '#/components/parameters/WebhookTimestamp'
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        description: The event.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuotaNearLimitEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/WebhookAccepted'
+        '410':
+          $ref: '#/components/responses/WebhookGone'
+  host.paused:
+    post:
+      operationId: webhookHostPaused
+      tags: [notifications]
+      summary: The host paused sharing
+      description: Sent when the host pauses sharing or enters quiet hours.
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+        - $ref: '#/components/parameters/WebhookTimestamp'
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        description: The event.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HostPausedEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/WebhookAccepted'
+        '410':
+          $ref: '#/components/responses/WebhookGone'
+  metering.failed:
+    post:
+      operationId: webhookMeteringFailed
+      tags: [notifications]
+      summary: A metering write failed
+      description: Sent to the host admin when a response was returned with an `unmetered` receipt because the metering write kept failing (D-51). Carries no content.
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+        - $ref: '#/components/parameters/WebhookTimestamp'
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        description: The event.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeteringFailedEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/WebhookAccepted'
+        '410':
+          $ref: '#/components/responses/WebhookGone'
+
+components:
+  securitySchemes:
+    accessKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: ls_<prefix>_<secret>
+      description: 'An access key the host issued, sent as `Authorization: Bearer ls_<prefix>_<secret>`.'
+    consumerSessionAuth:
+      type: apiKey
+      in: cookie
+      name: ls_session
+      description: The consumer web page's session cookie (HttpOnly, Secure, SameSite=Strict). State-changing requests also need a same-origin `Origin` header.
+    adminSessionAuth:
+      type: apiKey
+      in: cookie
+      name: ls_admin_session
+      description: The admin UI's session cookie (HttpOnly, Secure, SameSite=Strict). State-changing requests also need a same-origin `Origin` header.
+
+  headers:
+    LSReceipt:
+      description: |
+        The signed usage receipt for this call: a JWS in compact serialization (RFC 7515),
+        protected header `{"alg": "Ed25519", "kid": "<receipt-signing key id>", "typ": "ls-receipt+jws"}`,
+        payload a `UsageReceipt`. Verify it with the receipt-signing key from `/v1/keys`.
+      required: true
+      schema:
+        type: string
+        contentMediaType: application/jose
+        contentSchema:
+          $ref: '#/components/schemas/UsageReceipt'
+        pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+    RetryAfter:
+      description: Seconds to wait before retrying (RFC 9110). Sent where a retry makes sense.
+      schema:
+        type: integer
+        minimum: 0
+    SetConsumerSessionCookie:
+      description: Sets (or, on logout, clears) the `ls_session` cookie.
+      schema:
+        type: string
+    SetAdminSessionCookie:
+      description: Sets (or, on logout, clears) the `ls_admin_session` cookie.
+      schema:
+        type: string
+
+  parameters:
+    LSRequestProperties:
+      name: LS-Request-Properties
+      in: header
+      required: false
+      description: |
+        Request properties the host's policy rules understand (D-15, D-25, D-33), as an
+        RFC 9651 Structured Field Dictionary. Keys are property names; a bare key means
+        `true`. Values are tokens, strings, integers or booleans. Example:
+        `LS-Request-Properties: background, purpose=summarize`. A property the caller's grant
+        does not allow is refused by policy.
+      schema:
+        type: string
+      example: background, purpose=summarize
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: A client-chosen key, unique per job submission and access key, so a retried submission never runs or bills twice.
+      schema:
+        type: string
+        minLength: 1
+      example: 7f6c1d0e-3b1a-4c2e-9f7d-2a1b0c9d8e7f
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: The previous page's `next_cursor`.
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: The most items to return; the host's page-size setting caps it and is the default.
+      schema:
+        type: integer
+        minimum: 1
+    From:
+      name: from
+      in: query
+      required: false
+      description: Start of the time range, inclusive.
+      schema:
+        type: string
+        format: date-time
+    To:
+      name: to
+      in: query
+      required: false
+      description: End of the time range, exclusive.
+      schema:
+        type: string
+        format: date-time
+    Granularity:
+      name: granularity
+      in: query
+      required: true
+      description: Rollup bucket size.
+      schema:
+        $ref: '#/components/schemas/UsageGranularity'
+    ModelFilter:
+      name: model
+      in: query
+      required: false
+      description: Only this model.
+      schema:
+        type: string
+    AccessKeyFilter:
+      name: access_key_id
+      in: query
+      required: false
+      description: Only this access key.
+      schema:
+        type: string
+        format: uuid
+    ResourceRequestStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: Only requests in this state.
+      schema:
+        $ref: '#/components/schemas/ResourceRequestStatus'
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      description: The job's id.
+      schema:
+        type: string
+        format: uuid
+    UsageId:
+      name: usage_id
+      in: path
+      required: true
+      description: The usage record's id, from the receipt's `usage_id`.
+      schema:
+        type: string
+        format: uuid
+    ResourceRequestId:
+      name: resource_request_id
+      in: path
+      required: true
+      description: The resource request's id.
+      schema:
+        type: string
+        format: uuid
+    WebhookEndpointId:
+      name: webhook_endpoint_id
+      in: path
+      required: true
+      description: The webhook endpoint's id.
+      schema:
+        type: string
+        format: uuid
+    ConsumerId:
+      name: consumer_id
+      in: path
+      required: true
+      description: The consumer's id.
+      schema:
+        type: string
+        format: uuid
+    AccessKeyId:
+      name: access_key_id
+      in: path
+      required: true
+      description: The access key's id.
+      schema:
+        type: string
+        format: uuid
+    InviteId:
+      name: invite_id
+      in: path
+      required: true
+      description: The invite's id.
+      schema:
+        type: string
+        format: uuid
+    ModelId:
+      name: model_id
+      in: path
+      required: true
+      description: The host model's id (from `/admin/v1/models`); model names can contain `/` and `:`.
+      schema:
+        type: string
+        format: uuid
+    PolicyRuleId:
+      name: policy_rule_id
+      in: path
+      required: true
+      description: The policy rule's id.
+      schema:
+        type: string
+        format: uuid
+    WebhookId:
+      name: webhook-id
+      in: header
+      required: true
+      description: Standard Webhooks message id; the same for every retry, so receivers de-duplicate by it.
+      schema:
+        type: string
+    WebhookTimestamp:
+      name: webhook-timestamp
+      in: header
+      required: true
+      description: Standard Webhooks send time, Unix seconds.
+      schema:
+        type: integer
+        format: int64
+    WebhookSignature:
+      name: webhook-signature
+      in: header
+      required: true
+      description: Standard Webhooks signature list, `v1,<base64 HMAC-SHA256>` with the endpoint's secret.
+      schema:
+        type: string
+
+  responses:
+    Error:
+      description: An error in the OpenAI error envelope. See the error table in the API description for each code's HTTP status.
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    WebhookAccepted:
+      description: Any 2xx status means the delivery was received.
+    WebhookGone:
+      description: The receiver asks for no more deliveries; the endpoint is disabled.
+
+  schemas:
+    # -------------------------------------------------------------- errors
+    Error:
+      type: object
+      description: The OpenAI error envelope.
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+      example:
+        error:
+          message: The token quota for this window is used up.
+          type: insufficient_quota
+          param: null
+          code: quota_exceeded
+    ErrorDetail:
+      type: object
+      description: The error itself.
+      required: [message, type, param, code]
+      properties:
+        message:
+          type: string
+          description: A human-readable message. Never contains prompt or response content.
+        type:
+          type: string
+          description: The error category, as in the OpenAI API.
+        param:
+          type: [string, 'null']
+          description: The request field the error is about, if any.
+        code:
+          type: [string, 'null']
+          description: A typed code (`quota_exceeded`, `host_paused`, `model_not_granted`, `context_too_long`, `queue_full`, `engine_unavailable`), an OpenAI code, or null.
+          examples: [quota_exceeded, host_paused, model_not_granted, context_too_long, queue_full, engine_unavailable]
+
+    # -------------------------------------------------------------- OpenAI chat
+    ChatCompletionRequest:
+      type: object
+      description: The OpenAI chat completion request, limited to the fields local-server supports. Any other field is rejected.
+      additionalProperties: false
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          description: A model the caller's grant allows.
+        messages:
+          type: array
+          description: The conversation so far.
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        frequency_penalty:
+          type: [number, 'null']
+          description: As in the OpenAI API.
+          minimum: -2
+          maximum: 2
+        presence_penalty:
+          type: [number, 'null']
+          description: As in the OpenAI API.
+          minimum: -2
+          maximum: 2
+        max_tokens:
+          type: [integer, 'null']
+          description: Most tokens to generate; capped by the grant's output limit.
+          minimum: 1
+        max_completion_tokens:
+          type: [integer, 'null']
+          description: OpenAI's newer name for `max_tokens`; capped the same way. Send at most one of the two.
+          minimum: 1
+        response_format:
+          $ref: '#/components/schemas/ResponseFormat'
+        seed:
+          type: [integer, 'null']
+          description: As in the OpenAI API.
+          format: int64
+        stop:
+          description: Up to a few sequences where generation stops.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: string
+        stream:
+          type: [boolean, 'null']
+          description: Stream the response as server-sent events.
+        stream_options:
+          $ref: '#/components/schemas/StreamOptions'
+        temperature:
+          type: [number, 'null']
+          description: As in the OpenAI API.
+          minimum: 0
+          maximum: 2
+        top_p:
+          type: [number, 'null']
+          description: As in the OpenAI API.
+          minimum: 0
+          maximum: 1
+        tools:
+          type: array
+          description: Function tools the model may call. `tool_choice` is not supported.
+          items:
+            $ref: '#/components/schemas/ChatTool'
+      example:
+        model: llama3.1:8b
+        messages:
+          - role: user
+            content: Hello
+    StreamOptions:
+      type: object
+      description: Streaming options, as in the OpenAI API.
+      additionalProperties: false
+      properties:
+        include_usage:
+          type: boolean
+          description: Send a final chunk with `usage` and empty `choices` before `[DONE]`.
+    ResponseFormat:
+      description: The output format, as in the OpenAI API.
+      oneOf:
+        - $ref: '#/components/schemas/ResponseFormatText'
+        - $ref: '#/components/schemas/ResponseFormatJSONObject'
+        - $ref: '#/components/schemas/ResponseFormatJSONSchema'
+      discriminator:
+        propertyName: type
+        mapping:
+          text: '#/components/schemas/ResponseFormatText'
+          json_object: '#/components/schemas/ResponseFormatJSONObject'
+          json_schema: '#/components/schemas/ResponseFormatJSONSchema'
+    ResponseFormatText:
+      type: object
+      description: Plain text output.
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          description: Always `text`.
+          enum: [text]
+    ResponseFormatJSONObject:
+      type: object
+      description: Any valid JSON object.
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          description: Always `json_object`.
+          enum: [json_object]
+    ResponseFormatJSONSchema:
+      type: object
+      description: JSON matching a schema.
+      additionalProperties: false
+      required: [type, json_schema]
+      properties:
+        type:
+          type: string
+          description: Always `json_schema`.
+          enum: [json_schema]
+        json_schema:
+          type: object
+          description: The schema the output must match.
+          additionalProperties: false
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: The schema's name.
+            description:
+              type: string
+              description: What the schema is for.
+            schema:
+              type: object
+              description: A JSON Schema object.
+              additionalProperties: true
+            strict:
+              type: [boolean, 'null']
+              description: As in the OpenAI API.
+    ChatMessage:
+      description: One message in the conversation.
+      oneOf:
+        - $ref: '#/components/schemas/SystemMessage'
+        - $ref: '#/components/schemas/UserMessage'
+        - $ref: '#/components/schemas/AssistantMessage'
+        - $ref: '#/components/schemas/ToolMessage'
+      discriminator:
+        propertyName: role
+        mapping:
+          system: '#/components/schemas/SystemMessage'
+          user: '#/components/schemas/UserMessage'
+          assistant: '#/components/schemas/AssistantMessage'
+          tool: '#/components/schemas/ToolMessage'
+    SystemMessage:
+      type: object
+      description: Instructions for the model.
+      additionalProperties: false
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          description: Always `system`.
+          enum: [system]
+        content:
+          $ref: '#/components/schemas/TextContent'
+    UserMessage:
+      type: object
+      description: A message from the user.
+      additionalProperties: false
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          description: Always `user`.
+          enum: [user]
+        content:
+          description: Text, or an array of text and image parts.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: '#/components/schemas/UserContentPart'
+    AssistantMessage:
+      type: object
+      description: An earlier reply from the model.
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          type: string
+          description: Always `assistant`.
+          enum: [assistant]
+        content:
+          description: The reply text; null when the reply only called tools.
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                $ref: '#/components/schemas/TextContentPart'
+            - type: 'null'
+        tool_calls:
+          type: array
+          description: Tool calls the model made.
+          items:
+            $ref: '#/components/schemas/ToolCall'
+    ToolMessage:
+      type: object
+      description: The result of a tool call.
+      additionalProperties: false
+      required: [role, content, tool_call_id]
+      properties:
+        role:
+          type: string
+          description: Always `tool`.
+          enum: [tool]
+        content:
+          $ref: '#/components/schemas/TextContent'
+        tool_call_id:
+          type: string
+          description: The tool call this answers.
+    TextContent:
+      description: Text, or an array of text parts.
+      oneOf:
+        - type: string
+        - type: array
+          items:
+            $ref: '#/components/schemas/TextContentPart'
+    UserContentPart:
+      description: One part of a user message.
+      oneOf:
+        - $ref: '#/components/schemas/TextContentPart'
+        - $ref: '#/components/schemas/ImageContentPart'
+      discriminator:
+        propertyName: type
+        mapping:
+          text: '#/components/schemas/TextContentPart'
+          image_url: '#/components/schemas/ImageContentPart'
+    TextContentPart:
+      type: object
+      description: A text part.
+      additionalProperties: false
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          description: Always `text`.
+          enum: [text]
+        text:
+          type: string
+          description: The text.
+    ImageContentPart:
+      type: object
+      description: An image part. Only base64 `data:` URLs are supported; remote image URLs are rejected.
+      additionalProperties: false
+      required: [type, image_url]
+      properties:
+        type:
+          type: string
+          description: Always `image_url`.
+          enum: [image_url]
+        image_url:
+          type: object
+          description: The image.
+          additionalProperties: false
+          required: [url]
+          properties:
+            url:
+              type: string
+              description: A `data:image/...;base64,` URL.
+    ChatTool:
+      type: object
+      description: A function the model may call.
+      additionalProperties: false
+      required: [type, function]
+      properties:
+        type:
+          type: string
+          description: Always `function`.
+          enum: [function]
+        function:
+          $ref: '#/components/schemas/FunctionDefinition'
+    FunctionDefinition:
+      type: object
+      description: A function's name and parameters.
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: The function's name.
+        description:
+          type: string
+          description: What the function does.
+        parameters:
+          type: object
+          description: The function's parameters as a JSON Schema object.
+          additionalProperties: true
+    ToolCall:
+      type: object
+      description: One tool call.
+      required: [id, type, function]
+      properties:
+        id:
+          type: string
+          description: The tool call's id.
+        type:
+          type: string
+          description: Always `function`.
+          enum: [function]
+        function:
+          type: object
+          description: The function called and its arguments.
+          required: [name, arguments]
+          properties:
+            name:
+              type: string
+              description: The function's name.
+            arguments:
+              type: string
+              description: The arguments as a JSON string.
+    ChatCompletion:
+      type: object
+      description: A chat completion, as in the OpenAI API.
+      required: [id, object, created, model, choices, usage]
+      properties:
+        id:
+          type: string
+          description: The completion's id.
+        object:
+          type: string
+          description: Always `chat.completion`.
+          const: chat.completion
+        created:
+          type: integer
+          description: Unix seconds.
+          format: int64
+        model:
+          type: string
+          description: The model that answered.
+        choices:
+          type: array
+          description: The single choice (`n` is not supported).
+          items:
+            $ref: '#/components/schemas/ChatCompletionChoice'
+        usage:
+          $ref: '#/components/schemas/CompletionUsage'
+    ChatCompletionChoice:
+      type: object
+      description: One choice.
+      required: [index, message, finish_reason]
+      properties:
+        index:
+          type: integer
+          description: Always 0.
+        message:
+          $ref: '#/components/schemas/ChatCompletionMessage'
+        finish_reason:
+          $ref: '#/components/schemas/FinishReason'
+    ChatCompletionMessage:
+      type: object
+      description: The model's reply.
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          description: Always `assistant`.
+          enum: [assistant]
+        content:
+          type: [string, 'null']
+          description: The reply text; null when the reply only called tools.
+        tool_calls:
+          type: array
+          description: Tool calls the model made.
+          items:
+            $ref: '#/components/schemas/ToolCall'
+    FinishReason:
+      type: string
+      description: Why generation stopped.
+      enum: [stop, length, tool_calls]
+    CompletionUsage:
+      type: object
+      description: Token counts from the engine.
+      required: [prompt_tokens, completion_tokens, total_tokens]
+      properties:
+        prompt_tokens:
+          type: integer
+          description: Tokens in the prompt.
+          format: int64
+        completion_tokens:
+          type: integer
+          description: Tokens generated.
+          format: int64
+        total_tokens:
+          type: integer
+          description: The sum.
+          format: int64
+    ChatCompletionEventStream:
+      type: string
+      description: |
+        Server-sent events. Each event is a `data:` line holding one `ChatCompletionChunk` as
+        JSON. With `stream_options.include_usage`, the last chunk carries `usage` and an empty
+        `choices`. Then comes the receipt comment line `: ls-receipt <JWS>` (see `LS-Receipt`),
+        and finally `data: [DONE]`. An error after streaming has started arrives as a `data:`
+        line holding an `Error` envelope.
+      contentMediaType: text/event-stream
+      contentSchema:
+        $ref: '#/components/schemas/ChatCompletionChunk'
+    ChatCompletionChunk:
+      type: object
+      description: One streamed chunk, as in the OpenAI API.
+      required: [id, object, created, model, choices]
+      properties:
+        id:
+          type: string
+          description: The completion's id, the same on every chunk.
+        object:
+          type: string
+          description: Always `chat.completion.chunk`.
+          const: chat.completion.chunk
+        created:
+          type: integer
+          description: Unix seconds.
+          format: int64
+        model:
+          type: string
+          description: The model that answered.
+        choices:
+          type: array
+          description: The single choice's delta; empty on the usage chunk.
+          items:
+            $ref: '#/components/schemas/ChatCompletionChunkChoice'
+        usage:
+          description: Only on the last chunk, when `stream_options.include_usage` is true.
+          oneOf:
+            - $ref: '#/components/schemas/CompletionUsage'
+            - type: 'null'
+    ChatCompletionChunkChoice:
+      type: object
+      description: One choice's delta.
+      required: [index, delta, finish_reason]
+      properties:
+        index:
+          type: integer
+          description: Always 0.
+        delta:
+          type: object
+          description: What this chunk adds.
+          properties:
+            role:
+              type: string
+              description: Sent on the first chunk.
+              enum: [assistant]
+            content:
+              type: [string, 'null']
+              description: More reply text.
+            tool_calls:
+              type: array
+              description: Tool calls, sent whole.
+              items:
+                $ref: '#/components/schemas/ToolCall'
+        finish_reason:
+          description: Set on the choice's last chunk.
+          oneOf:
+            - $ref: '#/components/schemas/FinishReason'
+            - type: 'null'
+
+    # -------------------------------------------------------------- OpenAI embeddings and models
+    EmbeddingRequest:
+      type: object
+      description: The OpenAI embeddings request, limited to the fields local-server supports. Any other field is rejected.
+      additionalProperties: false
+      required: [model, input]
+      properties:
+        model:
+          type: string
+          description: A model the caller's grant allows.
+        input:
+          description: Text to embed, or an array of texts. Token arrays are not supported.
+          oneOf:
+            - type: string
+            - type: array
+              minItems: 1
+              items:
+                type: string
+        encoding_format:
+          type: string
+          description: '`float` (the default) or `base64` (little-endian float32), as in the OpenAI API.'
+          enum: [float, base64]
+        dimensions:
+          type: integer
+          description: Truncate embeddings to this many dimensions, where the model supports it.
+          minimum: 1
+      example:
+        model: nomic-embed-text
+        input: Hello
+    EmbeddingList:
+      type: object
+      description: Embeddings, as in the OpenAI API.
+      required: [object, data, model, usage]
+      properties:
+        object:
+          type: string
+          description: Always `list`.
+          const: list
+        data:
+          type: array
+          description: One embedding per input, in input order.
+          items:
+            $ref: '#/components/schemas/Embedding'
+        model:
+          type: string
+          description: The model that answered.
+        usage:
+          $ref: '#/components/schemas/EmbeddingUsage'
+    Embedding:
+      type: object
+      description: One embedding.
+      required: [object, index, embedding]
+      properties:
+        object:
+          type: string
+          description: Always `embedding`.
+          const: embedding
+        index:
+          type: integer
+          description: The input's position.
+        embedding:
+          description: The vector, or base64 when `encoding_format` is `base64`.
+          oneOf:
+            - type: array
+              items:
+                type: number
+                format: float
+            - type: string
+    EmbeddingUsage:
+      type: object
+      description: Token counts from the engine.
+      required: [prompt_tokens, total_tokens]
+      properties:
+        prompt_tokens:
+          type: integer
+          description: Tokens in the input.
+          format: int64
+        total_tokens:
+          type: integer
+          description: Same as `prompt_tokens`.
+          format: int64
+    ModelList:
+      type: object
+      description: Models, as in the OpenAI API.
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          description: Always `list`.
+          const: list
+        data:
+          type: array
+          description: The models.
+          items:
+            $ref: '#/components/schemas/Model'
+    Model:
+      type: object
+      description: One model, as in the OpenAI API.
+      required: [id, object, created, owned_by]
+      properties:
+        id:
+          type: string
+          description: The model name to send as `model`.
+        object:
+          type: string
+          description: Always `model`.
+          const: model
+        created:
+          type: integer
+          description: Unix seconds.
+          format: int64
+        owned_by:
+          type: string
+          description: Who publishes the model, as the engine reports it.
+
+    # -------------------------------------------------------------- receipts
+    UsageReceipt:
+      type: object
+      description: |
+        The payload of a signed usage receipt (D-16, D-27, D-51, D-52). A `metered` receipt
+        names its ledger leaf and the tree size that leaf creates; fetch the covering
+        checkpoint and inclusion proof later from `/v1/usage/{usage_id}/proof`. An
+        `unmetered` receipt means the host answered but could not record the call: it has
+        the engine's token counts and no `leaf_index` or `tree_size`, and is signed evidence
+        that the call cannot be billed later.
+      required: [v, metering, usage_id, host_kid, consumer_id, access_key_id, grant_version_id, operation, model, outcome, prompt_tokens, completion_tokens, total_tokens, started_at, finished_at]
+      properties:
+        v:
+          type: integer
+          description: Receipt format version.
+          const: 1
+        metering:
+          type: string
+          description: Whether the call is in the usage ledger.
+          enum: [metered, unmetered]
+        usage_id:
+          type: string
+          description: The usage record's id. For `unmetered`, the id the record would have had; no ledger leaf has it.
+          format: uuid
+        host_kid:
+          type: string
+          description: The host identity key's `kid` (from `/v1/keys`), the host's global id.
+        consumer_id:
+          type: string
+          description: The consumer.
+          format: uuid
+        access_key_id:
+          type: string
+          description: The access key that made the call.
+          format: uuid
+        grant_version_id:
+          type: string
+          description: The grant version the call ran under.
+          format: uuid
+        job_id:
+          type: [string, 'null']
+          description: The job, when the call ran as one.
+          format: uuid
+        operation:
+          type: string
+          description: Which surface was called.
+          enum: [chat.completions, embeddings]
+        model:
+          type: string
+          description: The model.
+        outcome:
+          type: string
+          description: '`completed`, `aborted` (the client disconnected; tokens so far are counted) or `failed` (the engine failed; tokens used are counted).'
+          enum: [completed, aborted, failed]
+        prompt_tokens:
+          type: integer
+          description: Prompt tokens, from the engine.
+          format: int64
+        completion_tokens:
+          type: integer
+          description: Generated tokens, from the engine.
+          format: int64
+        total_tokens:
+          type: integer
+          description: The sum.
+          format: int64
+        started_at:
+          type: string
+          description: When the call was admitted.
+          format: date-time
+        finished_at:
+          type: string
+          description: When the call ended.
+          format: date-time
+        leaf_index:
+          type: integer
+          description: The usage record's leaf in the ledger. Only on `metered` receipts.
+          format: int64
+          minimum: 0
+        tree_size:
+          type: integer
+          description: The ledger's size once this leaf was appended (`leaf_index` + 1). Only on `metered` receipts.
+          format: int64
+          minimum: 1
+
+    # -------------------------------------------------------------- host status and capabilities
+    SharingState:
+      type: string
+      description: '`sharing`, `paused` (the host paused manually) or `quiet` (quiet hours).'
+      enum: [sharing, paused, quiet]
+    HostHealth:
+      type: object
+      description: Host status for client apps.
+      required: [sharing_state, engine_state, loaded_models, queue_depth, checked_at]
+      properties:
+        sharing_state:
+          $ref: '#/components/schemas/SharingState'
+        sharing_resumes_at:
+          type: [string, 'null']
+          description: When quiet hours end, if the host is quiet; null otherwise.
+          format: date-time
+        engine_state:
+          type: string
+          description: Whether the engine answers.
+          enum: [available, unavailable]
+        loaded_models:
+          type: array
+          description: Models loaded in the engine now.
+          items:
+            type: string
+        queue_depth:
+          type: object
+          description: Requests waiting for admission.
+          required: [interactive, background]
+          properties:
+            interactive:
+              type: integer
+              description: Waiting interactive requests.
+            background:
+              type: integer
+              description: Waiting background requests and queued jobs.
+        checked_at:
+          type: string
+          description: When this status was taken.
+          format: date-time
+    Capabilities:
+      type: object
+      description: The caller's effective limits, after the key's narrowing, and remaining quota.
+      required: [consumer_id, grant_version_id, models, concurrency, on_context_overflow, allowed_request_properties, quotas]
+      properties:
+        consumer_id:
+          type: string
+          description: The consumer.
+          format: uuid
+        access_key_id:
+          type: [string, 'null']
+          description: The key the caller used; null for a session.
+          format: uuid
+        grant_version_id:
+          type: string
+          description: The grant version in force.
+          format: uuid
+        models:
+          type: array
+          description: The models the caller may use, with their limits.
+          items:
+            $ref: '#/components/schemas/GrantModelLimit'
+        concurrency:
+          type: integer
+          description: Most requests the caller may run at once.
+          minimum: 1
+        on_context_overflow:
+          $ref: '#/components/schemas/ContextOverflow'
+        allowed_request_properties:
+          type: array
+          description: Request property names the caller may send.
+          items:
+            type: string
+        quotas:
+          type: array
+          description: Every quota that applies, with what is left.
+          items:
+            $ref: '#/components/schemas/QuotaStatus'
+        rate_limit:
+          description: The request rate limit, when one applies.
+          oneOf:
+            - $ref: '#/components/schemas/RateLimit'
+            - type: 'null'
+        expires_at:
+          type: [string, 'null']
+          description: When the grant or the key expires, whichever is first.
+          format: date-time
+        benchmark:
+          type: [object, 'null']
+          description: Reserved for host benchmark fields (D-45); always null in this version.
+          additionalProperties: true
+    GrantModelLimit:
+      type: object
+      description: One model a grant allows, with its limits.
+      required: [model, context_limit, max_output_tokens]
+      properties:
+        model:
+          type: string
+          description: The model name.
+        context_limit:
+          type: integer
+          description: The largest context window in tokens (sent to the engine as `num_ctx`).
+          minimum: 1
+        max_output_tokens:
+          type: integer
+          description: The most tokens one call may generate.
+          minimum: 1
+    ContextOverflow:
+      type: string
+      description: What happens when a prompt is longer than the context limit (D-48). `refuse` (the default) returns `context_too_long`; `truncate` lets the engine drop the oldest messages.
+      enum: [refuse, truncate]
+    Quota:
+      type: object
+      description: A token allowance per window.
+      required: [window_seconds, tokens]
+      properties:
+        window_seconds:
+          type: integer
+          description: The window's length.
+          minimum: 1
+        tokens:
+          type: integer
+          description: Tokens allowed per window.
+          format: int64
+          minimum: 0
+    QuotaStatus:
+      type: object
+      description: One quota and what is left of it.
+      required: [scope, window_seconds, tokens, used_tokens, remaining_tokens, resets_at]
+      properties:
+        scope:
+          type: string
+          description: Whether the quota is the grant's or the key's narrowing.
+          enum: [grant, access_key]
+        window_seconds:
+          type: integer
+          description: The window's length.
+          minimum: 1
+        tokens:
+          type: integer
+          description: Tokens allowed per window.
+          format: int64
+        used_tokens:
+          type: integer
+          description: Tokens used in the current window.
+          format: int64
+        remaining_tokens:
+          type: integer
+          description: Tokens left in the current window.
+          format: int64
+        resets_at:
+          type: string
+          description: When the current window ends.
+          format: date-time
+    RateLimit:
+      type: object
+      description: A request rate limit.
+      required: [requests, window_seconds]
+      properties:
+        requests:
+          type: integer
+          description: Requests allowed per window.
+          minimum: 1
+        window_seconds:
+          type: integer
+          description: The window's length.
+          minimum: 1
+
+    # -------------------------------------------------------------- jobs
+    Job:
+      type: object
+      description: A background job (D-26, D-54).
+      required: [id, status, model, idempotency_key, created_at, result_available]
+      properties:
+        id:
+          type: string
+          description: The job's id.
+          format: uuid
+        status:
+          type: string
+          description: The job's state. `succeeded`, `failed`, `cancelled` and `expired` are terminal.
+          enum: [queued, running, succeeded, failed, cancelled, expired]
+        failure_reason:
+          type: [string, 'null']
+          description: Why a job `failed`, for example `host_restart` or `payload_minimized` (resubmit with the same Idempotency-Key to try again), or an error code such as `engine_unavailable`.
+        model:
+          type: string
+          description: The model requested.
+        idempotency_key:
+          type: string
+          description: The Idempotency-Key it was submitted with.
+        created_at:
+          type: string
+          description: When it was queued.
+          format: date-time
+        started_at:
+          type: [string, 'null']
+          description: When it started running.
+          format: date-time
+        finished_at:
+          type: [string, 'null']
+          description: When it reached a terminal state.
+          format: date-time
+        deadline_at:
+          type: [string, 'null']
+          description: A queued job expires at this time (the consumer's job deadline setting).
+          format: date-time
+        result_available:
+          type: boolean
+          description: Whether `/v1/jobs/{job_id}/result` has a result to fetch.
+        result_expires_at:
+          type: [string, 'null']
+          description: When an unfetched result is deleted (the consumer's job-result TTL setting).
+          format: date-time
+
+    # -------------------------------------------------------------- resource requests
+    ResourceRequestStatus:
+      type: string
+      description: A resource request's state. Every state but `open` is terminal.
+      enum: [open, approved, rejected, withdrawn, expired]
+    ResourceRequestAsk:
+      type: object
+      description: What the consumer asks for; every field is optional. The host decides the resulting limits.
+      properties:
+        models:
+          type: array
+          description: Models to add.
+          items:
+            type: string
+        quotas:
+          type: array
+          description: Quotas wanted.
+          items:
+            $ref: '#/components/schemas/Quota'
+        context_limit:
+          type: integer
+          description: Context limit wanted.
+          minimum: 1
+        max_output_tokens:
+          type: integer
+          description: Output limit wanted.
+          minimum: 1
+        concurrency:
+          type: integer
+          description: Concurrency wanted.
+          minimum: 1
+        request_properties:
+          type: array
+          description: Request properties wanted.
+          items:
+            type: string
+    ResourceRequestCreate:
+      type: object
+      description: A new resource request.
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: What the consumer needs and why.
+          minLength: 1
+        ask:
+          $ref: '#/components/schemas/ResourceRequestAsk'
+    ResourceRequest:
+      type: object
+      description: A consumer asking the host for more.
+      required: [id, consumer_id, status, message, created_at]
+      properties:
+        id:
+          type: string
+          description: The request's id.
+          format: uuid
+        consumer_id:
+          type: string
+          description: The consumer who asked.
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ResourceRequestStatus'
+        message:
+          type: string
+          description: What the consumer needs and why.
+        ask:
+          $ref: '#/components/schemas/ResourceRequestAsk'
+        created_at:
+          type: string
+          description: When it was opened.
+          format: date-time
+        expires_at:
+          type: [string, 'null']
+          description: When an open request expires (the host's request TTL setting).
+          format: date-time
+        decided_at:
+          type: [string, 'null']
+          description: When it reached a terminal state.
+          format: date-time
+        resulting_grant_version_id:
+          type: [string, 'null']
+          description: The grant version an approval created.
+          format: uuid
+        comments:
+          type: array
+          description: Comments, oldest first. Only on single-request responses.
+          items:
+            $ref: '#/components/schemas/Comment'
+    ResourceRequestList:
+      type: object
+      description: A page of resource requests.
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          description: The requests.
+          items:
+            $ref: '#/components/schemas/ResourceRequest'
+        next_cursor:
+          $ref: '#/components/schemas/NextCursor'
+    Comment:
+      type: object
+      description: A comment on a resource request. Rendered as text, never as HTML.
+      required: [id, author, body, created_at]
+      properties:
+        id:
+          type: string
+          description: The comment's id.
+          format: uuid
+        author:
+          $ref: '#/components/schemas/PrincipalRef'
+        body:
+          type: string
+          description: The comment.
+        created_at:
+          type: string
+          description: When it was written.
+          format: date-time
+    CommentCreate:
+      type: object
+      description: A new comment.
+      required: [body]
+      properties:
+        body:
+          type: string
+          description: The comment.
+          minLength: 1
+    ResourceRequestApproval:
+      type: object
+      description: The host's approval, with the limits of the new grant version.
+      required: [limits]
+      properties:
+        limits:
+          $ref: '#/components/schemas/GrantLimits'
+        comment:
+          type: string
+          description: An optional comment for the consumer.
+    ResourceRequestRejection:
+      type: object
+      description: The host's rejection.
+      properties:
+        comment:
+          type: string
+          description: An optional comment for the consumer.
+    PrincipalRef:
+      type: object
+      description: Who did something.
+      required: [principal_id, kind]
+      properties:
+        principal_id:
+          type: string
+          description: The principal's id.
+          format: uuid
+        kind:
+          type: string
+          description: The principal's kind.
+          enum: [host_admin, consumer, platform_admin]
+        display_name:
+          type: [string, 'null']
+          description: The principal's display name, if any.
+
+    # -------------------------------------------------------------- usage and ledger
+    UsageGranularity:
+      type: string
+      description: Rollup bucket size.
+      enum: [minute, hour, day]
+    UsageRollup:
+      type: object
+      description: Usage totals for one bucket, consumer, access key and model.
+      required: [bucket_start, granularity, consumer_id, access_key_id, model, requests, prompt_tokens, completion_tokens, total_tokens]
+      properties:
+        bucket_start:
+          type: string
+          description: The bucket's start.
+          format: date-time
+        granularity:
+          $ref: '#/components/schemas/UsageGranularity'
+        consumer_id:
+          type: string
+          description: The consumer.
+          format: uuid
+        access_key_id:
+          type: string
+          description: The access key.
+          format: uuid
+        model:
+          type: string
+          description: The model.
+        requests:
+          type: integer
+          description: Metered calls.
+          format: int64
+        prompt_tokens:
+          type: integer
+          description: Prompt tokens.
+          format: int64
+        completion_tokens:
+          type: integer
+          description: Generated tokens.
+          format: int64
+        total_tokens:
+          type: integer
+          description: The sum.
+          format: int64
+    UsageRollupList:
+      type: object
+      description: A page of usage rollups.
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          description: The rollups.
+          items:
+            $ref: '#/components/schemas/UsageRollup'
+        next_cursor:
+          $ref: '#/components/schemas/NextCursor'
+    UsageProof:
+      type: object
+      description: Proof that a usage record's leaf is in the ledger (RFC 6962 inclusion proof).
+      required: [usage_id, leaf_index, leaf_hash, tree_size, checkpoint, inclusion_proof]
+      properties:
+        usage_id:
+          type: string
+          description: The usage record.
+          format: uuid
+        leaf_index:
+          type: integer
+          description: The record's leaf.
+          format: int64
+          minimum: 0
+        leaf_hash:
+          type: string
+          description: The leaf's RFC 6962 hash, base64.
+          contentEncoding: base64
+        tree_size:
+          type: integer
+          description: The covering checkpoint's tree size.
+          format: int64
+          minimum: 1
+        checkpoint:
+          type: string
+          description: The first checkpoint that covers the leaf, a C2SP tlog-checkpoint signed note, verbatim.
+        inclusion_proof:
+          type: array
+          description: The proof hashes, base64, from the leaf up to the checkpoint's root.
+          items:
+            type: string
+            contentEncoding: base64
+    LedgerCheckpoint:
+      type: object
+      description: The latest ledger checkpoint, and optionally a consistency proof from an earlier one.
+      required: [checkpoint, tree_size, root_hash]
+      properties:
+        checkpoint:
+          type: string
+          description: A C2SP tlog-checkpoint signed note, verbatim, signed by the checkpoint-signing key.
+        tree_size:
+          type: integer
+          description: The checkpoint's tree size.
+          format: int64
+          minimum: 0
+        root_hash:
+          type: string
+          description: The checkpoint's root hash, base64.
+          contentEncoding: base64
+        from_tree_size:
+          type: [integer, 'null']
+          description: The earlier tree size the consistency proof starts from, when asked for.
+          format: int64
+        consistency_proof:
+          type: [array, 'null']
+          description: RFC 6962 consistency proof hashes, base64, from `from_tree_size` to `tree_size`, when asked for.
+          items:
+            type: string
+            contentEncoding: base64
+    HostKeySet:
+      type: object
+      description: The host's public keys as a JWK Set (RFC 7517).
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          description: Every key, current and retired.
+          items:
+            $ref: '#/components/schemas/HostPublicKey'
+    HostPublicKey:
+      type: object
+      description: |
+        An Ed25519 public key as an RFC 8037 OKP JWK, with local-server members prefixed
+        `ls_`. The identity key is the root; receipt-signing and checkpoint-signing keys carry
+        an endorsement signed by it.
+      required: [kty, crv, x, kid, alg, use, ls_role, ls_created_at]
+      properties:
+        kty:
+          type: string
+          description: Always `OKP`.
+          const: OKP
+        crv:
+          type: string
+          description: Always `Ed25519`.
+          const: Ed25519
+        x:
+          type: string
+          description: The public key, base64url without padding.
+        kid:
+          type: string
+          description: The key id, its RFC 7638 JWK thumbprint (base64url, SHA-256).
+        alg:
+          type: string
+          description: Always `Ed25519` (RFC 9864).
+          const: Ed25519
+        use:
+          type: string
+          description: Always `sig`.
+          const: sig
+        ls_role:
+          type: string
+          description: '`identity` (the host''s global id), `receipt` (signs usage receipts) or `checkpoint` (signs ledger checkpoints).'
+          enum: [identity, receipt, checkpoint]
+        ls_parent_kid:
+          type: [string, 'null']
+          description: The key that endorsed this one (the identity key); null for the identity key.
+        ls_endorsement:
+          type: [string, 'null']
+          description: 'A compact JWS (alg `Ed25519`) by the parent key whose payload is `{"kid", "ls_role", "x", "ls_created_at"}` of this key; null for the identity key.'
+        ls_note_verifier_key:
+          type: [string, 'null']
+          description: For the checkpoint key, its C2SP signed-note verifier key (`<name>+<hash>+<keydata>`); null otherwise.
+        ls_created_at:
+          type: string
+          description: When the key was created.
+          format: date-time
+        ls_retired_at:
+          type: [string, 'null']
+          description: When the key stopped signing; retired keys stay listed for verification.
+          format: date-time
+
+    # -------------------------------------------------------------- notifications
+    NotificationPreference:
+      type: object
+      description: Which channels one event type reaches.
+      required: [event_type, in_app, webhook]
+      properties:
+        event_type:
+          type: string
+          description: An event type, for example `job.done`, `resource_request.decided`, `quota.near_limit`, `host.paused`; for the host admin also `resource_request.created` and `metering.failed`.
+        in_app:
+          type: boolean
+          description: Show it in the web page.
+        webhook:
+          type: boolean
+          description: Deliver it to the caller's webhook endpoints.
+        desktop:
+          type: boolean
+          description: Show a desktop notification on the host machine. Host admin only.
+    NotificationPreferenceList:
+      type: object
+      description: Notification preferences.
+      required: [data]
+      properties:
+        data:
+          type: array
+          description: One preference per event type.
+          items:
+            $ref: '#/components/schemas/NotificationPreference'
+    WebhookEndpoint:
+      type: object
+      description: A URL that receives Standard Webhooks deliveries.
+      required: [id, url, event_types, status, created_at]
+      properties:
+        id:
+          type: string
+          description: The endpoint's id.
+          format: uuid
+        url:
+          type: string
+          description: An http(s) URL.
+          format: uri
+        description:
+          type: [string, 'null']
+          description: A note for the owner.
+        event_types:
+          type: array
+          description: The event types delivered; empty means all the owner may receive.
+          items:
+            type: string
+        status:
+          type: string
+          description: '`disabled` after a `410` response or too many consecutive failures (a host setting).'
+          enum: [active, disabled]
+        disabled_reason:
+          type: [string, 'null']
+          description: Why it was disabled, for example `gone` or `consecutive_failures`.
+        created_at:
+          type: string
+          description: When it was registered.
+          format: date-time
+    WebhookEndpointCreate:
+      type: object
+      description: A new webhook endpoint.
+      required: [url]
+      properties:
+        url:
+          type: string
+          description: An http(s) URL.
+          format: uri
+        description:
+          type: string
+          description: A note for the owner.
+        event_types:
+          type: array
+          description: The event types to deliver; empty or absent means all.
+          items:
+            type: string
+    WebhookEndpointUpdate:
+      type: object
+      description: Changes to a webhook endpoint; absent fields stay as they are.
+      properties:
+        url:
+          type: string
+          description: An http(s) URL.
+          format: uri
+        description:
+          type: [string, 'null']
+          description: A note for the owner.
+        event_types:
+          type: array
+          description: The event types to deliver; empty means all.
+          items:
+            type: string
+        status:
+          type: string
+          description: '`active` re-enables a disabled endpoint.'
+          enum: [active]
+    WebhookEndpointCreated:
+      type: object
+      description: A new endpoint and its secret.
+      required: [endpoint, secret]
+      properties:
+        endpoint:
+          $ref: '#/components/schemas/WebhookEndpoint'
+        secret:
+          type: string
+          description: The Standard Webhooks signing secret (`whsec_<base64>`), shown once.
+    WebhookEndpointList:
+      type: object
+      description: Webhook endpoints.
+      required: [data]
+      properties:
+        data:
+          type: array
+          description: The endpoints.
+          items:
+            $ref: '#/components/schemas/WebhookEndpoint'
+    JobDoneEvent:
+      type: object
+      description: Standard Webhooks payload for `job.done`. No content.
+      required: [type, timestamp, data]
+      properties:
+        type:
+          type: string
+          description: Always `job.done`.
+          const: job.done
+        timestamp:
+          type: string
+          description: When the event happened.
+          format: date-time
+        data:
+          type: object
+          description: The job.
+          required: [job_id, status, result_expires_at]
+          properties:
+            job_id:
+              type: string
+              description: The job.
+              format: uuid
+            status:
+              type: string
+              description: Always `succeeded`.
+              enum: [succeeded]
+            result_expires_at:
+              type: [string, 'null']
+              description: When the unfetched result is deleted.
+              format: date-time
+    ResourceRequestCreatedEvent:
+      type: object
+      description: Standard Webhooks payload for `resource_request.created`. No content beyond ids.
+      required: [type, timestamp, data]
+      properties:
+        type:
+          type: string
+          description: Always `resource_request.created`.
+          const: resource_request.created
+        timestamp:
+          type: string
+          description: When the event happened.
+          format: date-time
+        data:
+          type: object
+          description: The request.
+          required: [resource_request_id, consumer_id]
+          properties:
+            resource_request_id:
+              type: string
+              description: The request.
+              format: uuid
+            consumer_id:
+              type: string
+              description: The consumer who asked.
+              format: uuid
+    ResourceRequestDecidedEvent:
+      type: object
+      description: Standard Webhooks payload for `resource_request.decided`.
+      required: [type, timestamp, data]
+      properties:
+        type:
+          type: string
+          description: Always `resource_request.decided`.
+          const: resource_request.decided
+        timestamp:
+          type: string
+          description: When the event happened.
+          format: date-time
+        data:
+          type: object
+          description: The decision.
+          required: [resource_request_id, status]
+          properties:
+            resource_request_id:
+              type: string
+              description: The request.
+              format: uuid
+            status:
+              type: string
+              description: The decision.
+              enum: [approved, rejected]
+            resulting_grant_version_id:
+              type: [string, 'null']
+              description: The new grant version, when approved.
+              format: uuid
+    QuotaNearLimitEvent:
+      type: object
+      description: Standard Webhooks payload for `quota.near_limit`.
+      required: [type, timestamp, data]
+      properties:
+        type:
+          type: string
+          description: Always `quota.near_limit`.
+          const: quota.near_limit
+        timestamp:
+          type: string
+          description: When the event happened.
+          format: date-time
+        data:
+          $ref: '#/components/schemas/QuotaStatus'
+    HostPausedEvent:
+      type: object
+      description: Standard Webhooks payload for `host.paused`.
+      required: [type, timestamp, data]
+      properties:
+        type:
+          type: string
+          description: Always `host.paused`.
+          const: host.paused
+        timestamp:
+          type: string
+          description: When the event happened.
+          format: date-time
+        data:
+          type: object
+          description: The new state.
+          required: [sharing_state]
+          properties:
+            sharing_state:
+              $ref: '#/components/schemas/SharingState'
+            sharing_resumes_at:
+              type: [string, 'null']
+              description: When quiet hours end, if known.
+              format: date-time
+    MeteringFailedEvent:
+      type: object
+      description: Standard Webhooks payload for `metering.failed`. No content.
+      required: [type, timestamp, data]
+      properties:
+        type:
+          type: string
+          description: Always `metering.failed`.
+          const: metering.failed
+        timestamp:
+          type: string
+          description: When the event happened.
+          format: date-time
+        data:
+          type: object
+          description: The unmetered call.
+          required: [usage_id]
+          properties:
+            usage_id:
+              type: string
+              description: The `usage_id` on the `unmetered` receipt.
+              format: uuid
+
+    # -------------------------------------------------------------- consumers and self-service
+    ConsumerStatus:
+      type: string
+      description: A consumer's state.
+      enum: [active, suspended, deleted]
+    Consumer:
+      type: object
+      description: A consumer account. Personal fields are null after deletion.
+      required: [id, kind, status, has_login, created_at]
+      properties:
+        id:
+          type: string
+          description: The consumer's id.
+          format: uuid
+        kind:
+          type: string
+          description: '`individual` (a person) or `application` (an app acting on its own behalf).'
+          enum: [individual, application]
+        status:
+          $ref: '#/components/schemas/ConsumerStatus'
+        display_name:
+          type: [string, 'null']
+          description: The name shown in the UIs.
+        username:
+          type: [string, 'null']
+          description: The login name for password login; null for key-only consumers.
+        email:
+          type: [string, 'null']
+          description: Optional contact email.
+          format: email
+        has_login:
+          type: boolean
+          description: Whether the consumer has a password or passkey; false for a key-only consumer.
+        created_at:
+          type: string
+          description: When the account was created.
+          format: date-time
+        deleted_at:
+          type: [string, 'null']
+          description: When the account was deleted.
+          format: date-time
+    ConsumerList:
+      type: object
+      description: A page of consumers.
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          description: The consumers.
+          items:
+            $ref: '#/components/schemas/Consumer'
+        next_cursor:
+          $ref: '#/components/schemas/NextCursor'
+    ConsumerCreate:
+      type: object
+      description: A new key-only consumer.
+      required: [kind, display_name]
+      properties:
+        kind:
+          type: string
+          description: '`individual` or `application`.'
+          enum: [individual, application]
+        display_name:
+          type: string
+          description: The name shown in the UIs.
+          minLength: 1
+        email:
+          type: string
+          description: Optional contact email.
+          format: email
+    ConsumerUpdate:
+      type: object
+      description: Changes to a consumer; absent fields stay as they are.
+      properties:
+        display_name:
+          type: string
+          description: The name shown in the UIs.
+          minLength: 1
+        email:
+          type: [string, 'null']
+          description: Contact email; null removes it.
+          format: email
+    ConsentAcceptance:
+      type: object
+      description: The policy versions the person accepted at sign-up (D-45). They must be the versions in force.
+      required: [terms_version, privacy_version]
+      properties:
+        terms_version:
+          type: string
+          description: The accepted Terms of Use version id, for example `terms-2026-10-v1`.
+        privacy_version:
+          type: string
+          description: The accepted Privacy and consent notice version id, for example `privacy-2026-10-v1`.
+    InviteRedemptionPassword:
+      type: object
+      description: Redeem an invite and create a password login.
+      required: [invite_token, display_name, username, password, consent]
+      properties:
+        invite_token:
+          type: string
+          description: The one-time token from the invite link.
+          minLength: 1
+        display_name:
+          type: string
+          description: The name shown in the UIs.
+          minLength: 1
+        username:
+          type: string
+          description: The login name.
+          minLength: 1
+        email:
+          type: string
+          description: Optional contact email.
+          format: email
+        password:
+          type: string
+          description: The password; the host's password policy settings apply.
+          format: password
+        consent:
+          $ref: '#/components/schemas/ConsentAcceptance'
+    InviteRedemptionPasskeyBegin:
+      type: object
+      description: Redeem an invite with a passkey; the account is created when the ceremony finishes.
+      required: [invite_token, display_name, consent]
+      properties:
+        invite_token:
+          type: string
+          description: The one-time token from the invite link.
+          minLength: 1
+        display_name:
+          type: string
+          description: The name shown in the UIs.
+          minLength: 1
+        email:
+          type: string
+          description: Optional contact email.
+          format: email
+        consent:
+          $ref: '#/components/schemas/ConsentAcceptance'
+    PasskeyCeremony:
+      type: object
+      description: A started WebAuthn ceremony. The ceremony expires after the host's ceremony TTL setting.
+      required: [ceremony_id, options]
+      properties:
+        ceremony_id:
+          type: string
+          description: Send this back with the authenticator's response.
+        options:
+          type: object
+          description: The WebAuthn `PublicKeyCredentialCreationOptions` or `PublicKeyCredentialRequestOptions` as JSON (WebAuthn Level 3), to pass to `navigator.credentials.create()` or `.get()`.
+          additionalProperties: true
+    PasskeyCeremonyFinish:
+      type: object
+      description: The authenticator's response to a ceremony.
+      required: [ceremony_id, credential]
+      properties:
+        ceremony_id:
+          type: string
+          description: From the ceremony's begin response.
+        credential:
+          type: object
+          description: The `PublicKeyCredential` as JSON (WebAuthn Level 3 `toJSON()`).
+          additionalProperties: true
+    PasswordLogin:
+      type: object
+      description: A password login.
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          description: The login name.
+        password:
+          type: string
+          description: The password.
+          format: password
+    PasswordChange:
+      type: object
+      description: A new password.
+      required: [new_password]
+      properties:
+        current_password:
+          type: string
+          description: The current password, required when one exists.
+          format: password
+        new_password:
+          type: string
+          description: The new password; the host's password policy settings apply.
+          format: password
+    AccessKeyNarrowing:
+      type: object
+      description: Limits a key adds on top of its consumer's grant. They can only narrow the grant, never widen it.
+      properties:
+        models:
+          type: array
+          description: Only these of the grant's models.
+          items:
+            type: string
+        quotas:
+          type: array
+          description: Extra quotas for this key.
+          items:
+            $ref: '#/components/schemas/Quota'
+        context_limit:
+          type: integer
+          description: A lower context limit for every model.
+          minimum: 1
+        max_output_tokens:
+          type: integer
+          description: A lower output limit for every model.
+          minimum: 1
+        concurrency:
+          type: integer
+          description: A lower concurrency.
+          minimum: 1
+    AccessKey:
+      type: object
+      description: An access key, without its secret.
+      required: [id, consumer_id, prefix, status, created_at]
+      properties:
+        id:
+          type: string
+          description: The key's id.
+          format: uuid
+        consumer_id:
+          type: string
+          description: The consumer the key belongs to.
+          format: uuid
+        prefix:
+          type: string
+          description: The visible prefix (`ls_<prefix>`), to recognise the key.
+        name:
+          type: [string, 'null']
+          description: A label for the key.
+        status:
+          type: string
+          description: '`active`, `expired` (its expiry passed) or `revoked`.'
+          enum: [active, expired, revoked]
+        narrowing:
+          oneOf:
+            - $ref: '#/components/schemas/AccessKeyNarrowing'
+            - type: 'null'
+          description: Limits the key adds to the grant, if any.
+        bound_node:
+          type: [string, 'null']
+          description: The tailnet node the key is bound to (checked through Tailscale WhoIs), if any.
+        created_at:
+          type: string
+          description: When it was issued.
+          format: date-time
+        expires_at:
+          type: [string, 'null']
+          description: When it expires, if ever.
+          format: date-time
+        revoked_at:
+          type: [string, 'null']
+          description: When it was revoked.
+          format: date-time
+    AccessKeyList:
+      type: object
+      description: Access keys.
+      required: [data]
+      properties:
+        data:
+          type: array
+          description: The keys.
+          items:
+            $ref: '#/components/schemas/AccessKey'
+    AccessKeyCreate:
+      type: object
+      description: A new access key.
+      properties:
+        name:
+          type: string
+          description: A label for the key.
+        expires_at:
+          type: [string, 'null']
+          description: When it expires; null or absent means never.
+          format: date-time
+        narrowing:
+          $ref: '#/components/schemas/AccessKeyNarrowing'
+        bound_node:
+          type: [string, 'null']
+          description: Bind the key to this tailnet node.
+    AccessKeyUpdate:
+      type: object
+      description: Changes to an access key; absent fields stay as they are.
+      properties:
+        name:
+          type: [string, 'null']
+          description: A label for the key.
+        expires_at:
+          type: [string, 'null']
+          description: When it expires; null means never.
+          format: date-time
+        narrowing:
+          oneOf:
+            - $ref: '#/components/schemas/AccessKeyNarrowing'
+            - type: 'null'
+          description: Limits the key adds; null removes them.
+        bound_node:
+          type: [string, 'null']
+          description: Bind the key to this tailnet node; null unbinds it.
+    AccessKeyIssued:
+      type: object
+      description: A new access key and its secret.
+      required: [access_key, secret]
+      properties:
+        access_key:
+          $ref: '#/components/schemas/AccessKey'
+        secret:
+          type: string
+          description: The whole key, `ls_<prefix>_<secret>`, shown once.
+    Setting:
+      type: object
+      description: One runtime setting with its default (D-54).
+      required: [key, owner, value, default_value]
+      properties:
+        key:
+          type: string
+          description: The setting's key.
+        owner:
+          type: string
+          description: The one party that sets it.
+          enum: [platform_admin, host, consumer]
+        value:
+          description: The current value (any JSON value).
+        default_value:
+          description: The default value (any JSON value).
+        description:
+          type: string
+          description: What the setting controls, and its unit.
+    SettingList:
+      type: object
+      description: Settings.
+      required: [data]
+      properties:
+        data:
+          type: array
+          description: The settings.
+          items:
+            $ref: '#/components/schemas/Setting'
+    SettingsUpdate:
+      type: object
+      description: New values by setting key. A `null` value returns that setting to its default.
+      required: [values]
+      properties:
+        values:
+          type: object
+          description: Setting key to new value.
+          additionalProperties: true
+      example:
+        values:
+          jobs.result_ttl_seconds: 3600
+    GrantLimits:
+      type: object
+      description: The limits of a grant version.
+      required: [models, quotas, concurrency, on_context_overflow, allowed_request_properties]
+      properties:
+        models:
+          type: array
+          description: The models allowed, with their limits.
+          items:
+            $ref: '#/components/schemas/GrantModelLimit'
+        quotas:
+          type: array
+          description: Token quotas.
+          items:
+            $ref: '#/components/schemas/Quota'
+        concurrency:
+          type: integer
+          description: Most requests at once.
+          minimum: 1
+        on_context_overflow:
+          $ref: '#/components/schemas/ContextOverflow'
+        allowed_request_properties:
+          type: array
+          description: Request property names the consumer may send.
+          items:
+            type: string
+        expires_at:
+          type: [string, 'null']
+          description: When the grant expires, if ever.
+          format: date-time
+    GrantVersion:
+      type: object
+      description: An immutable grant version.
+      required: [id, grant_id, consumer_id, version, created_at, limits]
+      properties:
+        id:
+          type: string
+          description: The grant version's id.
+          format: uuid
+        grant_id:
+          type: string
+          description: The grant.
+          format: uuid
+        consumer_id:
+          type: string
+          description: The consumer.
+          format: uuid
+        version:
+          type: integer
+          description: 1 for the first version, then up by one.
+          minimum: 1
+        created_at:
+          type: string
+          description: When it was created.
+          format: date-time
+        resource_request_id:
+          type: [string, 'null']
+          description: The resource request whose approval created it, if any.
+          format: uuid
+        limits:
+          $ref: '#/components/schemas/GrantLimits'
+    GrantVersionList:
+      type: object
+      description: A page of grant versions.
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          description: The versions.
+          items:
+            $ref: '#/components/schemas/GrantVersion'
+        next_cursor:
+          $ref: '#/components/schemas/NextCursor'
+    NextCursor:
+      type: [string, 'null']
+      description: Pass as `cursor` for the next page; null on the last page.
+
+    # -------------------------------------------------------------- admin
+    AdminSetupStatus:
+      type: object
+      description: First-run status.
+      required: [admin_exists]
+      properties:
+        admin_exists:
+          type: boolean
+          description: Whether a host admin exists.
+    AdminCredentials:
+      type: object
+      description: A host admin's login.
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          description: The login name.
+          minLength: 1
+        password:
+          type: string
+          description: The password.
+          format: password
+    AdminUser:
+      type: object
+      description: A host admin.
+      required: [id, username, created_at]
+      properties:
+        id:
+          type: string
+          description: The admin's id.
+          format: uuid
+        username:
+          type: string
+          description: The login name.
+        created_at:
+          type: string
+          description: When the admin was created.
+          format: date-time
+    HostInfo:
+      type: object
+      description: The host's identity, sharing state and engine.
+      required: [host_kid, sharing_state, software_version, engine_state]
+      properties:
+        host_kid:
+          type: string
+          description: The host identity key's `kid`, the host's global id.
+        sharing_state:
+          $ref: '#/components/schemas/SharingState'
+        paused_at:
+          type: [string, 'null']
+          description: When the host paused manually.
+          format: date-time
+        sharing_resumes_at:
+          type: [string, 'null']
+          description: When quiet hours end, if the host is quiet.
+          format: date-time
+        software_version:
+          type: string
+          description: The local-server version.
+        engine_state:
+          type: string
+          description: Whether the engine answers.
+          enum: [available, unavailable]
+        engine_version:
+          type: [string, 'null']
+          description: The engine's version, when known.
+    MetricValue:
+      type: object
+      description: A measured value and how it was measured.
+      required: [value, method]
+      properties:
+        value:
+          type: [number, 'null']
+          description: The value; null when it cannot be read.
+        method:
+          type: string
+          description: How it was measured (for example which OS counter), so values are never guessed.
+    ResourceUse:
+      type: object
+      description: Memory and CPU use of one part of the machine.
+      required: [memory_bytes, cpu_percent]
+      properties:
+        memory_bytes:
+          $ref: '#/components/schemas/MetricValue'
+        cpu_percent:
+          $ref: '#/components/schemas/MetricValue'
+    HostMetricsSample:
+      type: object
+      description: One host-metrics sample (D-31).
+      required: [sampled_at, total, share_budget_slice, other_apps, unattributed]
+      properties:
+        sampled_at:
+          type: string
+          description: When it was sampled.
+          format: date-time
+        total:
+          $ref: '#/components/schemas/ResourceUse'
+        share_budget_slice:
+          $ref: '#/components/schemas/ResourceUse'
+        other_apps:
+          $ref: '#/components/schemas/ResourceUse'
+        unattributed:
+          $ref: '#/components/schemas/ResourceUse'
+    HostMetricsHistory:
+      type: object
+      description: Host-metrics samples over time.
+      required: [data]
+      properties:
+        data:
+          type: array
+          description: The samples, oldest first.
+          items:
+            $ref: '#/components/schemas/HostMetricsSample'
+    AuditEvent:
+      type: object
+      description: One audited action. Never carries content.
+      required: [id, occurred_at, action, details]
+      properties:
+        id:
+          type: string
+          description: The event's id.
+          format: uuid
+        occurred_at:
+          type: string
+          description: When it happened.
+          format: date-time
+        actor:
+          description: Who did it; null when local-server itself did (for example an expiry).
+          oneOf:
+            - $ref: '#/components/schemas/PrincipalRef'
+            - type: 'null'
+        action:
+          type: string
+          description: What was done, for example `access_key.revoked`.
+        target_kind:
+          type: [string, 'null']
+          description: The kind of thing acted on.
+        target_id:
+          type: [string, 'null']
+          description: The id of the thing acted on.
+        details:
+          type: object
+          description: Action-specific details.
+          additionalProperties: true
+    AuditEventList:
+      type: object
+      description: A page of audit events.
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          description: The events.
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next_cursor:
+          $ref: '#/components/schemas/NextCursor'
+    Invite:
+      type: object
+      description: A one-time sign-up invite, without its token.
+      required: [id, status, created_at, expires_at]
+      properties:
+        id:
+          type: string
+          description: The invite's id.
+          format: uuid
+        status:
+          type: string
+          description: The invite's state.
+          enum: [pending, redeemed, expired, revoked]
+        note:
+          type: [string, 'null']
+          description: The host's note, for example who it is for.
+        created_at:
+          type: string
+          description: When it was created.
+          format: date-time
+        expires_at:
+          type: string
+          description: When it expires.
+          format: date-time
+        redeemed_consumer_id:
+          type: [string, 'null']
+          description: The consumer created from it.
+          format: uuid
+    InviteList:
+      type: object
+      description: A page of invites.
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          description: The invites.
+          items:
+            $ref: '#/components/schemas/Invite'
+        next_cursor:
+          $ref: '#/components/schemas/NextCursor'
+    InviteCreate:
+      type: object
+      description: A new invite.
+      properties:
+        note:
+          type: string
+          description: A note, for example who it is for.
+        expires_at:
+          type: string
+          description: When it expires; absent means the host's invite TTL setting.
+          format: date-time
+    InviteIssued:
+      type: object
+      description: A new invite with its token and link.
+      required: [invite, token, link]
+      properties:
+        invite:
+          $ref: '#/components/schemas/Invite'
+        token:
+          type: string
+          description: The one-time token, shown once.
+        link:
+          type: string
+          description: The sign-up link on the consumer web page, carrying the token, shown once.
+          format: uri
+    HostModel:
+      type: object
+      description: One engine model and how the host shares it.
+      required: [id, name, engine, allowed, preload, loaded]
+      properties:
+        id:
+          type: string
+          description: The host model's id.
+          format: uuid
+        name:
+          type: string
+          description: The engine's model name.
+        engine:
+          type: string
+          description: The engine adapter, for example `ollama`.
+        allowed:
+          type: boolean
+          description: Whether grants may include it.
+        preload:
+          type: boolean
+          description: Whether it is loaded at start and kept ready.
+        keep_alive_seconds:
+          type: [integer, 'null']
+          description: How long it stays loaded when idle; null means the host's default keep-alive setting.
+          minimum: 0
+        loaded:
+          type: boolean
+          description: Whether it is loaded now.
+        size_bytes:
+          type: [integer, 'null']
+          description: Its size in memory when loaded, if known.
+          format: int64
+    HostModelList:
+      type: object
+      description: The host's models.
+      required: [data]
+      properties:
+        data:
+          type: array
+          description: The models.
+          items:
+            $ref: '#/components/schemas/HostModel'
+    HostModelUpdate:
+      type: object
+      description: Changes to a model's configuration; absent fields stay as they are.
+      properties:
+        allowed:
+          type: boolean
+          description: Whether grants may include it.
+        preload:
+          type: boolean
+          description: Whether it is loaded at start and kept ready.
+        keep_alive_seconds:
+          type: [integer, 'null']
+          description: How long it stays loaded when idle; null means the host's default.
+          minimum: 0
+    PolicyRule:
+      type: object
+      description: A versioned, declarative policy rule (D-25). Its `rule` document follows the policy rule format.
+      required: [id, version, rule, created_at]
+      properties:
+        id:
+          type: string
+          description: The rule's id.
+          format: uuid
+        grant_id:
+          type: [string, 'null']
+          description: The grant it applies to; null for the whole host.
+          format: uuid
+        version:
+          type: integer
+          description: 1 for the first version, then up by one.
+          minimum: 1
+        rule:
+          type: object
+          description: The rule document (request properties, time windows, priority class, caps), with its format version.
+          additionalProperties: true
+        created_at:
+          type: string
+          description: When this version was stored.
+          format: date-time
+    PolicyRuleList:
+      type: object
+      description: Policy rules.
+      required: [data]
+      properties:
+        data:
+          type: array
+          description: The rules.
+          items:
+            $ref: '#/components/schemas/PolicyRule'
+    PolicyRuleCreate:
+      type: object
+      description: A new policy rule.
+      required: [rule]
+      properties:
+        grant_id:
+          type: [string, 'null']
+          description: The grant it applies to; null or absent for the whole host.
+          format: uuid
+        rule:
+          type: object
+          description: The rule document.
+          additionalProperties: true
+    PolicyRuleUpdate:
+      type: object
+      description: A new version of a policy rule.
+      required: [rule]
+      properties:
+        rule:
+          type: object
+          description: The rule document.
+          additionalProperties: true

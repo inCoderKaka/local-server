@@ -1,0 +1,15 @@
+# ogen generator settings for internal/api (D-57). Regenerate with
+# `go generate ./internal/api/...`; never edit the oas_*_gen.go files by hand.
+generator:
+  features:
+    disable:
+      # Server code only: local-server serves this API and never calls it.
+      - paths/client
+      # The host sends webhooks through the notifier's own delivery worker
+      # (Standard Webhooks signing, dial-time address checks); the spec's
+      # webhooks section documents the payloads, and their types are still generated.
+      - webhooks/client
+      - webhooks/server
+      # Telemetry goes through the Telemetry port (D-31), not ogen's built-in
+      # OpenTelemetry instrumentation.
+      - ogen/otel
