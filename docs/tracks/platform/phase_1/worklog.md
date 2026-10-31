@@ -46,3 +46,6 @@ Work ledger for the platform track. Convention: `docs/tracks/README.md`. A ticke
 | PLT-B-007, PLT-B-010, PLT-B-011 | bug | Streamed receipt header optional; synchronous FULL setting; syn_change retention | fixed | 2026-10-31 | 2026-10-31 | 5cf1311 | D-78, D-76, D-77; startup wiring is PLT-F-020 |
 | PLT-B-022 | bug | Receipt key id read separately from signing | reported | 2026-10-31 | — | bugs.md | ledger retries around it |
 | PLT-C-005 | chore | Decisions D-93..D-95 (over_budget 422, host_kid, ollama_num_parallel 1) | done | 2026-10-31 | 2026-10-31 | this commit | no verify line |
+| PLT-F-016 | feat | Ledger checkpoints, proofs, `/v1/keys` key set with endorsements, rotation worker (Claude, Sonnet) | done | 2026-10-31 | 2026-10-31 | e8378b4, 46e5d77 | verify: pass (`go test ./internal/ledger/...`, 3 fuzz targets listed); set E gate owed |
+| PLT-F-017 | feat | Token and request quotas, rate limits, body limit, key lockout (Claude, Sonnet) | done | 2026-10-31 | 2026-10-31 | 957b5af, 46e5d77 | verify: pass (`go test ./internal/limits/...`); set E gate owed |
+| PLT-B-022..B-025 | bug | Signing kid atomic; use_record indexes; strict receipt base64; request quota enforced | fixed | 2026-10-31 | 2026-10-31 | 46e5d77 | D-98, D-99 |
