@@ -39,6 +39,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Single writer | The one goroutine in `internal/storage` that owns SQLite writes and commits queued units of work in batches; each unit runs in its own savepoint, so a failing unit rolls back alone. | Write lock | D-28 |
 | Data catalog | The `ops_data_catalog` table: one row per table and column, with its module and meaning, read from `--@table` / `--@column` comments in each migration. Startup fails if an entry is missing. | Schema registry | D-44 |
 | Request id | The id `internal/telemetry` puts on every request and log record; an inbound `X-Request-Id` is kept if well-formed, else one is generated. | Trace id, correlation id | D-31 |
+| Redacted | The `internal/telemetry` type that wraps prompt or response content so it renders as `[redacted]` in logs, `fmt` and JSON, even inside another struct; code reads the real text only through `Reveal`. | — | D-31, D-40 |
 | Domain event | A record that something happened (request decided, host paused, job done). It is written in the same unit of work as the change, then handed to subscribers such as notifications. | — | D-29 |
 | Doctor | The `local-server doctor` command, which checks the engine version, keychain, ports and Tailscale, and shows the time of the last successful platform sync when sync is on. | Doctor | D-14, D-23, D-48, D-67 |
 | Sleep lock | local-server keeps the host machine awake while sharing is on and not paused. | Keep awake | D-30 |
