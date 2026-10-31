@@ -21,7 +21,7 @@ import (
 //  2. every listed package exists, every Go package under internal/ belongs to a
 //     module, and a module that owns tables has a migrations folder;
 //  3. every module has an architecture note with the template headings (D-31);
-//  4. a module imports another module's adapter only through cmd/ (D-21);
+//  4. an adapter is imported only by cmd/ or from inside that adapter's own directory, never by core packages, including its own module's (D-21);
 //  5. module imports have no cycles;
 //  6. restricted imports (drivers) appear only in their owning module (D-09);
 //  7. nothing under internal/ imports cmd/ or tools/.
@@ -100,21 +100,25 @@ func (c *checker) owner(pkg string) (string, bool) {
 	return name, best != ""
 }
 
-func (c *checker) isAdapter(pkg string) (string, bool) {
+func (c *checker) isAdapter(pkg string) (module, root string, ok bool) {
 	for _, m := range c.cfg.Modules {
 		for _, a := range m.Adapters {
 			if pkg == a || strings.HasPrefix(pkg, a+"/") {
-				return m.Name, true
+				return m.Name, a, true
 			}
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
 func (c *checker) goDirs(root string) map[string]bool {
 	dirs := map[string]bool{}
 	_ = fs.WalkDir(c.fsys, root, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".go") {
+		if err != nil {
+			c.fail("walk %s: %v", p, err)
+			return nil
+		}
+		if !d.IsDir() && strings.HasSuffix(p, ".go") {
 			dirs[path.Dir(p)] = true
 		}
 		return nil
@@ -163,7 +167,10 @@ func (c *checker) checkNotes() {
 func (c *checker) checkImports() {
 	graph := map[string]map[string]bool{}
 	_ = fs.WalkDir(c.fsys, "internal", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") {
+		if err != nil {
+			return nil // walk errors are reported by goDirs (checkLayout walks the same root)
+		}
+		if d.IsDir() || !strings.HasSuffix(p, ".go") {
 			return nil
 		}
 		src, ok := c.owner(path.Dir(p))
@@ -208,11 +215,14 @@ func (c *checker) checkImport(file, src, imp string, graph map[string]map[string
 		c.fail("import: %s imports %q, which belongs to no module", file, imp)
 		return
 	}
+	if _, root, isAdapter := c.isAdapter(rel); isAdapter {
+		dir := path.Dir(file)
+		if dir != root && !strings.HasPrefix(dir, root+"/") {
+			c.fail("import: %s (module %q) imports adapter %q; only cmd/ may (D-21)", file, src, imp)
+		}
+	}
 	if dst == src {
 		return
-	}
-	if _, isAdapter := c.isAdapter(rel); isAdapter {
-		c.fail("import: %s (module %q) imports adapter %q; only cmd/ may (D-21)", file, src, imp)
 	}
 	if graph[src] == nil {
 		graph[src] = map[string]bool{}

@@ -11,7 +11,7 @@
 
 ## 1. Module map
 
-Each module owns its package, its tables (by prefix), and its port where it has one. Core modules import ports, never adapters (D-21); the allowed imports per module are set in `tools/archcheck`'s config (PLT-C-001). `tools/archcheck` enforces the map in CI, and imports outside it fail the build (PLT-C-001).
+Each module owns its package, its tables (by prefix), and its port where it has one. Core modules import ports, never adapters (D-21). `tools/archcheck` (PLT-C-001) enforces the map in CI with forbidden-import checks: every package under `internal/` belongs to one module, an adapter is imported only by `cmd/` or from inside that adapter, drivers only in their owning module, no import cycles between modules, and nothing under `internal/` imports `cmd/` or `tools/`; a violation fails the build.
 
 | Module | Package | Owns tables | Port it defines | Ticket |
 |---|---|---|---|---|

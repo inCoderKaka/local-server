@@ -1,15 +1,37 @@
 package main
 
 import (
-	"os"
+	"bytes"
+	"strings"
 	"testing"
 )
 
-func TestRunVersion(t *testing.T) {
-	if got := run([]string{"--version"}, os.Stdout, os.Stderr); got != 0 {
-		t.Fatalf("run(--version) = %d, want 0", got)
+func TestRun(t *testing.T) {
+	cases := []struct {
+		name      string
+		args      []string
+		want      int
+		stdoutPre string
+		stderrHas string
+	}{
+		{"version", []string{"--version"}, 0, "local-server ", ""},
+		{"help", []string{"--help"}, 0, "", ""},
+		{"short help", []string{"-h"}, 0, "", ""},
+		{"unknown flag", []string{"--nope"}, 2, "", ""},
+		{"no args", nil, 2, "", "nothing to run yet"},
 	}
-	if got := run([]string{"--nope"}, os.Stdout, os.Stderr); got != 2 {
-		t.Fatalf("run(--nope) = %d, want 2", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if got := run(tc.args, &stdout, &stderr); got != tc.want {
+				t.Fatalf("run(%v) = %d, want %d", tc.args, got, tc.want)
+			}
+			if !strings.HasPrefix(stdout.String(), tc.stdoutPre) {
+				t.Errorf("stdout = %q, want prefix %q", stdout.String(), tc.stdoutPre)
+			}
+			if !strings.Contains(stderr.String(), tc.stderrHas) {
+				t.Errorf("stderr = %q, want it to contain %q", stderr.String(), tc.stderrHas)
+			}
+		})
 	}
 }

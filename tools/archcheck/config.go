@@ -13,8 +13,7 @@ type Module struct {
 	// next to its first package.
 	Tables []string
 	// Adapters are package directories (they need not exist yet) that hold
-	// adapters of the module's port. Only cmd/ may import an adapter, plus the
-	// adapter's own module (D-21: core modules import ports, never adapters).
+	// adapters of the module's port. Only cmd/ may import an adapter, plus packages inside that adapter's own directory; the owning module's core packages may not (D-21: core modules import ports, never adapters).
 	Adapters []string
 }
 

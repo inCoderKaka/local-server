@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/fs"
 	"os"
 	"strings"
 	"testing"
@@ -57,9 +58,10 @@ func TestPlantedForbiddenImport(t *testing.T) {
 	cases := map[string]struct {
 		file, src, want string
 	}{
-		"driver outside storage": {"internal/gateway/x.go", "package gateway\nimport _ \"database/sql\"\n", `allowed only in [storage]`},
-		"core imports adapter":   {"internal/gateway/x.go", "package gateway\nimport _ \"" + testMod + "/internal/transport/tsnet\"\n", "only cmd/ may"},
-		"internal imports cmd":   {"internal/gateway/x.go", "package gateway\nimport _ \"" + testMod + "/cmd/local-server\"\n", "never imports cmd/"},
+		"driver outside storage":         {"internal/gateway/x.go", "package gateway\nimport _ \"database/sql\"\n", `allowed only in [storage]`},
+		"own module imports its adapter": {"internal/transport/x.go", "package transport\nimport _ \"" + testMod + "/internal/transport/tsnet\"\n", "only cmd/ may"},
+		"core imports adapter":           {"internal/gateway/x.go", "package gateway\nimport _ \"" + testMod + "/internal/transport/tsnet\"\n", "only cmd/ may"},
+		"internal imports cmd":           {"internal/gateway/x.go", "package gateway\nimport _ \"" + testMod + "/cmd/local-server\"\n", "never imports cmd/"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -71,6 +73,37 @@ func TestPlantedForbiddenImport(t *testing.T) {
 				t.Fatalf("want violation containing %q, got:\n%s", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestAdapterMayImportItsPort(t *testing.T) {
+	got := run(t, func(m fstest.MapFS) {
+		m["internal/transport/tsnet/doc.go"] = &fstest.MapFile{Data: []byte("package tsnet\n")}
+		m["internal/transport/tsnet/x.go"] = &fstest.MapFile{Data: []byte("package tsnet\nimport _ \"" + testMod + "/internal/transport\"\n")}
+	})
+	if got != "" {
+		t.Fatalf("adapter importing its port reported violations:\n%s", got)
+	}
+}
+
+// failFS fails Open on one path. It implements only Open, so fs.ReadDir,
+// fs.Stat and fs.ReadFile all go through it.
+type failFS struct {
+	fsys fs.FS
+	bad  string
+}
+
+func (f failFS) Open(name string) (fs.File, error) {
+	if name == f.bad {
+		return nil, fs.ErrPermission
+	}
+	return f.fsys.Open(name)
+}
+
+func TestWalkErrorIsReported(t *testing.T) {
+	got := strings.Join(Check(failFS{cleanTree(), "internal/gateway"}, testMod, smallConfig()), "\n")
+	if !strings.Contains(got, "walk internal/gateway") {
+		t.Fatalf("want a walk violation, got:\n%s", got)
 	}
 }
 
