@@ -37,7 +37,10 @@ func TestPromptLogsAsRedacted(t *testing.T) {
 }
 
 func TestMetricsHandlerExposesCounter(t *testing.T) {
-	tel, _ := New(Config{Out: &bytes.Buffer{}})
+	tel, err := New(Config{Out: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tel.Counter("ls_requests_total", "outcome").Inc("ok")
 	tel.Counter("ls_requests_total", "outcome").Add(2, "ok")
 	tel.Gauge("ls_queue_depth").Set(4)
@@ -53,7 +56,10 @@ func TestMetricsHandlerExposesCounter(t *testing.T) {
 }
 
 func TestContentLabelPanics(t *testing.T) {
-	tel, _ := New(Config{Out: &bytes.Buffer{}})
+	tel, err := New(Config{Out: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer func() {
 		if recover() == nil {
 			t.Fatal("want panic for content label")
@@ -82,11 +88,38 @@ func TestFileSinkRotates(t *testing.T) {
 }
 
 func TestSpanIsNoop(t *testing.T) {
-	tel, _ := New(Config{Out: &bytes.Buffer{}})
+	tel, err := New(Config{Out: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx := context.Background()
 	ctx2, sp := tel.StartSpan(ctx, "x")
 	sp.End()
 	if ctx2 != ctx {
 		t.Fatal("no-op span must not change the context")
 	}
+}
+
+func TestFileSinkBadPathErrors(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(f, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(Config{File: FileConfig{Path: filepath.Join(f, "ls.log")}}); err == nil {
+		t.Fatal("want an error for a log path under a regular file")
+	}
+}
+
+func TestLabelMismatchPanics(t *testing.T) {
+	tel, err := New(Config{Out: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tel.Counter("x_total", "a")
+	defer func() {
+		if recover() == nil {
+			t.Fatal("want panic when a metric is re-created with other labels")
+		}
+	}()
+	tel.Counter("x_total", "b")
 }

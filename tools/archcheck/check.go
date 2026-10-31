@@ -23,7 +23,8 @@ import (
 //  3. every module has an architecture note with the template headings (D-31);
 //  4. an adapter is imported only by cmd/ or from inside that adapter's own directory, never by core packages, including its own module's (D-21);
 //  5. module imports have no cycles;
-//  6. restricted imports (drivers) appear only in their owning module (D-09);
+//  6. restricted imports (drivers) appear only in their owning module, or in the
+//     package directory (and its sub-directories) the config names (D-09);
 //  7. nothing under internal/ imports cmd/ or tools/.
 func Check(fsys fs.FS, modPath string, cfg Config) []string {
 	c := &checker{fsys: fsys, modPath: modPath, cfg: cfg}
@@ -80,6 +81,12 @@ func (c *checker) checkConfig() {
 	}
 	for prefix, mods := range c.cfg.Restricted {
 		for _, n := range mods {
+			if strings.Contains(n, "/") {
+				if _, ok := c.owner(n); !ok || !strings.HasPrefix(n, "internal/") {
+					c.fail("config: restricted import %q names unknown package directory %q", prefix, n)
+				}
+				continue
+			}
 			if !names[n] {
 				c.fail("config: restricted import %q names unknown module %q", prefix, n)
 			}
@@ -196,9 +203,25 @@ func (c *checker) checkImports() {
 	c.checkCycles(graph)
 }
 
+// allowedIn reports whether file (in module src) may import something restricted to mods:
+// module names, or package directories that also cover their sub-directories.
+func (c *checker) allowedIn(mods []string, file, src string) bool {
+	dir := path.Dir(file)
+	for _, e := range mods {
+		if strings.Contains(e, "/") {
+			if dir == e || strings.HasPrefix(dir, e+"/") {
+				return true
+			}
+		} else if e == src {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *checker) checkImport(file, src, imp string, graph map[string]map[string]bool) {
 	for prefix, mods := range c.cfg.Restricted {
-		if (imp == prefix || strings.HasPrefix(imp, prefix+"/")) && !contains(mods, src) {
+		if (imp == prefix || strings.HasPrefix(imp, prefix+"/")) && !c.allowedIn(mods, file, src) {
 			c.fail("import: %s (module %q) imports %q, allowed only in %v", file, src, imp, mods)
 		}
 	}

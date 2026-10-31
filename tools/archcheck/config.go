@@ -24,8 +24,10 @@ type Config struct {
 	// TablePrefixes lists the twelve D-44 prefixes; each must be owned by at
 	// least one module.
 	TablePrefixes []string
-	// Restricted maps an import-path prefix to the modules allowed to import
-	// it. Domain code never imports drivers directly (D-09, D-21).
+	// Restricted maps an import-path prefix to the modules, or package
+	// directories (an entry containing "/", which also covers its
+	// sub-directories), allowed to import it. Domain code never imports
+	// drivers directly (D-09, D-21).
 	Restricted map[string][]string
 	// NoteDir holds one <module>.md architecture note per module (D-31).
 	NoteDir string
@@ -41,7 +43,7 @@ func DefaultConfig() Config {
 		Modules: []Module{
 			{Name: "storage", Packages: []string{"internal/storage"}, Tables: []string{"ops_"}},
 			{Name: "settings", Packages: []string{"internal/settings"}, Tables: []string{"hst_"}},
-			{Name: "telemetry", Packages: []string{"internal/telemetry"}},
+			{Name: "telemetry", Packages: []string{"internal/telemetry"}, Adapters: []string{"internal/telemetry/slogprom"}},
 			{Name: "host", Packages: []string{"internal/host", "internal/hostkeys", "internal/hostmetrics"}, Tables: []string{"hst_"}},
 			{Name: "engine", Packages: []string{"internal/engine"}, Adapters: []string{"internal/engine/ollama"}},
 			{Name: "identity", Packages: []string{"internal/identity"}, Tables: []string{"idn_"}},
@@ -76,11 +78,12 @@ func DefaultConfig() Config {
 			"ldg_", "ntf_", "aud_", "syn_", "plt_", "ops_",
 		},
 		Restricted: map[string][]string{
-			"database/sql":                     {"storage"},
-			"modernc.org/sqlite":               {"storage"},
-			"github.com/shirou/gopsutil":       {"host"},
-			"tailscale.com":                    {"transport"},
-			"gopkg.in/natefinch/lumberjack.v2": {"telemetry"},
+			"database/sql":                        {"storage"},
+			"modernc.org/sqlite":                  {"storage"},
+			"github.com/shirou/gopsutil":          {"host"},
+			"tailscale.com":                       {"transport"},
+			"gopkg.in/natefinch/lumberjack.v2":    {"internal/telemetry/slogprom"},
+			"github.com/prometheus/client_golang": {"internal/telemetry/slogprom"},
 		},
 		NoteDir:      "docs/modules",
 		NoteHeadings: []string{"## Purpose", "## Owns", "## Imports", "## Decisions"},

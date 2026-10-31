@@ -16,11 +16,15 @@ func smallConfig() Config {
 			{Name: "storage", Packages: []string{"internal/storage"}, Tables: []string{"ops_"}},
 			{Name: "gateway", Packages: []string{"internal/gateway"}},
 			{Name: "transport", Packages: []string{"internal/transport"}, Adapters: []string{"internal/transport/tsnet"}},
+			{Name: "telemetry", Packages: []string{"internal/telemetry"}, Adapters: []string{"internal/telemetry/slogprom"}},
 		},
 		TablePrefixes: []string{"ops_"},
-		Restricted:    map[string][]string{"database/sql": {"storage"}},
-		NoteDir:       "docs/modules",
-		NoteHeadings:  []string{"## Purpose"},
+		Restricted: map[string][]string{
+			"database/sql":                        {"storage"},
+			"github.com/prometheus/client_golang": {"internal/telemetry/slogprom"},
+		},
+		NoteDir:      "docs/modules",
+		NoteHeadings: []string{"## Purpose"},
 	}
 }
 
@@ -31,6 +35,8 @@ func cleanTree() fstest.MapFS {
 		"internal/storage/migrations/.keep": {},
 		"internal/gateway/doc.go":           {Data: []byte("package gateway\n")},
 		"internal/transport/doc.go":         {Data: []byte("package transport\n")},
+		"internal/telemetry/doc.go":         {Data: []byte("package telemetry\n")},
+		"docs/modules/telemetry.md":         note,
 		"docs/modules/storage.md":           note,
 		"docs/modules/gateway.md":           note,
 		"docs/modules/transport.md":         note,
@@ -62,11 +68,15 @@ func TestPlantedForbiddenImport(t *testing.T) {
 		"own module imports its adapter": {"internal/transport/x.go", "package transport\nimport _ \"" + testMod + "/internal/transport/tsnet\"\n", "only cmd/ may"},
 		"core imports adapter":           {"internal/gateway/x.go", "package gateway\nimport _ \"" + testMod + "/internal/transport/tsnet\"\n", "only cmd/ may"},
 		"internal imports cmd":           {"internal/gateway/x.go", "package gateway\nimport _ \"" + testMod + "/cmd/local-server\"\n", "never imports cmd/"},
+		"core imports slogprom":          {"internal/gateway/x.go", "package gateway\nimport _ \"" + testMod + "/internal/telemetry/slogprom\"\n", "only cmd/ may"},
+		"prometheus outside slogprom":    {"internal/gateway/x.go", "package gateway\nimport _ \"github.com/prometheus/client_golang/prometheus\"\n", "allowed only in"},
+		"prometheus in telemetry core":   {"internal/telemetry/x.go", "package telemetry\nimport _ \"github.com/prometheus/client_golang/prometheus\"\n", "allowed only in"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := run(t, func(m fstest.MapFS) {
 				m["internal/transport/tsnet/doc.go"] = &fstest.MapFile{Data: []byte("package tsnet\n")}
+				m["internal/telemetry/slogprom/doc.go"] = &fstest.MapFile{Data: []byte("package slogprom\n")}
 				m[tc.file] = &fstest.MapFile{Data: []byte(tc.src)}
 			})
 			if !strings.Contains(got, tc.want) {
@@ -83,6 +93,16 @@ func TestAdapterMayImportItsPort(t *testing.T) {
 	})
 	if got != "" {
 		t.Fatalf("adapter importing its port reported violations:\n%s", got)
+	}
+}
+
+func TestRestrictedDirectoryMayImport(t *testing.T) {
+	got := run(t, func(m fstest.MapFS) {
+		m["internal/telemetry/slogprom/doc.go"] = &fstest.MapFile{Data: []byte("package slogprom\n")}
+		m["internal/telemetry/slogprom/x.go"] = &fstest.MapFile{Data: []byte("package slogprom\nimport _ \"github.com/prometheus/client_golang/prometheus\"\n")}
+	})
+	if got != "" {
+		t.Fatalf("allowed directory importing a restricted package reported violations:\n%s", got)
 	}
 }
 

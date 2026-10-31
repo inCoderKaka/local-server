@@ -133,15 +133,37 @@ func apply(ctx context.Context, c *sql.Conn, mg migration) (err error) {
 	if _, err := c.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return err
 	}
+	// Another process may have applied it between migrate's read and this lock.
+	if ok, qerr := tableExists(ctx, c, "ops_schema_migrations"); qerr != nil {
+		c.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		return qerr
+	} else if ok {
+		var sum string
+		qerr := c.QueryRowContext(ctx, `SELECT checksum FROM ops_schema_migrations WHERE module=? AND version=?`, mg.module, mg.version).Scan(&sum)
+		switch {
+		case errors.Is(qerr, sql.ErrNoRows):
+			// Not applied yet: carry on.
+		case qerr != nil:
+			c.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+			return qerr
+		case sum != mg.checksum:
+			c.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+			return fmt.Errorf("storage: module %s migration %04d_%s changed after it was applied (checksum mismatch); migrations are forward-only, add a new one", mg.module, mg.version, mg.name)
+		default:
+			_, rerr := c.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+			return rerr
+		}
+	}
 	defer func() {
 		if err == nil {
 			return
 		}
-		c.ExecContext(ctx, "ROLLBACK")
+		bg := context.WithoutCancel(ctx)
+		c.ExecContext(bg, "ROLLBACK")
 		err = fmt.Errorf("storage: module %s migration %04d_%s: %w", mg.module, mg.version, mg.name, err)
 		// Log the failure when the log table exists (it does from storage migration 1 on).
-		if ok, qerr := tableExists(ctx, c, "ops_migration_run"); qerr == nil && ok {
-			c.ExecContext(ctx, `INSERT INTO ops_migration_run (module, version, name, started_at, finished_at, outcome, error) VALUES (?, ?, ?, ?, ?, 'failed', ?)`,
+		if ok, qerr := tableExists(bg, c, "ops_migration_run"); qerr == nil && ok {
+			c.ExecContext(bg, `INSERT INTO ops_migration_run (module, version, name, started_at, finished_at, outcome, error) VALUES (?, ?, ?, ?, ?, 'failed', ?)`,
 				mg.module, mg.version, mg.name, start.UnixMilli(), time.Now().UnixMilli(), err.Error())
 		}
 	}()
@@ -304,7 +326,7 @@ func syncCatalog(ctx context.Context, c *sql.Conn, mods []Module) error {
 		return nil
 	}()
 	if err != nil {
-		c.ExecContext(ctx, "ROLLBACK")
+		c.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
 		return err
 	}
 	_, err = c.ExecContext(ctx, "COMMIT")

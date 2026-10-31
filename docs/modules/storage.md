@@ -15,6 +15,7 @@ Opens the SQLite database, runs per-module forward-only migrations and provides 
 
 - One SQLite file in WAL mode, `foreign_keys` and `busy_timeout` in the DSN of every connection. One writer goroutine groups queued units of work into one `BEGIN IMMEDIATE` batch, each unit in a savepoint, so a failing unit rolls back alone and its audit, event, outbox and `syn_change` rows with it. A read pool of `query_only` connections serves reads.
 - Migrations: forward-only `NNNN_name.sql` per module, embedded, applied at startup; SHA-256 checksums in `ops_schema_migrations`; a changed or missing applied file, or an older new one, stops startup.
+- To correct the catalog line of an applied migration, or add a missing one, add a new migration that carries only the corrected `--@` lines; a later migration's line overrides an earlier one.
 - Catalog: `--@table` and `--@column` lines in migrations (comment, classification, billable) are collected into `ops_data_catalog`; startup fails if any table or column lacks one or a table lacks its module's prefix.
 - Configuration: busy timeout, batch size, batch window and read-pool size are `Config` fields with documented defaults; the runtime settings module (PLT-F-004) is not built yet (D-38, D-54).
 

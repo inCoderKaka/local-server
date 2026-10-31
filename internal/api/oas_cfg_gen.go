@@ -13,6 +13,7 @@ import (
 
 var regexMap = map[string]ogenregex.Regexp{
 	"^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$": ogenregex.MustCompile("^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"),
+	"^data:image/[A-Za-z0-9.+-]+;base64,":                ogenregex.MustCompile("^data:image/[A-Za-z0-9.+-]+;base64,"),
 }
 
 type (

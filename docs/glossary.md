@@ -43,6 +43,8 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Doctor | The `local-server doctor` command, which checks the engine version, keychain, ports and Tailscale, and shows the time of the last successful platform sync when sync is on. | Doctor | D-14, D-23, D-48, D-67 |
 | Sleep lock | local-server keeps the host machine awake while sharing is on and not paused. | Keep awake | D-30 |
 | Unattributed | Host resource use local-server cannot assign to a process because the OS won't report it; shown separately, never guessed. | Unattributed | D-31 |
+| Tailnet | The private Tailscale network the host machine and its consumers' nodes share. | — | D-10, D-12 |
+| Other apps | Host resource use outside local-server's slice (total minus local-server, Ollama and loaded models). | Other apps | D-31 |
 
 ## Access and limits
 
@@ -68,6 +70,11 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Rate limit | The maximum number of requests a key may send per time window. Mandatory in public mode. | Rate limit | D-24 |
 | Retention rule | A setting saying how long one kind of record is kept before the retention worker deletes it. | How long we keep … | D-38, D-40 |
 | Setting owner | The one party (platform admin, host or consumer) responsible for a configurable value. It sets the value freely; there is no bounds hierarchy between parties. | — | D-38, D-54 |
+| Capabilities | The caller's effective limits after key narrowing, plus remaining quota (`/v1/capabilities`). | — | D-32 |
+| Access key narrowing | Limits a key adds on top of its consumer's grant. They can only narrow the grant, never widen it. | — | D-25 |
+| Bound node | The tailnet node an access key is restricted to, checked through Tailscale WhoIs. | — | D-39 |
+| Lockout | A login or key blocked after repeated failures, for durations set by the host's lockout settings. | — | D-24 |
+| Passkey ceremony | A started WebAuthn registration or login, with a ceremony id, that expires after the host's ceremony TTL setting. | — | D-13 |
 
 ## Requests and records
 

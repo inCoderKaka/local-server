@@ -340,7 +340,8 @@ func (UnimplementedHandler) AdminPauseSharing(ctx context.Context) (r *HostInfo,
 
 // AdminReactivateConsumer implements adminReactivateConsumer operation.
 //
-// Ends a suspension. Audited.
+// Ends a suspension. A deleted consumer returns `409`; a deleted consumer is never reactivated (D-54).
+// Audited.
 //
 // POST /admin/v1/consumers/{consumer_id}/reactivate
 func (UnimplementedHandler) AdminReactivateConsumer(ctx context.Context, params AdminReactivateConsumerParams) (r *Consumer, _ error) {
@@ -395,7 +396,7 @@ func (UnimplementedHandler) AdminRevokeAccessKey(ctx context.Context, params Adm
 
 // AdminRevokeInvite implements adminRevokeInvite operation.
 //
-// Revokes a pending invite. Audited.
+// Revokes a pending invite. An invite that is not `pending` returns `409`. Audited.
 //
 // POST /admin/v1/invites/{invite_id}/revoke
 func (UnimplementedHandler) AdminRevokeInvite(ctx context.Context, params AdminRevokeInviteParams) (r *Invite, _ error) {
@@ -424,7 +425,8 @@ func (UnimplementedHandler) AdminSuspendConsumer(ctx context.Context, params Adm
 // AdminUpdateAccessKey implements adminUpdateAccessKey operation.
 //
 // Changes a key's name, expiry, narrowing or bound node. Narrowing can only narrow the grant, never
-// widen it. Audited.
+// widen it. A `revoked` or `expired` key returns `409`; a terminal key is never reopened (D-54).
+// Audited.
 //
 // PATCH /admin/v1/access-keys/{access_key_id}
 func (UnimplementedHandler) AdminUpdateAccessKey(ctx context.Context, req *AccessKeyUpdate, params AdminUpdateAccessKeyParams) (r *AccessKey, _ error) {
@@ -680,8 +682,8 @@ func (UnimplementedHandler) GetJob(ctx context.Context, params GetJobParams) (r 
 // GetJobResult implements getJobResult operation.
 //
 // The result of a `succeeded` job, with its receipt in `LS-Receipt`. The result is deleted when it is
-// fetched (per the consumer's setting) or when the consumer's job-result TTL passes; afterwards this
-// returns `410`. A job that has not succeeded returns `409`.
+// fetched or when the consumer's job-result TTL passes; afterwards this returns `410`. A job that has
+// not succeeded returns `409`.
 //
 // GET /v1/jobs/{job_id}/result
 func (UnimplementedHandler) GetJobResult(ctx context.Context, params GetJobResultParams) (r *ChatCompletionHeaders, _ error) {

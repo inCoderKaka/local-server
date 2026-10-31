@@ -12,14 +12,21 @@ const RedactedText = "[redacted]"
 // message: prompt and response content (D-31, D-40). It always renders as
 // "[redacted]" in slog, fmt and JSON, so redaction is a property of the type,
 // not a habit. Read the real text with Reveal, only where the content is
-// legitimately used (for example to send it to the engine).
-type Redacted struct{ text string }
+// legitimately used (for example to send it to the engine). The text is held
+// behind a pointer so that fmt prints only an address even when a Redacted is
+// an unexported field of another struct, where fmt cannot call its methods.
+type Redacted struct{ text *string }
 
 // Redact wraps content so it cannot be logged by accident.
-func Redact(text string) Redacted { return Redacted{text: text} }
+func Redact(text string) Redacted { return Redacted{text: &text} }
 
-// Reveal returns the wrapped text.
-func (r Redacted) Reveal() string { return r.text }
+// Reveal returns the wrapped text, or "" for the zero value.
+func (r Redacted) Reveal() string {
+	if r.text == nil {
+		return ""
+	}
+	return *r.text
+}
 
 // LogValue implements slog.LogValuer.
 func (Redacted) LogValue() slog.Value { return slog.StringValue(RedactedText) }

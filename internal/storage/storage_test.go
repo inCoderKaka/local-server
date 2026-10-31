@@ -2,10 +2,13 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"flag"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -316,6 +319,143 @@ func TestTxNotUsableAfterUnit(t *testing.T) {
 	db.Write(context.Background(), func(tx *Tx) error { kept = tx; return nil })
 	if _, err := kept.Exec(`SELECT 1`); err == nil {
 		t.Fatal("Tx usable after its unit of work")
+	}
+	if err := kept.QueryRow(`SELECT 1`).Scan(new(int)); err == nil {
+		t.Fatal("Tx.QueryRow usable after its unit of work")
+	}
+	if _, err := kept.Query(`SELECT 1`); err == nil {
+		t.Fatal("Tx.Query usable after its unit of work")
+	}
+}
+
+// TestBatchAbortedWhenTransactionLost: a unit that ends the batch transaction must not let
+// later units commit on their own; every unit's result must match what is on disk.
+func TestBatchAbortedWhenTransactionLost(t *testing.T) {
+	cfg := DefaultConfig(filepath.Join(t.TempDir(), "b.db"), demo(map[string]string{"0001_init.sql": demoSQL}))
+	cfg.BatchWindow = 300 * time.Millisecond
+	db, err := Open(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	insert := func(id int) func(*Tx) error {
+		return func(tx *Tx) error {
+			_, err := tx.Exec(`INSERT INTO tst_item (id, name) VALUES (?, 'x')`, id)
+			return err
+		}
+	}
+	units := map[string]func(*Tx) error{
+		"a": insert(1),
+		"b": func(tx *Tx) error { _, err := tx.Exec("ROLLBACK"); return err },
+		"c": insert(3),
+	}
+	ids := map[string]int{"a": 1, "c": 3}
+	errs := map[string]error{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, name := range []string{"a", "b", "c"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := db.Write(ctx, units[name])
+			mu.Lock()
+			errs[name] = err
+			mu.Unlock()
+		}()
+		time.Sleep(20 * time.Millisecond)
+	}
+	wg.Wait()
+	if errs["b"] == nil {
+		t.Fatal("unit that ended the transaction returned nil")
+	}
+	for name, id := range ids {
+		exists := count(t, db, `SELECT count(*) FROM tst_item WHERE id=?`, id) == 1
+		if (errs[name] == nil) != exists {
+			t.Errorf("unit %s: err = %v but row exists = %v", name, errs[name], exists)
+		}
+	}
+}
+
+func TestNewDatabaseIsUserOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not POSIX on windows")
+	}
+	path := filepath.Join(t.TempDir(), "m.db")
+	db := open(t, path)
+	if err := db.Write(context.Background(), func(tx *Tx) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{path, path + "-wal"} {
+		st, err := os.Stat(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode = %v, want 0600", f, st.Mode().Perm())
+		}
+	}
+}
+
+func TestPathWithURICharacters(t *testing.T) {
+	name := "a%b#c"
+	if runtime.GOOS != "windows" {
+		name += "?d"
+	}
+	dir := filepath.Join(t.TempDir(), name)
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "s.db")
+	db := open(t, path)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("database not at the requested path: %v", err)
+	}
+	var fk int
+	err := db.Write(context.Background(), func(tx *Tx) error {
+		return tx.QueryRow(`PRAGMA foreign_keys`).Scan(&fk)
+	})
+	if err != nil || fk != 1 {
+		t.Fatalf("writer foreign_keys = %d, %v", fk, err)
+	}
+	if n := count(t, db, `PRAGMA query_only`); n != 1 {
+		t.Fatalf("reader query_only = %d", n)
+	}
+}
+
+// TestApplySkipsMigrationAppliedMeanwhile: apply re-checks under the lock, so a migration
+// another process applied after migrate read the table is not run again.
+func TestApplySkipsMigrationAppliedMeanwhile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "r.db")
+	db := open(t, path)
+	ctx := context.Background()
+	other, err := sql.Open("sqlite", dsn(path, time.Second, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	conn, err := other.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	sub, err := fs.Sub(ownMigrations, "migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	migs, err := loadMigrations(Module{Name: "storage", Prefixes: []string{"ops_", "syn_"}, Migrations: sub})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := count(t, db, `SELECT count(*) FROM ops_migration_run`)
+	if err := apply(ctx, conn, migs[0]); err != nil {
+		t.Fatal(err)
+	}
+	if after := count(t, db, `SELECT count(*) FROM ops_migration_run`); after != before {
+		t.Fatalf("ops_migration_run rows %d -> %d", before, after)
+	}
+	if n := count(t, db, `SELECT count(*) FROM ops_migration_run WHERE outcome='failed'`); n != 0 {
+		t.Fatalf("%d failed rows", n)
 	}
 }
 

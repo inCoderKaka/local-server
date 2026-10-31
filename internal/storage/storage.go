@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io/fs"
 	"net/url"
+	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -87,8 +89,12 @@ func dsn(path string, busy time.Duration, readOnly bool) string {
 		q.Add("_pragma", "journal_mode(WAL)")
 		q.Add("_pragma", "synchronous(NORMAL)")
 	}
-	return "file:" + path + "?" + q.Encode()
+	return "file:" + uriPathEscaper.Replace(path) + "?" + q.Encode()
 }
+
+// uriPathEscaper escapes what would otherwise change the path: modernc splits the DSN at the
+// first "?", and SQLite decodes %HH and stops the path at "#".
+var uriPathEscaper = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
 
 // Open opens the database, applies the migrations, rebuilds the data catalog and starts
 // the writer goroutine. Call Close when done.
@@ -107,6 +113,12 @@ func Open(ctx context.Context, cfg Config) (*DB, error) {
 	}
 	if cfg.ReadPoolSize == 0 {
 		cfg.ReadPoolSize = DefaultReadPoolSize
+	}
+	// Create the file user-only before SQLite does; SQLite gives -wal and -shm the same mode.
+	if f, err := os.OpenFile(cfg.Path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600); err == nil {
+		f.Close()
+	} else if !errors.Is(err, fs.ErrExist) {
+		return nil, fmt.Errorf("storage: create %s: %w", cfg.Path, err)
 	}
 	sub, err := fs.Sub(ownMigrations, "migrations")
 	if err != nil {
@@ -147,7 +159,8 @@ func Open(ctx context.Context, cfg Config) (*DB, error) {
 }
 
 // Close stops the writer after it finishes the batch in progress, fails queued units with
-// ErrClosed and closes every connection. It is safe to call more than once.
+// ErrClosed and closes every connection. It is safe to call more than once. It must not be
+// called from inside a unit of work.
 func (db *DB) Close() error {
 	var err error
 	db.once.Do(func() {

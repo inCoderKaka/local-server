@@ -230,7 +230,8 @@ type Handler interface {
 	AdminPauseSharing(ctx context.Context) (*HostInfo, error)
 	// AdminReactivateConsumer implements adminReactivateConsumer operation.
 	//
-	// Ends a suspension. Audited.
+	// Ends a suspension. A deleted consumer returns `409`; a deleted consumer is never reactivated (D-54).
+	// Audited.
 	//
 	// POST /admin/v1/consumers/{consumer_id}/reactivate
 	AdminReactivateConsumer(ctx context.Context, params AdminReactivateConsumerParams) (*Consumer, error)
@@ -267,7 +268,7 @@ type Handler interface {
 	AdminRevokeAccessKey(ctx context.Context, params AdminRevokeAccessKeyParams) (*AccessKey, error)
 	// AdminRevokeInvite implements adminRevokeInvite operation.
 	//
-	// Revokes a pending invite. Audited.
+	// Revokes a pending invite. An invite that is not `pending` returns `409`. Audited.
 	//
 	// POST /admin/v1/invites/{invite_id}/revoke
 	AdminRevokeInvite(ctx context.Context, params AdminRevokeInviteParams) (*Invite, error)
@@ -287,7 +288,8 @@ type Handler interface {
 	// AdminUpdateAccessKey implements adminUpdateAccessKey operation.
 	//
 	// Changes a key's name, expiry, narrowing or bound node. Narrowing can only narrow the grant, never
-	// widen it. Audited.
+	// widen it. A `revoked` or `expired` key returns `409`; a terminal key is never reopened (D-54).
+	// Audited.
 	//
 	// PATCH /admin/v1/access-keys/{access_key_id}
 	AdminUpdateAccessKey(ctx context.Context, req *AccessKeyUpdate, params AdminUpdateAccessKeyParams) (*AccessKey, error)
@@ -468,8 +470,8 @@ type Handler interface {
 	// GetJobResult implements getJobResult operation.
 	//
 	// The result of a `succeeded` job, with its receipt in `LS-Receipt`. The result is deleted when it is
-	// fetched (per the consumer's setting) or when the consumer's job-result TTL passes; afterwards this
-	// returns `410`. A job that has not succeeded returns `409`.
+	// fetched or when the consumer's job-result TTL passes; afterwards this returns `410`. A job that has
+	// not succeeded returns `409`.
 	//
 	// GET /v1/jobs/{job_id}/result
 	GetJobResult(ctx context.Context, params GetJobResultParams) (*ChatCompletionHeaders, error)

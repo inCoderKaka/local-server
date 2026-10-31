@@ -13,8 +13,11 @@
 // batch. Every row fn writes through the Tx (its own module's rows, audit, events,
 // outbox, Tx.Capture) joins one atomic unit: if fn returns an error or panics, all of
 // them roll back and the other units in the batch are unaffected; otherwise they commit
-// with the batch and Write returns after the commit. fn must not call DB.Write (it would
-// wait for itself), must not keep the Tx, and should be short and free of network calls.
+// with the batch and Write returns after the commit. If the batch itself fails (its
+// commit, or a savepoint that cannot be rolled back or released), every unit in it that
+// had not already failed returns an error and nothing of the batch is committed. fn must
+// not call DB.Write or DB.Close (both would wait for the writer, which is running fn),
+// must not keep the Tx, and should be short and free of network calls.
 //
 // # Migrations
 //
@@ -34,7 +37,9 @@
 //	--@column idn_consumer.email classification=personal billable=false | Comment text.
 //
 // Open collects them into ops_data_catalog and fails if a table or column has none, or
-// if a table does not start with one of its module's prefixes (D-44).
+// if a table does not start with one of its module's prefixes (D-44). To correct the
+// catalog line of an applied migration, or add a missing one, add a new migration that
+// carries only the corrected "--@" lines; a later migration's line overrides an earlier one.
 //
 // # Configuration
 //

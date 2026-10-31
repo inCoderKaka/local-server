@@ -16,6 +16,11 @@ type Result interface {
 // Row is a single-row query result.
 type Row interface{ Scan(dest ...any) error }
 
+// errRow is a Row that reports a fixed error.
+type errRow struct{ err error }
+
+func (r errRow) Scan(...any) error { return r.err }
+
 // Rows is a multi-row query result. Close it before the unit of work returns.
 type Rows interface {
 	Next() bool
@@ -65,6 +70,9 @@ func (t *Tx) Query(query string, args ...any) (Rows, error) {
 
 // QueryRow runs a single-row read inside the unit of work.
 func (t *Tx) QueryRow(query string, args ...any) Row {
+	if !t.valid {
+		return errRow{fmt.Errorf("storage: Tx used outside its unit of work")}
+	}
 	return t.conn.QueryRowContext(t.ctx, query, args...)
 }
 
@@ -190,7 +198,14 @@ func (db *DB) runBatch(batch []*job) {
 			j.err = err
 			continue
 		}
-		j.err = db.runUnit(ctx, j)
+		var batchErr error
+		j.err, batchErr = db.runUnit(ctx, j)
+		if batchErr != nil {
+			// The transaction state is unknown; "no transaction" is the expected ROLLBACK error.
+			db.conn.ExecContext(ctx, "ROLLBACK")
+			finish(fmt.Errorf("storage: batch rolled back: %w", batchErr))
+			return
+		}
 		if j.err == nil {
 			ok = append(ok, j)
 		}
@@ -205,10 +220,12 @@ func (db *DB) runBatch(batch []*job) {
 	finish(nil)
 }
 
-// runUnit runs one unit inside a savepoint so that its failure rolls back only itself.
-func (db *DB) runUnit(ctx context.Context, j *job) (err error) {
-	if _, err := db.conn.ExecContext(ctx, "SAVEPOINT unit"); err != nil {
-		return fmt.Errorf("storage: savepoint: %w", err)
+// runUnit runs one unit inside a savepoint so that its failure rolls back only itself. err is
+// the unit's own result. batchErr is non-nil when a savepoint statement failed, so the
+// transaction may be gone and the whole batch must be aborted.
+func (db *DB) runUnit(ctx context.Context, j *job) (err, batchErr error) {
+	if _, e := db.conn.ExecContext(ctx, "SAVEPOINT unit"); e != nil {
+		return nil, fmt.Errorf("storage: savepoint: %w", e)
 	}
 	tx := &Tx{ctx: j.ctx, conn: db.conn, valid: true}
 	func() {
@@ -221,12 +238,14 @@ func (db *DB) runUnit(ctx context.Context, j *job) (err error) {
 	}()
 	tx.valid = false
 	if err != nil {
-		db.conn.ExecContext(ctx, "ROLLBACK TO unit")
+		if _, e := db.conn.ExecContext(ctx, "ROLLBACK TO unit"); e != nil {
+			return err, fmt.Errorf("storage: rollback to savepoint: %w", e)
+		}
 	}
-	if _, rerr := db.conn.ExecContext(ctx, "RELEASE unit"); rerr != nil && err == nil {
-		err = fmt.Errorf("storage: release: %w", rerr)
+	if _, e := db.conn.ExecContext(ctx, "RELEASE unit"); e != nil {
+		return err, fmt.Errorf("storage: release: %w", e)
 	}
-	return err
+	return err, nil
 }
 
 // Reader returns the read pool. Its connections are query_only; reads see data committed

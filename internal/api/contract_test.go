@@ -118,3 +118,29 @@ func TestSupportedChatRequestReachesHandlerAndCarriesReceipt(t *testing.T) {
 		t.Fatal("LS-Receipt header missing")
 	}
 }
+
+func TestSupportedChatRequestAcceptsDataImageURL(t *testing.T) {
+	h := &chatStub{}
+	srv, decodeErr := newTestServer(t, h)
+	rec := post(srv, "/v1/chat/completions",
+		`{"model":"m","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]}]}`)
+	if *decodeErr != nil {
+		t.Fatalf("unexpected decode error: %v", *decodeErr)
+	}
+	if !h.called || rec.Code != http.StatusOK {
+		t.Fatalf("handler called=%v status=%d", h.called, rec.Code)
+	}
+}
+
+func TestRemoteImageURLRejected(t *testing.T) {
+	h := &chatStub{}
+	srv, decodeErr := newTestServer(t, h)
+	post(srv, "/v1/chat/completions",
+		`{"model":"m","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.com/a.png"}}]}]}`)
+	if h.called {
+		t.Fatal("handler ran; a remote image URL must be rejected before it")
+	}
+	if *decodeErr == nil {
+		t.Fatal("want a decode error for a remote image URL")
+	}
+}

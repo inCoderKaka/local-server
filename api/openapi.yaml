@@ -77,6 +77,10 @@ info:
       (D-31, D-40). Webhook payloads and notifications never carry content. Queued job
       content and job results are the only content at rest, encrypted, and deleted at a
       terminal state or on fetch.
+    - **Request id.** Every response carries `X-Request-Id`. A well-formed inbound
+      `X-Request-Id` (letters, digits, `-` and `_`, at most 64 characters) is kept; otherwise
+      the host generates one. Quote it when reporting a failure: the host's logs carry the
+      same id (D-31).
     - **Lists** use cursor paging: pass `cursor` from the previous page's `next_cursor`; the
       host's page-size setting caps `limit`.
     - **Versioning.** The major version is in the path. Changes within a major version are
@@ -348,7 +352,7 @@ paths:
       summary: Fetch a job's result
       description: |
         The result of a `succeeded` job, with its receipt in `LS-Receipt`. The result is
-        deleted when it is fetched (per the consumer's setting) or when the consumer's
+        deleted when it is fetched or when the consumer's
         job-result TTL passes; afterwards this returns `410`. A job that has not succeeded
         returns `409`.
       security:
@@ -1439,7 +1443,7 @@ paths:
       operationId: adminReactivateConsumer
       tags: [admin-consumers]
       summary: Reactivate a consumer
-      description: Ends a suspension. Audited.
+      description: Ends a suspension. A deleted consumer returns `409`; a deleted consumer is never reactivated (D-54). Audited.
       security:
         - adminSessionAuth: []
       parameters:
@@ -1502,7 +1506,7 @@ paths:
       operationId: adminUpdateAccessKey
       tags: [admin-consumers]
       summary: Change an access key
-      description: Changes a key's name, expiry, narrowing or bound node. Narrowing can only narrow the grant, never widen it. Audited.
+      description: Changes a key's name, expiry, narrowing or bound node. Narrowing can only narrow the grant, never widen it. A `revoked` or `expired` key returns `409`; a terminal key is never reopened (D-54). Audited.
       security:
         - adminSessionAuth: []
       parameters:
@@ -1590,7 +1594,7 @@ paths:
       operationId: adminRevokeInvite
       tags: [admin-consumers]
       summary: Revoke an invite
-      description: Revokes a pending invite. Audited.
+      description: Revokes a pending invite. An invite that is not `pending` returns `409`. Audited.
       security:
         - adminSessionAuth: []
       parameters:
@@ -2782,6 +2786,7 @@ components:
             url:
               type: string
               description: A `data:image/...;base64,` URL.
+              pattern: '^data:image/[A-Za-z0-9.+-]+;base64,'
     ChatTool:
       type: object
       description: A function the model may call.

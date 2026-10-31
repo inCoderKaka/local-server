@@ -21,9 +21,9 @@ import (
 	"github.com/inCoderKaka/local-server/internal/telemetry"
 )
 
-// Defaults for FileConfig. Startup will overwrite them from the log-retention
-// settings (D-40, D-54) once the settings module (PLT-F-004) exists; until
-// then these are the documented defaults.
+// Defaults used when a FileConfig size or age field is zero. Once the settings
+// module (PLT-F-004) exists, startup passes the log-retention settings (D-40,
+// D-54, D-58) in FileConfig.
 const (
 	DefaultMaxSizeMB  = 50
 	DefaultMaxAgeDays = 14
@@ -85,6 +85,12 @@ func New(cfg Config) (*Telemetry, error) {
 			MaxAge:     orDefault(cfg.File.MaxAgeDays, DefaultMaxAgeDays),
 			MaxBackups: cfg.File.MaxBackups,
 			Compress:   cfg.File.Compress,
+		}
+		// lumberjack opens the file lazily, on the first write. A zero-length
+		// write forces the open (with its MkdirAll) now, so an unwritable path
+		// fails New instead of silently dropping every log line.
+		if _, err := lj.Write(nil); err != nil {
+			return nil, fmt.Errorf("slogprom: open log file %q: %w", cfg.File.Path, err)
 		}
 		w, closer = lj, lj
 	}
@@ -160,17 +166,26 @@ func checkLabels(name string, labels []string) {
 	}
 }
 
+// checkSameLabels panics when a cached metric is asked for again with other
+// label names: recording under the first set would mislabel data silently.
+func checkSameLabels(name string, cached, labelNames []string) {
+	if !slices.Equal(cached, labelNames) {
+		panic(fmt.Sprintf("slogprom: metric %q already created with labels %v, got %v", name, cached, labelNames))
+	}
+}
+
 // Counter implements telemetry.Telemetry.
 func (t *Telemetry) Counter(name string, labelNames ...string) telemetry.Counter {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if c, ok := t.counters[name]; ok {
+		checkSameLabels(name, c.labels, labelNames)
 		return c
 	}
 	checkLabels(name, labelNames)
 	v := prometheus.NewCounterVec(prometheus.CounterOpts{Name: name, Help: name}, labelNames)
 	t.reg.MustRegister(v)
-	c := &counter{v}
+	c := &counter{v, slices.Clone(labelNames)}
 	t.counters[name] = c
 	return c
 }
@@ -180,12 +195,13 @@ func (t *Telemetry) Gauge(name string, labelNames ...string) telemetry.Gauge {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if g, ok := t.gauges[name]; ok {
+		checkSameLabels(name, g.labels, labelNames)
 		return g
 	}
 	checkLabels(name, labelNames)
 	v := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: name, Help: name}, labelNames)
 	t.reg.MustRegister(v)
-	g := &gauge{v}
+	g := &gauge{v, slices.Clone(labelNames)}
 	t.gauges[name] = g
 	return g
 }
@@ -195,26 +211,36 @@ func (t *Telemetry) Histogram(name string, labelNames ...string) telemetry.Histo
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if h, ok := t.histograms[name]; ok {
+		checkSameLabels(name, h.labels, labelNames)
 		return h
 	}
 	checkLabels(name, labelNames)
 	v := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: name, Help: name}, labelNames)
 	t.reg.MustRegister(v)
-	h := &histogram{v}
+	h := &histogram{v, slices.Clone(labelNames)}
 	t.histograms[name] = h
 	return h
 }
 
-type counter struct{ v *prometheus.CounterVec }
+type counter struct {
+	v      *prometheus.CounterVec
+	labels []string
+}
 
 func (c *counter) Inc(lv ...string)            { c.v.WithLabelValues(lv...).Inc() }
 func (c *counter) Add(d float64, lv ...string) { c.v.WithLabelValues(lv...).Add(d) }
 
-type gauge struct{ v *prometheus.GaugeVec }
+type gauge struct {
+	v      *prometheus.GaugeVec
+	labels []string
+}
 
 func (g *gauge) Set(x float64, lv ...string) { g.v.WithLabelValues(lv...).Set(x) }
 func (g *gauge) Add(d float64, lv ...string) { g.v.WithLabelValues(lv...).Add(d) }
 
-type histogram struct{ v *prometheus.HistogramVec }
+type histogram struct {
+	v      *prometheus.HistogramVec
+	labels []string
+}
 
 func (h *histogram) Observe(x float64, lv ...string) { h.v.WithLabelValues(lv...).Observe(x) }
