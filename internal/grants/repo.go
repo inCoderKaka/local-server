@@ -82,8 +82,7 @@ func collect[T any](rows storage.Rows, scan func(storage.Row) (T, error)) ([]T, 
 	return out, errors.Join(rows.Err(), rows.Close())
 }
 
-// first returns the only row of a query, or ErrNotFound. (storage does not export its
-// no-rows error and this package may not import database/sql, so reads use Query.)
+// first returns the only row of a query, or ErrNotFound.
 func first[T any](rows storage.Rows, err error) func(func(storage.Row) (T, error)) (T, error) {
 	return func(scan func(storage.Row) (T, error)) (T, error) {
 		var zero T

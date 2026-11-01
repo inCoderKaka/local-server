@@ -4,6 +4,7 @@ package ollama_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/inCoderKaka/local-server/internal/engine"
@@ -16,7 +17,8 @@ import (
 // LS_OLLAMA_CHAT_MODEL and an embedding model named by LS_OLLAMA_EMBED_MODEL.
 // Each defaults to the enginetest name ("chat-test", "embed-test") when unset
 // or empty, so copying a model to that name with `ollama cp` also works. It
-// skips when LS_OLLAMA_URL is unset.
+// skips when LS_OLLAMA_URL is unset. A name without a tag is matched as Ollama
+// lists it, with ":latest".
 func TestLive(t *testing.T) {
 	url := os.Getenv("LS_OLLAMA_URL")
 	if url == "" {
@@ -28,8 +30,17 @@ func TestLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	enginetest.RunModels(t, func(*testing.T) engine.Engine { return a },
-		envOr("LS_OLLAMA_CHAT_MODEL", enginetest.ChatModel),
-		envOr("LS_OLLAMA_EMBED_MODEL", enginetest.EmbedModel))
+		modelName(envOr("LS_OLLAMA_CHAT_MODEL", enginetest.ChatModel)),
+		modelName(envOr("LS_OLLAMA_EMBED_MODEL", enginetest.EmbedModel)))
+}
+
+// modelName returns name as Ollama lists it in /api/tags and /api/ps: a name
+// without a tag gets ":latest", as Ollama stores it.
+func modelName(name string) string {
+	if !strings.Contains(name[strings.LastIndex(name, "/")+1:], ":") {
+		return name + ":latest"
+	}
+	return name
 }
 
 // envOr returns the environment variable key, or def when it is unset or empty.

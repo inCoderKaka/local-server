@@ -37,7 +37,7 @@ func Defs() []settings.Def {
 
 // RegisterValidators makes the settings store refuse a bad quiet-hours start, end or time zone
 // at write time instead of when LoadSchedule reads it. Register Defs first: a validator needs
-// its key to exist.
+// its key to exist. NewSharing calls it.
 func RegisterValidators(st *settings.Store) error {
 	clock := func(_ context.Context, v string) error {
 		if _, err := time.Parse("15:04", v); err != nil {

@@ -136,6 +136,22 @@ func RunModels(t *testing.T, f Factory, chatModel, embedModel string) {
 		}
 	})
 
+	t.Run("ChatSampling", func(t *testing.T) {
+		temp, topP, seed := 0.0, 0.9, 42
+		req := chatReq("", user("say hello please"))
+		req.Temperature, req.TopP, req.Seed = &temp, &topP, &seed
+		req.Stop = []string{"zq-never-stop-zq"}
+		s, err := f(t).Chat(ctxT(t), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		text, last, _ := drain(t, s)
+		if text == "" || !last.Done || last.PromptTokens <= 0 || last.CompletionTokens <= 0 {
+			t.Fatalf("sampled chat: text = %q, final chunk = %+v", text, last)
+		}
+	})
+
 	t.Run("ChatStreamsWithTokenCounts", func(t *testing.T) {
 		s, err := f(t).Chat(ctxT(t), chatReq("", user("say hello please")))
 		if err != nil {

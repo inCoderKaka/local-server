@@ -65,6 +65,37 @@ func (e *env) set(t *testing.T, key, v string) {
 	}
 }
 
+// plant stores v for key straight in hst_setting, bypassing the validators, as a value
+// stored before they existed would be.
+func (e *env) plant(t *testing.T, key, v string) {
+	t.Helper()
+	err := e.db.Write(context.Background(), func(tx *storage.Tx) error {
+		_, err := tx.Exec(`INSERT INTO hst_setting (key, scope, value, updated_by, updated_at) VALUES (?, '', ?, 'host', 1)
+			ON CONFLICT (key, scope) DO UPDATE SET value = excluded.value`, key, v)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNewSharingRefusesBadQuietHours(t *testing.T) {
+	e := newEnv(t, false)
+	ctx := context.Background()
+	for _, c := range []struct{ key, v string }{
+		{host.KeyQuietStart, "25:99"},
+		{host.KeyQuietEnd, "7"},
+		{host.KeyQuietTimeZone, "Not/AZone"},
+	} {
+		if err := e.st.Set(ctx, settings.Host, c.key, "", c.v); !errors.Is(err, settings.ErrRejected) {
+			t.Errorf("Set(%s, %q) = %v, want ErrRejected", c.key, c.v, err)
+		}
+	}
+	if err := e.st.Set(ctx, settings.Host, host.KeyQuietStart, "", "21:30"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPauseAuditsAndEmitsOneEvent(t *testing.T) {
 	e := newEnv(t, true)
 	ctx := context.Background()
@@ -237,17 +268,17 @@ func TestInvalidScheduleKeepsPause(t *testing.T) {
 	e := newEnv(t, true)
 	ctx := context.Background()
 	e.set(t, host.KeyQuietEnabled, "true")
-	e.set(t, host.KeyQuietStart, "25:99")
+	e.plant(t, host.KeyQuietStart, "25:99")
 	if _, err := e.sh.Effective(ctx); !errors.Is(err, host.ErrInvalidSchedule) {
 		t.Fatalf("err = %v", err)
 	}
 	e.set(t, host.KeyQuietStart, "22:00")
-	e.set(t, host.KeyQuietTimeZone, "Not/AZone")
+	e.plant(t, host.KeyQuietTimeZone, "Not/AZone")
 	if _, err := e.sh.Effective(ctx); !errors.Is(err, host.ErrInvalidSchedule) {
 		t.Fatalf("zone err = %v", err)
 	}
 	e.set(t, host.KeyQuietStart, "22:00")
-	e.set(t, host.KeyQuietTimeZone, "")
+	e.plant(t, host.KeyQuietTimeZone, "")
 	if _, err := e.sh.Effective(ctx); !errors.Is(err, host.ErrInvalidSchedule) {
 		t.Fatalf("empty zone err = %v", err)
 	}

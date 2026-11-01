@@ -45,10 +45,13 @@ type SharingState struct {
 	clock Clock
 }
 
-// NewSharing registers the quiet-hours settings with st and returns the controller. A nil
-// clock means time.Now.
+// NewSharing registers the quiet-hours settings and their validators with st and returns the
+// controller. A nil clock means time.Now.
 func NewSharing(db *storage.DB, st *settings.Store, bus events.Notifier, clock Clock) (*SharingState, error) {
 	if err := st.Register(Defs()...); err != nil {
+		return nil, err
+	}
+	if err := RegisterValidators(st); err != nil {
 		return nil, err
 	}
 	if clock == nil {
@@ -156,7 +159,7 @@ func (s *SharingState) EffectiveAt(ctx context.Context, t time.Time) (State, err
 }
 
 // oneString reads the single text column of the first row, or returns ErrNoHost when there is
-// no row. (This package may not import database/sql, so it cannot test for sql.ErrNoRows.)
+// no row.
 func oneString(rows storage.Rows, err error) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("host: read hst_host: %w", err)
