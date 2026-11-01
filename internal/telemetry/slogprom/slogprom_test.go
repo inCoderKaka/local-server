@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inCoderKaka/local-server/internal/telemetry"
 )
@@ -122,4 +125,68 @@ func TestLabelMismatchPanics(t *testing.T) {
 		}
 	}()
 	tel.Counter("x_total", "b")
+}
+
+type failWriter struct{ err error }
+
+func (f failWriter) Write([]byte) (int, error) { return 0, f.err }
+
+type fakeClock struct{ t time.Time }
+
+func (c *fakeClock) now() time.Time { return c.t }
+
+func TestSinkFailureCountsAndRateLimitsStderr(t *testing.T) {
+	var errOut bytes.Buffer
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	tel, err := New(Config{
+		Out: failWriter{errors.New("disk full")}, Stderr: &errOut,
+		SinkErrorInterval: time.Minute, Now: clk.now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := "tell me the launch codes"
+	log := func() { tel.Logger().Info("chat", "prompt", secret) }
+	log() // reported
+	log() // suppressed
+	log() // suppressed
+	lines := strings.Split(strings.TrimSpace(errOut.String()), "\n")
+	if len(lines) != 1 || !strings.Contains(lines[0], "log sink failed: disk full") || !strings.Contains(lines[0], "suppressed since last report: 0") {
+		t.Fatalf("first report wrong: %q", errOut.String())
+	}
+	clk.t = clk.t.Add(59 * time.Second)
+	log()
+	if strings.Count(errOut.String(), "\n") != 1 {
+		t.Fatalf("reported inside the interval: %q", errOut.String())
+	}
+	clk.t = clk.t.Add(2 * time.Second)
+	log()
+	lines = strings.Split(strings.TrimSpace(errOut.String()), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[1], "suppressed since last report: 3") {
+		t.Fatalf("second report wrong: %q", errOut.String())
+	}
+	if strings.Contains(errOut.String(), secret) || strings.Contains(errOut.String(), "chat") {
+		t.Fatalf("log content leaked to stderr: %q", errOut.String())
+	}
+	rec := httptest.NewRecorder()
+	tel.MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec.Body.String(), "telemetry_log_write_errors_total 5") {
+		t.Fatalf("counter missing or wrong:\n%s", rec.Body.String())
+	}
+}
+
+func TestSinkWriterPassesThroughAndHealthyWritesAreQuiet(t *testing.T) {
+	var errOut, out bytes.Buffer
+	tel, err := New(Config{Out: &out, Stderr: &errOut})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tel.Logger().Info("hello")
+	if !strings.Contains(out.String(), "hello") || errOut.Len() != 0 {
+		t.Fatalf("out=%q stderr=%q", out.String(), errOut.String())
+	}
+	sw := &sinkWriter{w: failWriter{io.ErrShortWrite}, errs: tel.Counter(SinkErrorMetric), interval: time.Minute, stderr: &errOut, now: time.Now}
+	if n, err := sw.Write([]byte("abc")); n != 0 || !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("not passed through: %d %v", n, err)
+	}
 }

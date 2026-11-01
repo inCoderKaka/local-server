@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -27,7 +28,14 @@ import (
 const (
 	DefaultMaxSizeMB  = 50
 	DefaultMaxAgeDays = 14
+	// DefaultSinkErrorInterval is used when Config.SinkErrorInterval is zero.
+	DefaultSinkErrorInterval = time.Minute
 )
+
+// SinkErrorMetric counts failed writes to the log sink (D-82). Metric names follow
+// <module>_<thing>_total for counters (ledger_checkpoints_signed_total, scheduler_refusals_total).
+// It has no labels, so no log content can reach it.
+const SinkErrorMetric = "telemetry_log_write_errors_total"
 
 // FileConfig configures the rotating log file.
 type FileConfig struct {
@@ -51,6 +59,14 @@ type Config struct {
 	File FileConfig
 	// Out receives logs when File.Path is empty. Nil means os.Stderr.
 	Out io.Writer
+	// SinkErrorInterval is the shortest gap between two stderr lines reporting a
+	// failing log sink (D-82). Zero means DefaultSinkErrorInterval. Startup passes
+	// the telemetry.log_sink_error_interval setting.
+	SinkErrorInterval time.Duration
+	// Stderr receives the sink-failure line. Nil means os.Stderr. For tests.
+	Stderr io.Writer
+	// Now is the clock for the rate limit. Nil means time.Now. For tests.
+	Now func() time.Time
 }
 
 // forbiddenLabels are label names that suggest content; creating a metric with
@@ -94,17 +110,72 @@ func New(cfg Config) (*Telemetry, error) {
 		}
 		w, closer = lj, lj
 	}
-	jh := slog.NewJSONHandler(w, &slog.HandlerOptions{Level: cfg.Level})
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
-	return &Telemetry{
-		logger:     slog.New(requestIDHandler{jh}),
+	t := &Telemetry{
 		reg:        reg,
 		closer:     closer,
 		counters:   map[string]*counter{},
 		gauges:     map[string]*gauge{},
 		histograms: map[string]*histogram{},
-	}, nil
+	}
+	sw := &sinkWriter{
+		w:        w,
+		errs:     t.Counter(SinkErrorMetric),
+		interval: cfg.SinkErrorInterval,
+		stderr:   cfg.Stderr,
+		now:      cfg.Now,
+	}
+	if sw.interval <= 0 {
+		sw.interval = DefaultSinkErrorInterval
+	}
+	if sw.stderr == nil {
+		sw.stderr = os.Stderr
+	}
+	if sw.now == nil {
+		sw.now = time.Now
+	}
+	jh := slog.NewJSONHandler(sw, &slog.HandlerOptions{Level: cfg.Level})
+	t.logger = slog.New(requestIDHandler{jh})
+	return t, nil
+}
+
+// sinkWriter wraps the log sink. slog discards Handle errors, so a failing sink would
+// drop every line silently; on a write error it counts the failure and writes at most
+// one stderr line per interval (D-82). The line carries the OS error text and a count of
+// suppressed errors, never the dropped log line (D-31, D-40).
+type sinkWriter struct {
+	w        io.Writer
+	errs     telemetry.Counter
+	interval time.Duration
+	stderr   io.Writer
+	now      func() time.Time
+
+	mu         sync.Mutex
+	reported   bool
+	last       time.Time
+	suppressed int
+}
+
+func (s *sinkWriter) Write(p []byte) (int, error) {
+	n, err := s.w.Write(p)
+	if err != nil {
+		s.errs.Inc()
+		s.report(err)
+	}
+	return n, err
+}
+
+func (s *sinkWriter) report(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	if s.reported && now.Sub(s.last) < s.interval {
+		s.suppressed++
+		return
+	}
+	fmt.Fprintf(s.stderr, "local-server: log sink failed: %v (errors suppressed since last report: %d)\n", err, s.suppressed)
+	s.reported, s.last, s.suppressed = true, now, 0
 }
 
 func orDefault(v, d int) int {
