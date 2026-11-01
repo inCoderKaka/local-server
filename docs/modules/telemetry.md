@@ -12,8 +12,8 @@ Structured logs, metrics and request ids behind the Telemetry port (structured l
 
 ## Imports
 
-The port package imports only the standard library. `slogprom` is the only importer of `gopkg.in/natefinch/lumberjack.v2` (D-58) and the Prometheus client. Log rotation size and age are `slogprom.FileConfig` fields (defaults 50 MB and 14 days); startup wires them from the log-retention settings once the settings module (PLT-F-004) exists. Allowed and forbidden imports are enforced by `tools/archcheck` (`go run ./tools/archcheck`): no import cycles between modules, adapters imported only from `cmd/`, drivers only in their owning module. Core modules import ports, never adapters.
+The port package imports only the standard library. `slogprom` is the only importer of `gopkg.in/natefinch/lumberjack.v2` (D-58) and the Prometheus client. Log rotation size and age are `slogprom.FileConfig` fields (defaults 50 MB and 14 days); startup wires them from the log-retention settings once the settings module (PLT-F-004) exists. A failing log sink is counted on `/metrics` as `telemetry_log_write_errors_total` and reported on stderr at most once per `telemetry.log_sink_error_interval` (host setting, 1m, defined in `internal/settings/telemetry_keys.go`; PLT-B-012, D-82); startup (PLT-F-020) registers it. Allowed and forbidden imports are enforced by `tools/archcheck` (`go run ./tools/archcheck`): no import cycles between modules, adapters imported only from `cmd/`, drivers only in their owning module. Core modules import ports, never adapters.
 
 ## Decisions
 
-D-31, D-40, D-58. The module map is in `docs/design_docs/lld.md` section 1.
+D-31, D-40, D-58, D-82. The module map is in `docs/design_docs/lld.md` section 1.
