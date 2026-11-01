@@ -8,7 +8,7 @@ The model runtime port (Ollama first) and its fake for tests.
 
 - Packages: `internal/engine/` (the port, value types and typed errors), `internal/engine/ollama/` (the Ollama adapter, native API), `internal/engine/fake/` (deterministic fake for tests, not an adapter), `internal/engine/enginetest/` (the shared contract suite, req_001 D-31). Built by PLT-F-006.
 - Tables: none.
-- Port: `Engine`.
+- Port: `Engine`. `ChatRequest` carries optional `Temperature`, `TopP`, `Seed` and `Stop`, sent to Ollama as `options` only when set (PLT-F-059); the gateway still refuses them (PLT-B-031). The Ollama live test (`-tags ollama`, `LS_OLLAMA_URL`) takes model names from `LS_OLLAMA_CHAT_MODEL` and `LS_OLLAMA_EMBED_MODEL` (PLT-F-058).
 
 ## Imports
 
