@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/inCoderKaka/local-server/internal/auth"
+	"github.com/inCoderKaka/local-server/internal/engine/fake"
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
+	"github.com/inCoderKaka/local-server/internal/storage"
 )
 
 func TestQueueFullIs429WithRetryAfter(t *testing.T) {
@@ -142,6 +144,29 @@ func TestRequestQuotaCountsEveryAdmittedCall(t *testing.T) {
 	}
 }
 
+// D-100: a call is counted once it is admitted, so a call refused before admission is not
+// counted and a call that fails after admission is.
+func TestRequestQuotaSkipsRefusedCallsAndCountsFailedOnes(t *testing.T) {
+	e := newEnv(t, func(o *envOpts) {
+		o.version = func(models []grantsModel) grantsNewVersion {
+			return grantsNewVersion{Models: models, QuotaRequestsPerDay: i64(2)}
+		}
+	})
+	statusIs(t, e.chat(`{"model":"nope","messages":[{"role":"user","content":"hi"}]}`), http.StatusForbidden)
+	e.eng.InjectError(fake.OpChat, engineDown(), 1)
+	statusIs(t, e.chat(okChat), http.StatusServiceUnavailable) // counted: 1 of 2
+	statusIs(t, e.chat(okChat), http.StatusOK)                 // counted: 2 of 2
+	r := e.chat(okChat)
+	statusIs(t, r, http.StatusTooManyRequests)
+	eb := r.errBody()
+	if msg, _ := eb["message"].(string); eb["code"] != "quota_exceeded" || !strings.Contains(msg, "request quota") {
+		t.Fatalf("error = %v, want quota_exceeded for the request quota", eb)
+	}
+	if r.Header().Get("Retry-After") == "" {
+		t.Fatal("no Retry-After")
+	}
+}
+
 func TestRateLimitIs429RateLimitExceeded(t *testing.T) {
 	e := newEnv(t)
 	e.set(limits.KeyRateEnabled, "true")
@@ -169,7 +194,7 @@ func TestAuthFailuresAreOneAnswerAndLockOut(t *testing.T) {
 			t.Fatalf("auth %q: error = %v", hdr, eb)
 		}
 	}
-	// A revoked key gets the same answer.
+	// Three more failed checks at a threshold of 3 lock the address out, even for a good key.
 	e.set(limits.KeyLockoutFailures, "3")
 	for i := 0; i < 3; i++ {
 		e.doAuth(bad, http.MethodPost, "/v1/chat/completions", okChat)
@@ -181,5 +206,27 @@ func TestAuthFailuresAreOneAnswerAndLockOut(t *testing.T) {
 	}
 	if r.Header().Get("Retry-After") == "" {
 		t.Fatal("no Retry-After on a lockout")
+	}
+}
+
+// A revoked key gets the same answer as an unknown one.
+func TestRevokedKeyIsInvalidAPIKey(t *testing.T) {
+	e := newEnv(t)
+	hdr, id := e.issue(auth.Narrowing{})
+	err := e.bus.Write(context.Background(), e.db, func(tx *storage.Tx) error { return e.au.Revoke(tx, id, "") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := e.doAuth(hdr, http.MethodPost, "/v1/chat/completions", okChat)
+	statusIs(t, r, http.StatusUnauthorized)
+	eb := r.errBody()
+	if eb["code"] != "invalid_api_key" {
+		t.Fatalf("error = %v", eb)
+	}
+	bad := "Bearer ls_" + strings.Repeat("a", 12) + "_" + strings.Repeat("b", 64)
+	u := e.doAuth(bad, http.MethodPost, "/v1/chat/completions", okChat)
+	statusIs(t, u, http.StatusUnauthorized)
+	if ub := u.errBody(); ub["message"] != eb["message"] {
+		t.Fatalf("revoked message %v differs from unknown-key message %v", eb["message"], ub["message"])
 	}
 }

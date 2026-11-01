@@ -134,6 +134,20 @@ func TestErrorEnvelopeForNotFoundMethodAndNotImplemented(t *testing.T) {
 		e.h.ServeHTTP(rec, req)
 		wantEnvelope(t, resp{rec}, http.StatusRequestEntityTooLarge, "xxxxxxxx")
 	})
+	t.Run("body too large on a route that needs no key", func(t *testing.T) {
+		e.set("limits.max_body_bytes", "64")
+		body := `{"username":"` + strings.Repeat("x", 200) + `","password":"y"}`
+		for _, chunked := range []bool{false, true} {
+			req := httptest.NewRequest(http.MethodPost, "/v1/session/password", strings.NewReader(body))
+			if chunked {
+				req.ContentLength = -1
+			}
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			e.h.ServeHTTP(rec, req)
+			wantEnvelope(t, resp{rec}, http.StatusRequestEntityTooLarge, "xxxxxxxx")
+		}
+	})
 }
 
 // PLT-B-005: the consumer listener serves /v1 only.

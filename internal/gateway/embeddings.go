@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"math"
+	"net/http"
 	"time"
 
 	"github.com/inCoderKaka/local-server/internal/api"
@@ -44,6 +46,13 @@ func (g *Gateway) CreateEmbedding(ctx context.Context, req *api.EmbeddingRequest
 	engineTime := time.Since(t0)
 	tk.Release()
 	if err != nil {
+		if ctx.Err() != nil { // the client went away while the engine ran (req_001 D-38 aborted)
+			g.meterAborted(ctx, c, ledger.OpEmbeddings, in.model, 0, startedAt)
+		}
+		var ee *engine.Error
+		if errors.As(err, &ee) && ee.Code == engine.CodeContextTooLong {
+			return nil, newErr(http.StatusBadRequest, typeInvalidRequest, codeContextTooLong, "input", "An input text is longer than the context limit.")
+		}
 		return nil, err
 	}
 	if len(res.Embeddings) != len(in.inputs) {

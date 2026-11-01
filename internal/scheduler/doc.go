@@ -17,8 +17,8 @@
 //   - The queue is bounded. A full queue, or a wait past the queue-wait limit, fails
 //     fast with ErrQueueFull carrying a Retry-After. An interactive request finding the
 //     queue full takes the place of the newest waiting background request, which then
-//     gets ErrQueueFull. While the host is paused or in quiet hours, interactive
-//     requests fail with ErrHostPaused and background ones stay queued.
+//     gets ErrQueueFull. While the host is paused or in quiet hours, synchronous calls
+//     fail with ErrHostPaused and jobs (Request.Job) stay queued.
 //   - A running request is never interrupted: shrinking a limit only delays new
 //     admissions.
 //

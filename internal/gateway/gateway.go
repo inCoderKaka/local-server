@@ -166,7 +166,8 @@ type stateKey struct{}
 type identityKey struct{}
 
 // reqState is the per-request state the ogen security handler needs: the request itself (it
-// cannot reach it otherwise) and when the gateway received it.
+// cannot reach it otherwise) and when the gateway received it, on the real clock; used only to
+// measure overhead.
 type reqState struct {
 	r       *http.Request
 	started time.Time
@@ -203,9 +204,17 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, newErr(http.StatusNotFound, typeInvalidRequest, "", "", "No such endpoint."))
 		return
 	}
-	st := &reqState{started: g.now()}
+	st := &reqState{started: time.Now()}
 	r = r.WithContext(context.WithValue(r.Context(), stateKey{}, st))
 	st.r = r
+	if err := g.cfg.Limits.LimitBody(r.Context(), r); err != nil {
+		e, internal := classify(err, g.now())
+		if internal {
+			g.log.ErrorContext(r.Context(), "gateway: request failed", "err", err)
+		}
+		writeError(w, e)
+		return
+	}
 	g.srv.ServeHTTP(w, r)
 }
 
@@ -218,32 +227,45 @@ func (g *Gateway) methodNotAllowed(w http.ResponseWriter, _ *http.Request, allow
 	writeError(w, newErr(http.StatusMethodNotAllowed, typeInvalidRequest, "", "", "This endpoint does not accept this method."))
 }
 
-// errorHandler answers request decoding errors and the not-implemented error of operations
-// with no handler yet. It logs the kind, never the text: ogen's messages can quote the request.
+// errorHandler answers what ogen sends it: request decoding errors, the not-implemented error,
+// and a response it could not write. A refusal is logged with its status and code, never the
+// error text: ogen's messages can quote the request.
 func (g *Gateway) errorHandler(ctx context.Context, w http.ResponseWriter, _ *http.Request, err error) {
+	var de *ogenerrors.DecodeRequestError
+	var dp *ogenerrors.DecodeParamsError
 	var e *apiError
 	switch {
 	case errors.Is(err, ht.ErrNotImplemented):
 		e = newErr(http.StatusNotImplemented, typeServer, "", "", "This endpoint is not available on this host yet.")
-	default:
+	case errors.As(err, &de), errors.As(err, &dp), errors.Is(err, limits.ErrTooLarge):
 		e = decodeError(err)
 		g.log.InfoContext(ctx, "gateway: request refused at decoding", "status", e.status, "code", e.code)
+	default:
+		// A response ogen could not encode or write. If the status line already went out,
+		// net/http ignores the second write.
+		g.log.WarnContext(ctx, "gateway: response could not be written")
+		e = internalError()
 	}
 	writeError(w, e)
 }
 
 // NewError implements api.Handler: it maps every error a handler or the security handler
 // returns to the envelope. Expected refusals are not logged; internal failures are, with
-// the error text of the modules (which never hold content, req_001 D-31).
+// the error text of the modules (which never hold content, req_001 D-31). An unreachable,
+// too-old or timed-out model engine is logged at Warn with the same content-free text.
 func (g *Gateway) NewError(ctx context.Context, err error) *api.ErrorStatusCodeWithHeaders {
 	e, internal := classify(err, g.now())
-	if internal {
+	var ee *engine.Error
+	switch {
+	case internal:
 		g.log.ErrorContext(ctx, "gateway: request failed", "err", err)
+	case errors.As(err, &ee) && (e.status == http.StatusServiceUnavailable || e.status == http.StatusGatewayTimeout):
+		g.log.WarnContext(ctx, "gateway: model engine call failed", "status", e.status, "code", string(ee.Code), "err", err)
 	}
 	return e.response()
 }
 
-// HandleAccessKeyAuth is auth, body limit and limits, steps 2 and 3 of F1 (req_001 D-39). It
+// HandleAccessKeyAuth is auth and limits: F1 step 2 (req_001 D-39), with the limits check. It
 // runs before ogen reads the body.
 func (g *Gateway) HandleAccessKeyAuth(ctx context.Context, op api.OperationName, t api.AccessKeyAuth) (context.Context, error) {
 	st := stateOf(ctx)
@@ -258,9 +280,6 @@ func (g *Gateway) HandleAccessKeyAuth(ctx context.Context, op api.OperationName,
 	id, err := g.cfg.Auth.Authenticate(ctx, header, remote)
 	g.cfg.Limits.AuthResult(ctx, remote, header, err)
 	if err != nil {
-		return nil, err
-	}
-	if err := g.cfg.Limits.LimitBody(ctx, st.r); err != nil {
 		return nil, err
 	}
 	// A used-up quota stops inference. It must not stop a consumer from fetching the keys,

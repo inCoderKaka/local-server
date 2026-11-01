@@ -192,7 +192,7 @@ type plan struct {
 	numCtx     int
 	numPredict int
 	overflow   engine.OverflowPolicy
-	// class is the scheduler class the policy decided.
+	// background is true when the policy decided the background priority class.
 	background bool
 }
 

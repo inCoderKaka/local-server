@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -65,17 +66,17 @@ func (fuzzHandler) CreateEmbedding(_ context.Context, req *api.EmbeddingRequest,
 	return &api.EmbeddingListHeaders{LSReceipt: "a.b.c", Response: api.EmbeddingList{Object: "list"}}, nil
 }
 
-func (fuzzHandler) NewError(_ context.Context, err error) *api.ErrorStatusCodeWithHeaders {
-	e, _ := classify(err, time.Time{})
-	return e.response()
+// fuzzGateway carries only what errorHandler and NewError use: now and log.
+var fuzzGateway = &Gateway{now: time.Now, log: slog.New(slog.DiscardHandler)}
+
+func (fuzzHandler) NewError(ctx context.Context, err error) *api.ErrorStatusCodeWithHeaders {
+	return fuzzGateway.NewError(ctx, err)
 }
 
 func fuzzServer(t testing.TB) http.Handler {
 	t.Helper()
 	h := fuzzHandler{}
-	srv, err := api.NewServer(h, h, api.WithErrorHandler(func(_ context.Context, w http.ResponseWriter, _ *http.Request, err error) {
-		writeError(w, decodeError(err))
-	}))
+	srv, err := api.NewServer(h, h, api.WithErrorHandler(fuzzGateway.errorHandler))
 	if err != nil {
 		t.Fatal(err)
 	}

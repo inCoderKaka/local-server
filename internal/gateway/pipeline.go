@@ -63,7 +63,8 @@ func (g *Gateway) evaluate(ctx context.Context, c call, model string) (policy.De
 }
 
 // admit is F1 step 5. A refusal is a *scheduler.Error. The call is counted once admitted
-// (req_001 D-100). It returns how long Admit took.
+// (req_001 D-100). It returns how long Admit took. A synchronous call is never a job: whatever
+// its priority class it gets host_paused while paused and waits at most the queue-wait limit.
 func (g *Gateway) admit(ctx context.Context, c call, model string, dec policy.Decision, p plan) (*scheduler.Ticket, time.Duration, error) {
 	class := scheduler.ClassInteractive
 	if p.background {
@@ -100,7 +101,9 @@ type metered struct {
 // the settings. If every attempt fails it still returns a receipt: the signed unmetered one,
 // after it logged and counted the failure and emitted metering.failed. It ignores the
 // client disconnecting, so a call that was served is always recorded. It returns an error only
-// when no receipt can be signed.
+// when no receipt can be signed, because no answer goes out without a receipt (D-16, D-51 over
+// D-39 step 9); the failure is then still logged, counted and emitted as
+// metering.failed.
 func (g *Gateway) meter(ctx context.Context, c call, u ledger.Usage) (metered, error) {
 	mctx := context.WithoutCancel(ctx)
 	var last error
@@ -124,10 +127,28 @@ func (g *Gateway) meter(ctx context.Context, c call, u ledger.Usage) (metered, e
 	g.observeSigning(time.Since(t0), c.cfg)
 	if err != nil {
 		g.log.ErrorContext(ctx, "gateway: unmetered receipt could not be signed", "usage_id", u.UsageID, "err", err)
+		g.emitMeteringFailed(mctx, c, u)
 		return metered{}, fmt.Errorf("gateway: sign unmetered receipt: %w", err)
 	}
 	g.emitMeteringFailed(mctx, c, u)
 	return metered{usageID: u.UsageID, receipt: signed.JWS}, nil
+}
+
+// meterAborted meters a call the client abandoned while the engine ran (req_001 D-38, D-39). The
+// prompt is not counted: the engine reports its exact count only on the final chunk, and an
+// estimate is never billed. Completion tokens are the content chunks received, one token each on
+// Ollama's stream. The receipt is dropped, because the client is gone.
+func (g *Gateway) meterAborted(ctx context.Context, c call, op, model string, completionTokens int64, startedAt time.Time) {
+	u := ledger.Usage{UsageID: ledger.NewUsageID(), ConsumerID: c.id.ConsumerID, AccessKeyID: c.id.KeyID,
+		GrantVersionID: c.id.GrantVersionID, Operation: op, Model: model, Outcome: ledger.OutcomeAborted,
+		PromptTokens: 0, CompletionTokens: completionTokens, StartedAt: startedAt, FinishedAt: g.now()}
+	m, err := g.meter(ctx, c, u)
+	if err != nil {
+		return // meter already logged, counted and emitted the failure
+	}
+	if m.committed {
+		g.afterMetered(ctx, c)
+	}
 }
 
 // meteringFailedPayload carries ids and counters only (req_001 D-31); it extends the
@@ -166,7 +187,7 @@ func (g *Gateway) afterMetered(ctx context.Context, c call) {
 // observeOverhead records the gateway's own time for a call: everything except the engine call
 // and the admission, metering write included (req_001 D-31, D-55).
 func (g *Gateway) observeOverhead(op string, c call, engineTime, admission time.Duration) {
-	d := max(g.now().Sub(c.st.started)-engineTime-admission, 0)
+	d := max(time.Since(c.st.started)-engineTime-admission, 0)
 	g.overheadSeconds.Observe(d.Seconds(), op)
 	if d > c.cfg.sloOverhead {
 		g.sloBreaches.Inc("overhead")

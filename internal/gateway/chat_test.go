@@ -9,6 +9,7 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/engine/fake"
+	"github.com/inCoderKaka/local-server/internal/gateway"
 	"github.com/inCoderKaka/local-server/internal/ledger"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
 )
@@ -257,6 +258,9 @@ func TestEngineDownIs503EngineUnavailable(t *testing.T) {
 	if n := e.useRecords(); n != 0 {
 		t.Fatalf("a failed call wrote %d usage records", n)
 	}
+	if logs := e.tel.logText(); !strings.Contains(logs, "engine_unavailable") || strings.Contains(logs, "hello there") {
+		t.Fatalf("log text = %q, want the engine code and no prompt text", logs)
+	}
 	// The slot was released: the next call works.
 	statusIs(t, e.chat(okChat), http.StatusOK)
 }
@@ -300,7 +304,16 @@ func TestEngineErrorsMapToTheirStatuses(t *testing.T) {
 				t.Fatalf("error = %v, want code %v", eb, tc.api)
 			}
 			e.eng.InjectError(fake.OpEmbed, engine.Errorf(tc.code, nil, "injected"), 1)
-			statusIs(t, e.embed(`{"model":"`+embedModel+`","input":"x"}`), tc.status)
+			er := e.embed(`{"model":"` + embedModel + `","input":"x"}`)
+			statusIs(t, er, tc.status)
+			if tc.code == engine.CodeContextTooLong {
+				if ee := er.errBody(); ee["code"] != "context_too_long" || ee["param"] != "input" {
+					t.Fatalf("embeddings error = %v, want context_too_long on input", ee)
+				}
+				if eb["param"] != "messages" {
+					t.Fatalf("chat param = %v, want messages", eb["param"])
+				}
+			}
 		})
 	}
 	if n := e.useRecords(); n != 0 {
@@ -311,14 +324,14 @@ func TestEngineErrorsMapToTheirStatuses(t *testing.T) {
 	statusIs(t, e.chat(okChat), http.StatusBadGateway)
 }
 
-func TestConcurrentCallsAreAllMeteredInOrder(t *testing.T) {
+func TestConcurrentCallsAreAllMetered(t *testing.T) {
 	e := newEnv(t)
 	e.set(scheduler.KeyTotalConcurrency, "8")
 	e.set(scheduler.KeyOllamaNumParallel, "8")
 	e.set(scheduler.KeyGrantConcurrency, "8")
 	const n = 16
 	var wg sync.WaitGroup
-	leaves := make(chan int64, n)
+	receipts := make(chan string, n)
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func() {
@@ -328,23 +341,64 @@ func TestConcurrentCallsAreAllMeteredInOrder(t *testing.T) {
 				t.Errorf("status %d: %s", r.Code, r.Body.String())
 				return
 			}
-			leaves <- *e.verify(r.Header().Get("LS-Receipt")).LeafIndex
+			receipts <- r.Header().Get("LS-Receipt")
 		}()
 	}
 	wg.Wait()
-	close(leaves)
+	close(receipts)
 	seen := map[int64]bool{}
-	for l := range leaves {
+	var lo, hi int64
+	for jws := range receipts {
+		rc := e.verify(jws)
+		if rc.LeafIndex == nil {
+			t.Fatalf("an unmetered receipt: %+v", rc)
+		}
+		l := *rc.LeafIndex
+		if len(seen) == 0 || l < lo {
+			lo = l
+		}
+		if len(seen) == 0 || l > hi {
+			hi = l
+		}
 		seen[l] = true
 	}
-	if len(seen) != n {
-		t.Fatalf("distinct leaf indexes = %d, want %d", len(seen), n)
+	if len(seen) != n || hi-lo != n-1 {
+		t.Fatalf("leaf indexes: %d distinct spanning %d..%d, want %d distinct and contiguous", len(seen), lo, hi, n)
 	}
 	if got := e.useRecords(); got != n {
 		t.Fatalf("use_record rows = %d, want %d", got, n)
 	}
 	secret := strings.TrimPrefix(e.key, "Bearer ")
-	if strings.Contains(e.tel.logText(), secret[len(secret)-40:]) {
+	logs := e.tel.logText()
+	if strings.Contains(logs, secret[len(secret)-40:]) {
 		t.Fatal("a log line holds the access key secret")
+	}
+	if strings.Contains(logs, "hello there") || strings.Contains(logs, fake.DefaultReply) {
+		t.Fatal("a log line holds prompt or response text")
+	}
+}
+
+func TestEmbeddingsInputRefusals(t *testing.T) {
+	e := newEnv(t)
+	e.set(gateway.KeyMaxEmbeddingInputs, "2")
+	for _, tc := range []struct{ input, message string }{
+		{`[]`, ""},
+		{`""`, "A text in input is empty."},
+		{`["a",""]`, "A text in input is empty."},
+		{`["a","b","c"]`, "input may hold at most 2 texts."},
+	} {
+		r := e.embed(`{"model":"` + embedModel + `","input":` + tc.input + `}`)
+		statusIs(t, r, http.StatusBadRequest)
+		eb := r.errBody()
+		if eb["param"] != "input" {
+			t.Fatalf("input %s: error = %v, want param input", tc.input, eb)
+		}
+		if tc.message != "" && eb["message"] != tc.message {
+			t.Fatalf("input %s: message = %v, want %q", tc.input, eb["message"], tc.message)
+		}
+	}
+	statusIs(t, e.embed(`{"model":"`+embedModel+`","input":["a","b"]}`), http.StatusOK)
+	if n := e.useRecords(); n != 1 {
+		t.Fatalf("use_record rows = %d, want 1", n)
 	}
 }

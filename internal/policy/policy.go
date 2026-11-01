@@ -189,10 +189,14 @@ func checkAllowed(text *string, props Properties) error {
 	if err := dec.Decode(&rest); err != io.EOF {
 		return invalid
 	}
+	var bad []string
 	for _, k := range slices.Sorted(maps.Keys(props)) {
 		if !slices.Contains(names, k) {
-			return &Error{Code: CodePropertyNotAllowed, Property: k, Message: "the grant does not allow this property"}
+			bad = append(bad, k)
 		}
+	}
+	if len(bad) > 0 {
+		return &Error{Code: CodePropertyNotAllowed, Property: bad[0], Properties: bad, Message: "the grant does not allow these properties"}
 	}
 	return nil
 }

@@ -34,9 +34,9 @@ type Class string
 
 // The classes.
 const (
-	// ClassInteractive is a synchronous call; it goes ahead of background work.
+	// ClassInteractive is a request where someone is waiting; it goes ahead of background.
 	ClassInteractive Class = "interactive"
-	// ClassBackground is queued job work; it ages so it is never starved.
+	// ClassBackground is a request that can wait; it ages so it is never starved.
 	ClassBackground Class = "background"
 )
 
@@ -48,7 +48,12 @@ type Request struct {
 	// KeyGrantConcurrency setting.
 	GrantConcurrency int
 	Class            Class
-	Model            string
+	// Job is true for work from the job worker (req_001 D-26, F2). A job stays queued
+	// while the host is paused or quiet and has no queue-wait limit but ctx. A synchronous
+	// call (Job false) of either class gets ErrHostPaused at once while the host is paused
+	// or quiet, and waits at most the queue-wait setting (D-39 F1 step 5).
+	Job   bool
+	Model string
 	// EstimatedCtxTokens is the context the call will use (the num_ctx it sends).
 	EstimatedCtxTokens int
 }
@@ -191,9 +196,11 @@ func (t *Ticket) Release() {
 
 // Admit waits for a slot and returns its Ticket. The wait follows req_001 D-26 and
 // D-39 F1 step 5:
-//   - Interactive: ErrHostPaused at once while the host is paused or quiet; waits up to
-//     the queue-wait setting, then ErrQueueFull.
-//   - Background: waits while the host is paused or quiet, and has no wait limit but ctx.
+//   - A synchronous call (Job false), of either class: ErrHostPaused at once while the
+//     host is paused or quiet, and again if the host pauses while it is queued; waits up
+//     to the queue-wait setting, then ErrQueueFull.
+//   - A job (Job true): stays queued while the host is paused or quiet, and has no wait
+//     limit but ctx.
 //   - Both: ErrQueueFull at once when the queue is full, except that an interactive
 //     request finding it full takes the place of the newest waiting background request,
 //     which then gets ErrQueueFull; ErrOverBudget when the model plus the estimated
@@ -224,7 +231,7 @@ func (s *Scheduler) admit(ctx context.Context, req Request) (*Ticket, error) {
 	if err != nil {
 		return nil, err
 	}
-	if req.Class == ClassInteractive {
+	if !req.Job {
 		state, err := s.sharingState(ctx)
 		if err != nil {
 			return nil, err
@@ -294,7 +301,7 @@ func (s *Scheduler) admit(ctx context.Context, req Request) (*Ticket, error) {
 
 	var wait Timer
 	var waitC <-chan time.Time
-	if req.Class == ClassInteractive {
+	if !req.Job {
 		wait = s.clock.NewTimer(cfg.queueWait)
 		defer wait.Stop()
 		waitC = wait.C()
@@ -474,7 +481,7 @@ func (s *Scheduler) modelSize(ctx context.Context, loaded map[string]int64, name
 }
 
 // dispatch admits every queued request that can run now, in priority order with
-// aging, and fails queued interactive requests while the host is paused or quiet.
+// aging, and fails queued synchronous requests while the host is paused or quiet.
 // Admission is the only thing that starts work; nothing here touches a running request
 // (req_001 D-26).
 func (s *Scheduler) dispatch(ctx context.Context) error {
@@ -495,8 +502,8 @@ func (s *Scheduler) dispatch(ctx context.Context) error {
 		return err
 	}
 	if state != host.Sharing {
-		s.failInteractive(pausedErr())
-		return nil // background work stays queued while paused or quiet (req_001 D-38 host sharing)
+		s.failSynchronous(pausedErr())
+		return nil // jobs stay queued while paused or quiet (req_001 D-38 host sharing)
 	}
 	snap, err := s.takeSnapshot(ctx, cfg)
 	if err != nil {
@@ -528,13 +535,13 @@ func (s *Scheduler) dispatch(ctx context.Context) error {
 	}
 }
 
-// failInteractive fails every queued interactive request with err.
-func (s *Scheduler) failInteractive(err error) {
+// failSynchronous fails every queued synchronous request (not a job) with err.
+func (s *Scheduler) failSynchronous(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	kept := s.queue[:0]
 	for _, w := range s.queue {
-		if w.req.Class == ClassInteractive {
+		if !w.req.Job {
 			w.state, w.err = failed, err
 			close(w.done)
 			continue

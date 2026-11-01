@@ -44,8 +44,10 @@ const (
 	headerRequestPropsName = policy.HeaderName
 )
 
-// apiError is one error answer. Its fields are fixed text and numbers: no field is ever built
-// from request bytes, except Param when it passed safeName.
+// apiError is one error answer. Its fields are fixed text, numbers and stored rule ids and
+// names. Only two come from the request: Param, when it passed safeName, and properties, which
+// are property names the policy parser already checked (RFC 9651 key characters, at most the
+// host's property limits), never values.
 type apiError struct {
 	status     int
 	typ        string
@@ -154,11 +156,13 @@ func classify(err error, now time.Time) (e *apiError, internal bool) {
 		errors.Is(err, ogenerrors.ErrSecurityRequirementIsNotSatisfied):
 		return invalidKey(), false
 	case errors.As(err, &se):
-		return schedulerError(se), false
+		e := schedulerError(se)
+		return e, e.status == http.StatusInternalServerError
 	case errors.As(err, &pe):
 		return policyError(pe, now)
 	case errors.As(err, &ee):
-		return engineError(ee), ee.Code == engine.CodeEngineError
+		e := engineError(ee)
+		return e, e.status == http.StatusBadGateway
 	case errors.As(err, &nc):
 		return &apiError{status: http.StatusConflict, typ: typeInvalidRequest, message: "No checkpoint covers this record yet. Retry later.", retryAfter: max(nc.RetryAfter, time.Second)}, false
 	case errors.Is(err, checkpoint.ErrUnknownUsage), errors.Is(err, usage.ErrNotFound):
@@ -179,7 +183,7 @@ func classify(err error, now time.Time) (e *apiError, internal bool) {
 func schedulerError(e *scheduler.Error) *apiError {
 	switch e.Code {
 	case scheduler.CodeQueueFull:
-		return &apiError{status: http.StatusTooManyRequests, typ: typeServer, code: codeQueueFull, message: "The host is busy and its queue is full. Retry after the time in Retry-After.", retryAfter: e.RetryAfter}
+		return &apiError{status: http.StatusTooManyRequests, typ: typeServer, code: codeQueueFull, message: "The host is busy: its queue is full or the request waited too long for a slot. Retry after the time in Retry-After.", retryAfter: e.RetryAfter}
 	case scheduler.CodeHostPaused:
 		return &apiError{status: http.StatusServiceUnavailable, typ: typeServer, code: codeHostPaused, message: "The host has paused sharing.", retryAfter: e.RetryAfter}
 	case scheduler.CodeOverBudget:
@@ -215,7 +219,7 @@ func policyError(e *policy.Error, now time.Time) (*apiError, bool) {
 			ruleID: e.RuleID, ruleName: e.RuleName}, false
 	case policy.CodePropertyNotAllowed:
 		out := &apiError{status: http.StatusForbidden, typ: typeInvalidRequest, code: codePolicyDenied, message: "The request carries a property this access key may not use."}
-		if e.Property != "" {
+		if out.properties = e.Properties; len(out.properties) == 0 && e.Property != "" {
 			out.properties = []string{e.Property}
 		}
 		return out, false

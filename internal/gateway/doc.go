@@ -8,18 +8,21 @@
 //
 // F1 (req_001 D-39), in this order, for chat and embeddings:
 //
-//  1. auth: limits.CheckLockout, auth.Authenticate, limits.AuthResult, limits.LimitBody and
-//     limits.Check run in the ogen security handler, so before the body is read;
-//  2. policy: Policy.Evaluate with the request properties, model, time and grant (req_001 D-79);
-//  3. validate: fields the engine port cannot carry are refused (never silently ignored,
+//   - step 2, auth: limits.CheckLockout, auth.Authenticate, limits.AuthResult and
+//     limits.Check run in the ogen security handler, so before the body is read. The gateway
+//     applies limits.LimitBody to every /v1 request before routing, so routes that need no key
+//     are capped too;
+//   - step 3, policy: Policy.Evaluate with the request properties, model, time and grant (req_001 D-79);
+//   - step 4, validate: fields the engine port cannot carry are refused (never silently ignored,
 //     D-32), max_tokens is capped, the prompt size is pre-checked against the context cap
 //     (context_too_long unless the grant's on_context_overflow is truncate, D-48);
-//  4. scheduler.Admit with the grant's concurrency limit, then limits.CountAdmitted (D-100);
-//  5. the engine call;
-//  6. one metering transaction (ledger.Record: usage_record, ledger leaf, sync_change) and the
-//     signed receipt in the LS-Receipt header. If metering keeps failing the answer is still
-//     returned with the signed unmetered receipt, the failure is logged and counted, and a
-//     metering.failed event is emitted (D-39 step 9, D-51).
+//   - step 5, admit: scheduler.Admit with the grant's concurrency limit, then limits.CountAdmitted (D-100);
+//   - step 6, the engine call (non-streamed; step 7, SSE, is PLT-F-019);
+//   - steps 8 and 9, metering: one metering transaction (ledger.Record: usage_record, ledger leaf,
+//     sync_change) and the signed receipt in the LS-Receipt header. If metering keeps failing the
+//     answer is still returned with the signed unmetered receipt, the failure is logged and
+//     counted, and a metering.failed event is emitted (D-39 step 9, D-51). A call the client
+//     abandons while the engine runs is metered as aborted with the tokens received so far.
 //
 // # Errors
 //

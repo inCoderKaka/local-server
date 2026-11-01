@@ -3840,6 +3840,7 @@ components:
           type: string
           description: When the key was created, to the millisecond. The endorsement certificate carries the same instant as Unix milliseconds.
           format: date-time
+          x-ogen-time-format: 2006-01-02T15:04:05.999999999Z07:00
         ls_retired_at:
           type: [string, 'null']
           description: When the key stopped signing; retired keys stay listed for verification.

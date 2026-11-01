@@ -110,6 +110,9 @@ type recEngine struct {
 	embed []engine.EmbedRequest
 	// nanos is the time spent inside Chat and Embed, for the SLO measurements.
 	nanos atomic.Int64
+	// wrapChat, when set, wraps each chat stream; embedHook, when set, runs before each Embed.
+	wrapChat  func(engine.ChatStream) engine.ChatStream
+	embedHook func()
 }
 
 func (e *recEngine) Chat(ctx context.Context, r engine.ChatRequest) (engine.ChatStream, error) {
@@ -118,7 +121,11 @@ func (e *recEngine) Chat(ctx context.Context, r engine.ChatRequest) (engine.Chat
 	e.mu.Lock()
 	e.chats = append(e.chats, r)
 	e.mu.Unlock()
-	return e.Engine.Chat(ctx, r)
+	s, err := e.Engine.Chat(ctx, r)
+	if err == nil && e.wrapChat != nil {
+		s = e.wrapChat(s)
+	}
+	return s, err
 }
 
 func (e *recEngine) Embed(ctx context.Context, r engine.EmbedRequest) (engine.EmbedResult, error) {
@@ -127,6 +134,9 @@ func (e *recEngine) Embed(ctx context.Context, r engine.EmbedRequest) (engine.Em
 	e.mu.Lock()
 	e.embed = append(e.embed, r)
 	e.mu.Unlock()
+	if e.embedHook != nil {
+		e.embedHook()
+	}
 	return e.Engine.Embed(ctx, r)
 }
 
@@ -134,12 +144,24 @@ func (e *recEngine) Embed(ctx context.Context, r engine.EmbedRequest) (engine.Em
 type timedSched struct {
 	s     *scheduler.Scheduler
 	nanos atomic.Int64
+	mu    sync.Mutex
+	last  scheduler.Request
 }
 
 func (t *timedSched) Admit(ctx context.Context, r scheduler.Request) (*scheduler.Ticket, error) {
 	t0 := time.Now()
 	defer func() { t.nanos.Add(int64(time.Since(t0))) }()
+	t.mu.Lock()
+	t.last = r
+	t.mu.Unlock()
 	return t.s.Admit(ctx, r)
+}
+
+// lastRequest is the request of the latest Admit.
+func (t *timedSched) lastRequest() scheduler.Request {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.last
 }
 
 // flakyMeter fails Record the first failures times (all when failures < 0).
@@ -148,6 +170,18 @@ type flakyMeter struct {
 	mu       sync.Mutex
 	failures int
 	calls    int
+	// signFails makes SignUnmetered fail.
+	signFails bool
+}
+
+func (m *flakyMeter) SignUnmetered(u ledger.Usage) (ledger.Signed, error) {
+	m.mu.Lock()
+	fail := m.signFails
+	m.mu.Unlock()
+	if fail {
+		return ledger.Signed{}, io.ErrClosedPipe
+	}
+	return m.Ledger.SignUnmetered(u)
 }
 
 func (m *flakyMeter) Record(ctx context.Context, u ledger.Usage) (ledger.Recorded, error) {
@@ -254,7 +288,7 @@ func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
 			t.Fatal(err)
 		}
 	}
-	for _, ty := range []events.Type{events.MeteringFailed, events.PolicyRuleInvalid} {
+	for _, ty := range []events.Type{events.MeteringFailed, events.PolicyRuleInvalid, events.QuotaNearLimit} {
 		if err := e.bus.Subscribe("test."+string(ty), func(_ context.Context, ev events.Event) error {
 			e.evMu.Lock()
 			e.evs = append(e.evs, ev)
@@ -377,6 +411,17 @@ func (e *env) doAuth(auth, method, path, body string, hdr ...string) resp {
 	for i := 0; i+1 < len(hdr); i += 2 {
 		req.Header.Add(hdr[i], hdr[i+1])
 	}
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	return resp{rec}
+}
+
+// doCtx is do with POST and a request context the test can cancel.
+func (e *env) doCtx(ctx context.Context, path, body string) resp {
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)).WithContext(ctx)
+	req.RemoteAddr = "100.64.0.1:5555"
+	req.Header.Set("Authorization", e.key)
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	e.h.ServeHTTP(rec, req)
 	return resp{rec}

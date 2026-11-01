@@ -180,7 +180,14 @@ func (e *env) notYet(ch <-chan result) {
 }
 
 func req(grant string, class scheduler.Class, model string) scheduler.Request {
-	return scheduler.Request{GrantID: grant, Class: class, Model: model, EstimatedCtxTokens: 100}
+	return scheduler.Request{GrantID: grant, Class: class, Job: class == scheduler.ClassBackground, Model: model, EstimatedCtxTokens: 100}
+}
+
+// syncBackground is a synchronous call (not a job) whose policy priority is background.
+func syncBackground(grant, model string) scheduler.Request {
+	r := req(grant, scheduler.ClassBackground, model)
+	r.Job = false
+	return r
 }
 
 func TestBackgroundNeverStarvesUnderInteractiveLoad(t *testing.T) {
@@ -504,6 +511,47 @@ func TestQueuedInteractiveFailsWhenHostPauses(t *testing.T) {
 	// The running request is not touched.
 	if e.s.Stats().Running != 1 {
 		t.Fatal("running request disturbed by the pause")
+	}
+	held.Release()
+}
+
+func TestSynchronousBackgroundGetsHostPausedAtOnce(t *testing.T) {
+	for _, st := range []host.State{host.Paused, host.Quiet} {
+		e := newEnv(t)
+		e.sh.set(st)
+		_, err := e.s.Admit(e.ctx, syncBackground("a", "m1"))
+		if !errors.Is(err, scheduler.ErrHostPaused) {
+			t.Fatalf("%s: err = %v, want host_paused", st, err)
+		}
+	}
+}
+
+func TestSynchronousBackgroundQueueWaitLimit(t *testing.T) {
+	e := newEnv(t)
+	e.set(scheduler.KeyTotalConcurrency, "1")
+	e.set(scheduler.KeyOllamaNumParallel, "1")
+	e.set(scheduler.KeyQueueWait, "10s")
+	held := e.admit(req("a", scheduler.ClassInteractive, "m1"))
+	w := e.admitAsync(syncBackground("b", "m1"))
+	e.waitQueued(1)
+	e.clk.Advance(10 * time.Second)
+	if r := e.got(w); !errors.Is(r.err, scheduler.ErrQueueFull) {
+		t.Fatalf("err = %v, want queue_full after the wait limit", r.err)
+	}
+	held.Release()
+}
+
+func TestQueuedSynchronousBackgroundFailsWhenHostPauses(t *testing.T) {
+	e := newEnv(t)
+	e.set(scheduler.KeyTotalConcurrency, "1")
+	e.set(scheduler.KeyOllamaNumParallel, "1")
+	held := e.admit(req("a", scheduler.ClassInteractive, "m1"))
+	w := e.admitAsync(syncBackground("b", "m1"))
+	e.waitQueued(1)
+	e.sh.set(host.Paused)
+	e.clk.Advance(2 * time.Second)
+	if r := e.got(w); !errors.Is(r.err, scheduler.ErrHostPaused) {
+		t.Fatalf("err = %v, want host_paused", r.err)
 	}
 	held.Release()
 }

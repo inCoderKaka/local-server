@@ -1,12 +1,17 @@
 package gateway_test
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/gateway"
 	"github.com/inCoderKaka/local-server/internal/ledger"
+	"github.com/inCoderKaka/local-server/internal/limits"
+	"github.com/inCoderKaka/local-server/internal/notifier/events"
 )
 
 // D-39 step 9, D-51: persistent metering failure still answers, with the signed unmetered receipt.
@@ -100,8 +105,16 @@ func TestMeteredCallsAreInTheLedgerAndTheNearLimitCheckRuns(t *testing.T) {
 			return grantsNewVersion{Models: models, QuotaTokensPerDay: i64(100)}
 		}
 	})
+	e.set(limits.KeyNearLimitPercent, "30")
 	for i := 0; i < 3; i++ {
-		statusIs(t, e.chat(okChat), http.StatusOK)
+		statusIs(t, e.chat(okChat), http.StatusOK) // 11 tokens each
+		want := 0
+		if i == 2 {
+			want = 1 // 33 of 100 tokens is past 30 percent; 22 was not
+		}
+		if got := len(e.events(events.QuotaNearLimit)); got != want {
+			t.Fatalf("after call %d: quota.near_limit events = %d, want %d", i+1, got, want)
+		}
 	}
 	if n := e.useRecords(); n != 3 {
 		t.Fatalf("use_record rows = %d, want 3", n)
@@ -109,5 +122,108 @@ func TestMeteredCallsAreInTheLedgerAndTheNearLimitCheckRuns(t *testing.T) {
 	n, err := e.cps.LeafCount(t.Context())
 	if err != nil || n != 3 {
 		t.Fatalf("ledger leaves = %d, %v; want 3", n, err)
+	}
+}
+
+// req_001 D-16, D-51: no answer goes out without a signed receipt, so when the unmetered receipt
+// cannot be signed either the call answers 500 (D-51 overrides D-39 step 9's "still returned"
+// here); the failure is still alerted once.
+func TestUnsignableReceiptStillEmitsMeteringFailed(t *testing.T) {
+	e := newEnv(t)
+	e.meter.set(-1)
+	e.meter.mu.Lock()
+	e.meter.signFails = true
+	e.meter.mu.Unlock()
+	r := e.chat(okChat)
+	statusIs(t, r, http.StatusInternalServerError)
+	if got := len(e.events("metering.failed")); got != 1 {
+		t.Fatalf("metering.failed events = %d, want 1", got)
+	}
+	if got := e.tel.count("gateway_metering_failures_total", ledger.OpChatCompletions); got != 1 {
+		t.Fatalf("metering failure counter = %v, want 1", got)
+	}
+}
+
+// cancelAfter cancels the request once n content chunks were read.
+type cancelAfter struct {
+	engine.ChatStream
+	n      int
+	cancel context.CancelFunc
+	seen   int
+}
+
+func (c *cancelAfter) Recv() (engine.ChatChunk, error) {
+	ch, err := c.ChatStream.Recv()
+	if err == nil && ch.Content != "" {
+		c.seen++
+		if c.seen == c.n {
+			c.cancel()
+		}
+	}
+	return ch, err
+}
+
+// slowStream waits before each Recv, so a short engine timeout expires mid-call.
+type slowStream struct{ engine.ChatStream }
+
+func (s slowStream) Recv() (engine.ChatChunk, error) {
+	time.Sleep(50 * time.Millisecond)
+	return s.ChatStream.Recv()
+}
+
+// D-38 interactive-request machine: a client disconnect during the engine call is metered as
+// aborted with the tokens so far.
+func TestClientDisconnectMetersAbortedChat(t *testing.T) {
+	e := newEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e.eng.wrapChat = func(s engine.ChatStream) engine.ChatStream { return &cancelAfter{ChatStream: s, n: 3, cancel: cancel} }
+	r := e.doCtx(ctx, "/v1/chat/completions", okChat)
+	statusIs(t, r, 499)
+	if n := e.useRecords(); n != 1 {
+		t.Fatalf("use_record rows = %d, want 1", n)
+	}
+	var outcome string
+	var prompt, completion int64
+	err := e.db.Reader().QueryRow(context.Background(),
+		`SELECT outcome, prompt_tokens, completion_tokens FROM use_record`).Scan(&outcome, &prompt, &completion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome != string(ledger.OutcomeAborted) || prompt != 0 || completion != 3 {
+		t.Fatalf("row = %s, %d prompt, %d completion; want aborted, 0, 3", outcome, prompt, completion)
+	}
+}
+
+func TestClientDisconnectMetersAbortedEmbeddings(t *testing.T) {
+	e := newEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e.eng.embedHook = cancel
+	r := e.doCtx(ctx, "/v1/embeddings", `{"model":"`+embedModel+`","input":"alpha"}`)
+	statusIs(t, r, 499)
+	var outcome string
+	var prompt, completion int64
+	err := e.db.Reader().QueryRow(context.Background(),
+		`SELECT outcome, prompt_tokens, completion_tokens FROM use_record`).Scan(&outcome, &prompt, &completion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome != string(ledger.OutcomeAborted) || prompt != 0 || completion != 0 {
+		t.Fatalf("row = %s, %d prompt, %d completion; want aborted, 0, 0", outcome, prompt, completion)
+	}
+}
+
+func TestEngineTimeoutWritesNoUsageRecord(t *testing.T) {
+	e := newEnv(t)
+	e.set(gateway.KeyEngineTimeout, "10ms")
+	e.eng.wrapChat = func(s engine.ChatStream) engine.ChatStream { return slowStream{s} }
+	r := e.chat(okChat)
+	statusIs(t, r, http.StatusGatewayTimeout)
+	if eb := r.errBody(); eb["type"] != "server_error" {
+		t.Fatalf("error = %v", eb)
+	}
+	if n := e.useRecords(); n != 0 {
+		t.Fatalf("use_record rows = %d, want 0", n)
 	}
 }

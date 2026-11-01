@@ -10,6 +10,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/gateway"
 	"github.com/inCoderKaka/local-server/internal/ledger"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
+	"github.com/inCoderKaka/local-server/internal/settings"
 )
 
 // The service-level targets of req_001 D-31 and D-55 are the settings gateway.slo_overhead,
@@ -192,14 +193,14 @@ func TestSLOTargetsAreHostSettings(t *testing.T) {
 		{gateway.KeySLOReceiptSigning, gateway.DefaultSLOReceiptSigning},
 	} {
 		def, ok := e.st.Definition(tc.key)
-		if !ok || def.Owner != "host" || def.Default != tc.def {
+		if !ok || def.Owner != settings.Host || def.Default != tc.def {
 			t.Errorf("%s = %+v, %v", tc.key, def, ok)
 		}
 		got, err := e.st.Duration(context.Background(), tc.key, "")
 		if err != nil || got <= 0 {
 			t.Errorf("%s: %v, %v", tc.key, got, err)
 		}
-		if err := e.st.Set(context.Background(), "host", tc.key, "", "0s"); err == nil {
+		if err := e.st.Set(context.Background(), settings.Host, tc.key, "", "0s"); err == nil {
 			t.Errorf("%s accepted 0s", tc.key)
 		}
 	}

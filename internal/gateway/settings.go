@@ -44,29 +44,29 @@ func Defs() []settings.Def {
 	h := settings.Host
 	return []settings.Def{
 		{Key: KeyDefaultMaxTokens, Kind: settings.Int, Default: "1024", Owner: h,
-			Description: "Tokens a chat request may generate when it sets neither max_tokens nor max_completion_tokens. The ceiling and the grant's output cap still apply."},
+			Description: "Tokens a chat request may generate when it sets neither max_tokens nor max_completion_tokens. The output cap still applies: the grant's or a policy rule's (the smaller when both set one), else gateway.max_tokens_ceiling."},
 		{Key: KeyMaxTokensCeiling, Kind: settings.Int, Default: "8192", Owner: h,
 			Description: "Most tokens a chat request may generate when neither the grant nor a policy rule sets an output cap. A request that asks for more is capped, not refused."},
 		{Key: KeyDefaultContextTokens, Kind: settings.Int, Default: "4096", Owner: h,
 			Description: "Context size in tokens sent to the engine when neither the grant nor a policy rule sets a context cap."},
 		{Key: KeyCharsPerToken, Kind: settings.Int, Default: "4", Owner: h,
-			Description: "Bytes of prompt text counted as one token when the gateway estimates the prompt size before the engine runs. The engine's own count is exact; this estimate only refuses obviously oversized prompts early."},
+			Description: "Bytes of prompt text counted as one token when the gateway estimates the prompt size before the engine runs. With on_context_overflow refuse, a prompt whose estimate exceeds the context cap is refused with context_too_long before the engine runs, so a higher value makes this pre-check more lenient. The engine's own count is exact."},
 		{Key: KeyMaxEmbeddingInputs, Kind: settings.Int, Default: "128", Owner: h,
 			Description: "Most texts one embeddings request may carry."},
 		{Key: KeyEngineTimeout, Kind: settings.Duration, Default: "5m", Owner: h,
-			Description: "Longest a non-streamed engine call may take in total, including loading the model."},
+			Description: "Longest a non-streamed engine call may take in total, from the request to the engine until its last chunk. A model load the scheduler runs during admission is not included; the engine adapter's load timeout bounds it."},
 		{Key: KeyMeteringAttempts, Kind: settings.Int, Default: "3", Owner: h,
 			Description: "Times the gateway tries to write a call's usage record before it answers with an unmetered receipt."},
 		{Key: KeyMeteringRetryDelay, Kind: settings.Duration, Default: "100ms", Owner: h,
 			Description: "Wait between two attempts to write a usage record."},
 		{Key: KeyMeteringTimeout, Kind: settings.Duration, Default: "10s", Owner: h,
-			Description: "Longest one attempt to write a usage record may take. Metering ignores the client disconnecting."},
+			Description: "Longest one attempt to write a usage record may take. It also bounds the gateway's write of a metering.failed or policy.rule_invalid event. Metering ignores the client disconnecting."},
 		{Key: KeyRuleInvalidInterval, Kind: settings.Duration, Default: "5m", Owner: h,
 			Description: "At most one policy.rule_invalid notification is raised per broken policy rule in this time."},
 		{Key: KeySLOOverhead, Kind: settings.Duration, Default: DefaultSLOOverhead, Owner: h,
-			Description: "Target for the gateway's own time per chat or embeddings call at the 95th percentile: everything except the engine call and waiting in the admission queue, metering write included. The gateway counts each call that takes longer in gateway_slo_breaches_total (slo overhead), and the SLO tests hold the gateway to this value."},
+			Description: "Target for the gateway's own time per chat or embeddings call at the 95th percentile: everything except the engine call and Scheduler.Admit (its queue wait and any model load included), metering write included. The gateway counts each call that takes longer in gateway_slo_breaches_total (slo overhead), and the SLO tests hold the gateway to this value."},
 		{Key: KeySLOAdmission, Kind: settings.Duration, Default: DefaultSLOAdmission, Owner: h,
-			Description: "Target for the time Scheduler.Admit takes when a slot is free, at the 95th percentile. Time spent waiting for a busy slot is queueing, not admission. gateway_admission_seconds shows the measured time; the SLO tests hold the gateway to this value."},
+			Description: "Target for the time Scheduler.Admit takes when a slot is free, at the 95th percentile; the SLO tests hold the gateway to this value. gateway_admission_seconds measures every Admit call in full, waiting for a busy slot and loading the model included, so under load it runs above this target."},
 		{Key: KeySLOReceiptSigning, Kind: settings.Duration, Default: DefaultSLOReceiptSigning, Owner: h,
 			Description: "Target for the time to sign one usage receipt, at the 95th percentile. The SLO tests hold the gateway to this value, and the gateway counts a slower unmetered-receipt signing in gateway_slo_breaches_total (slo receipt_signing)."},
 	}
@@ -128,7 +128,7 @@ type config struct {
 	meteringAttempts                                   int64
 	meteringRetryDelay, meteringTimeout                time.Duration
 	ruleInvalidInterval                                time.Duration
-	sloOverhead, sloAdmission, sloReceiptSigning       time.Duration
+	sloOverhead, sloReceiptSigning                     time.Duration
 }
 
 func (g *Gateway) loadConfig(ctx context.Context) (config, error) {
@@ -156,6 +156,6 @@ func (g *Gateway) loadConfig(ctx context.Context) (config, error) {
 	c.meteringAttempts = max(i(KeyMeteringAttempts), 1)
 	c.meteringRetryDelay, c.meteringTimeout = max(d(KeyMeteringRetryDelay), 0), d(KeyMeteringTimeout)
 	c.ruleInvalidInterval = d(KeyRuleInvalidInterval)
-	c.sloOverhead, c.sloAdmission, c.sloReceiptSigning = d(KeySLOOverhead), d(KeySLOAdmission), d(KeySLOReceiptSigning)
+	c.sloOverhead, c.sloReceiptSigning = d(KeySLOOverhead), d(KeySLOReceiptSigning)
 	return c, err
 }

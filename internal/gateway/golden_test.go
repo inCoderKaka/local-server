@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -40,6 +39,8 @@ func golden(t *testing.T, name string, got []byte) {
 	if err != nil {
 		t.Fatalf("%v (run with -update to create it)", err)
 	}
+	// A Windows checkout may convert the file to CRLF.
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 	if !bytes.Equal(pretty, want) {
 		t.Errorf("%s differs from the golden file:\n got:\n%s\nwant:\n%s", name, pretty, want)
 	}
@@ -62,5 +63,3 @@ func statusIs(t *testing.T, r resp, want int) {
 		t.Fatalf("status = %d, want %d; body: %s", r.Code, want, r.Body.String())
 	}
 }
-
-var _ = http.StatusOK

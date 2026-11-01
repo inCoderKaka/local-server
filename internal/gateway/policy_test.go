@@ -13,6 +13,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/gateway"
 	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/policy"
+	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/storage"
 )
 
@@ -65,7 +66,7 @@ func TestPolicyRefusalsFollowD79(t *testing.T) {
 		if r.Header().Get("Retry-After") != "" {
 			t.Error("policy_denied has no Retry-After")
 		}
-		if strings.Contains(r.Body.String(), "secret\"") && strings.Contains(r.Body.String(), "purpose=secret") {
+		if strings.Contains(r.Body.String(), "secret\"") || strings.Contains(r.Body.String(), "purpose=secret") {
 			t.Errorf("the body quotes a property value: %s", r.Body.String())
 		}
 	})
@@ -75,6 +76,18 @@ func TestPolicyRefusalsFollowD79(t *testing.T) {
 		eb := r.errBody()
 		props, _ := eb["properties"].([]any)
 		if eb["code"] != "policy_denied" || len(props) != 1 || props[0] != "mood" {
+			t.Fatalf("error = %v", eb)
+		}
+		if strings.Contains(r.Body.String(), "happy") {
+			t.Errorf("the body quotes a property value: %s", r.Body.String())
+		}
+	})
+	t.Run("every property the grant does not allow is named, without values", func(t *testing.T) {
+		r := e.chat(okChat, "LS-Request-Properties", "mood=happy, zeta=1")
+		statusIs(t, r, http.StatusForbidden)
+		eb := r.errBody()
+		props, _ := eb["properties"].([]any)
+		if eb["code"] != "policy_denied" || len(props) != 2 || props[0] != "mood" || props[1] != "zeta" {
 			t.Fatalf("error = %v", eb)
 		}
 		if strings.Contains(r.Body.String(), "happy") {
@@ -117,6 +130,10 @@ func TestPolicyBackgroundPriorityAndCapsReachTheEngine(t *testing.T) {
 	got := e.eng.chats[0]
 	if got.NumCtx != 64 || got.NumPredict != 3 {
 		t.Fatalf("engine saw num_ctx %d, num_predict %d; want the rule's caps 64 and 3", got.NumCtx, got.NumPredict)
+	}
+	req := e.timed.lastRequest()
+	if req.Class != scheduler.ClassBackground || req.GrantConcurrency != 2 || req.Job {
+		t.Fatalf("scheduler saw class %v, grant concurrency %d, job %v; want background, 2, false", req.Class, req.GrantConcurrency, req.Job)
 	}
 }
 

@@ -41,6 +41,8 @@ type Error struct {
 	RuleName string
 	// Property is the property name concerned, if any.
 	Property string
+	// Properties are the property names concerned, sorted (CodePropertyNotAllowed).
+	Properties []string
 	// FormatVersion is the unknown format version (CodeUnknownFormatVersion).
 	FormatVersion int64
 	// Opens is when the refusing rule's windows next open (CodeOutsideWindow). It does not

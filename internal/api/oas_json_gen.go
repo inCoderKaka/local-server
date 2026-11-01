@@ -8351,7 +8351,7 @@ func (s *HostPublicKey) encodeFields(e *jx.Encoder) {
 	}
 	{
 		e.FieldStart("ls_created_at")
-		json.EncodeDateTime(e, s.LsCreatedAt)
+		json.EncodeTimeFormat(e, s.LsCreatedAt, "2006-01-02T15:04:05.999999999Z07:00")
 	}
 	{
 		if s.LsRetiredAt.Set {
@@ -8500,7 +8500,7 @@ func (s *HostPublicKey) Decode(d *jx.Decoder) error {
 		case "ls_created_at":
 			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
-				v, err := json.DecodeDateTime(d)
+				v, err := json.DecodeTimeFormat(d, "2006-01-02T15:04:05.999999999Z07:00")
 				s.LsCreatedAt = v
 				if err != nil {
 					return err

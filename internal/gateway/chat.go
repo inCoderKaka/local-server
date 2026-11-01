@@ -38,10 +38,13 @@ func (g *Gateway) CreateChatCompletion(ctx context.Context, req *api.ChatComplet
 	defer tk.Release()
 	startedAt := g.now()
 	t0 := time.Now()
-	text, last, err := g.runChat(ctx, c, tk.KeepAlive(), in, p)
+	text, last, chunks, err := g.runChat(ctx, c, tk.KeepAlive(), in, p)
 	engineTime := time.Since(t0)
 	tk.Release()
 	if err != nil {
+		if ctx.Err() != nil { // the client went away while the engine ran (req_001 D-38 aborted)
+			g.meterAborted(ctx, c, ledger.OpChatCompletions, in.model, int64(chunks), startedAt)
+		}
 		return nil, err
 	}
 	u := ledger.Usage{UsageID: ledger.NewUsageID(), ConsumerID: c.id.ConsumerID, AccessKeyID: c.id.KeyID,
@@ -71,26 +74,31 @@ func (g *Gateway) CreateChatCompletion(ctx context.Context, req *api.ChatComplet
 }
 
 // runChat is F1 step 6 for a non-streamed answer: it reads the engine's stream to its end.
-// The reply text lives in memory for the length of the call and is never logged.
-func (g *Gateway) runChat(ctx context.Context, c call, keepAlive time.Duration, in chatInput, p plan) (string, engine.ChatChunk, error) {
+// The reply text lives in memory for the length of the call and is never logged. It also returns
+// how many chunks with content arrived before the stream ended or failed.
+func (g *Gateway) runChat(ctx context.Context, c call, keepAlive time.Duration, in chatInput, p plan) (string, engine.ChatChunk, int, error) {
 	ectx, cancel := context.WithTimeout(ctx, c.cfg.engineTimeout)
 	defer cancel()
 	s, err := g.cfg.Engine.Chat(ectx, engine.ChatRequest{Model: in.model, Messages: in.messages, NumCtx: p.numCtx,
 		NumPredict: p.numPredict, KeepAlive: keepAlive, OnContextOverflow: p.overflow})
 	if err != nil {
-		return "", engine.ChatChunk{}, err
+		return "", engine.ChatChunk{}, 0, err
 	}
 	defer s.Close()
 	var sb strings.Builder
 	var last engine.ChatChunk
 	done := false
+	chunks := 0
 	for {
 		ch, err := s.Recv()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return "", engine.ChatChunk{}, err
+			return "", engine.ChatChunk{}, chunks, err
+		}
+		if ch.Content != "" {
+			chunks++
 		}
 		sb.WriteString(ch.Content)
 		if ch.Done {
@@ -98,7 +106,7 @@ func (g *Gateway) runChat(ctx context.Context, c call, keepAlive time.Duration, 
 		}
 	}
 	if !done {
-		return "", engine.ChatChunk{}, engine.Errorf(engine.CodeEngineError, nil, "the stream ended without a final chunk")
+		return "", engine.ChatChunk{}, chunks, engine.Errorf(engine.CodeEngineError, nil, "the stream ended without a final chunk")
 	}
-	return sb.String(), last, nil
+	return sb.String(), last, chunks, nil
 }

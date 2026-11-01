@@ -157,6 +157,19 @@ func TestDecide(t *testing.T) {
 	}
 }
 
+func TestAllDisallowedPropertiesAreListed(t *testing.T) {
+	g := grant()
+	g.AllowedProperties = str(`["background"]`)
+	_, err := policy.Decide(nil, policy.Input{Properties: []string{"zeta=1, background, mood=happy"}, Model: "llama3.1:8b", Time: at(12, 0), Grant: g}, lim)
+	var pe *policy.Error
+	if !errors.As(err, &pe) || pe.Code != policy.CodePropertyNotAllowed {
+		t.Fatalf("err = %v, want property_not_allowed", err)
+	}
+	if len(pe.Properties) != 2 || pe.Properties[0] != "mood" || pe.Properties[1] != "zeta" || pe.Property != "mood" {
+		t.Fatalf("Properties = %v, Property = %q, want [mood zeta] and mood", pe.Properties, pe.Property)
+	}
+}
+
 func sameCaps(a, b policy.Caps) bool {
 	eq := func(x, y *int64) bool { return (x == nil) == (y == nil) && (x == nil || *x == *y) }
 	return eq(a.ContextCap, b.ContextCap) && eq(a.MaxOutputTokens, b.MaxOutputTokens) && eq(a.MaxConcurrency, b.MaxConcurrency)

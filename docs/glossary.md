@@ -78,6 +78,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Policy rule | A versioned, declarative rule the host edits through a form (request properties, time windows, priority class, caps). Set per grant or globally. | Rule | D-25 |
 | Priority class | *Interactive* (someone is waiting) or *background* (can wait). Interactive runs first, and background ages up so it is never starved. | Interactive / Background | D-26 |
 | Quota | A grant's or key's token or request allowance for a period. Going over it returns `quota_exceeded`, and a near-limit notice is sent first. | Quota | D-25, D-29, D-98 |
+| Request counter | The count, kept in memory per consumer, per access key and per quota window, of the calls the gateway admitted, metered or not; the request quota reads it. After a restart it is seeded from the window's usage records. Counts only, no content. | — | D-100 |
 | Rate limit | The maximum number of requests a key may send per time window. Mandatory in public mode. | Rate limit | D-24 |
 | Retention rule | A setting saying how long one kind of record is kept before the retention worker deletes it. | How long we keep … | D-38, D-40 |
 | Setting owner | The one party (platform admin, host or consumer) responsible for a configurable value. It sets the value freely; there is no bounds hierarchy between parties. | — | D-38, D-54 |
@@ -95,6 +96,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Host status | The health signal a client app checks with its access key: online, loaded models, queue depth, paused. | Host status | D-05 |
 | Usage ledger | The host's append-only, tamper-evident record of every metered request. | Usage history | D-16 |
 | Usage receipt | A record of one request's usage, signed by the host and returned with the response, so a consumer can check a bill independently. | Receipt | D-16 |
+| SLO target | A host-owned 95th-percentile time the gateway is held to: its own time per call, admission time and receipt-signing time (the gateway.slo_* settings). The SLO tests check them, and the gateway counts calls over the overhead target and slow unmetered-receipt signings in gateway_slo_breaches_total. | — | D-31, D-55 |
 | Audit log | The record of admin actions: keys issued or revoked, grants changed, requests decided. | Activity log | D-07 |
 | Job | A background request submitted to `/v1/jobs`. It runs when the host admits it, and the result is fetched later. | Background job | D-26, D-38 |
 | Idempotency key | A client-chosen id on a job submission, so a retried submission never runs twice. | — | D-26 |

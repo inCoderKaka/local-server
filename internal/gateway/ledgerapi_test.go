@@ -3,6 +3,7 @@ package gateway_test
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"testing"
@@ -30,6 +31,22 @@ func TestKeysEndpointServesTheJWKSetAndVerifiesReceipts(t *testing.T) {
 	want, err := e.cps.KeySet(context.Background())
 	if err != nil || len(keys) != len(want.Keys) {
 		t.Fatalf("keys = %d, KeySet has %d (%v)", len(keys), len(want.Keys), err)
+	}
+	// A client holding only the served JSON can verify the host's certificates and receipts.
+	var served checkpoint.KeySet
+	if err := json.Unmarshal(r.Body.Bytes(), &served); err != nil {
+		t.Fatal(err)
+	}
+	if err := served.VerifyEndorsement(); err != nil {
+		t.Fatalf("the served key set does not verify on its own: %v", err)
+	}
+	cr := e.chat(okChat)
+	statusIs(t, cr, http.StatusOK)
+	if _, err := served.VerifyReceipt(cr.Header().Get("LS-Receipt")); err != nil {
+		t.Fatalf("the served key set does not verify a receipt: %v", err)
+	}
+	if len(served.VerifierKeys()) == 0 {
+		t.Fatal("the served key set has no note verifier key")
 	}
 	// No key: the same envelope as everywhere else.
 	statusIs(t, e.doAuth("", http.MethodGet, "/v1/keys", ""), http.StatusUnauthorized)
@@ -72,6 +89,16 @@ func TestCheckpointAndConsistencyEndpoints(t *testing.T) {
 	if err != nil || string(root) != string(latest.RootHash[:]) {
 		t.Fatalf("root_hash = %v (%v)", body["root_hash"], err)
 	}
+	kr := e.do(http.MethodGet, "/v1/keys", "")
+	statusIs(t, kr, http.StatusOK)
+	var ks checkpoint.KeySet
+	if err := json.Unmarshal(kr.Body.Bytes(), &ks); err != nil {
+		t.Fatal(err)
+	}
+	v, err := checkpoint.Verify(body["checkpoint"].(string), ks.VerifierKeys()...)
+	if err != nil || v.Text.TreeSize != latest.TreeSize || v.Text.RootHash != latest.RootHash {
+		t.Fatalf("the served checkpoint does not verify against the served keys: %+v (%v)", v, err)
+	}
 
 	r = e.do(http.MethodGet, "/v1/ledger/checkpoint?from_tree_size="+strconv.FormatInt(first.TreeSize, 10), "")
 	statusIs(t, r, http.StatusOK)
@@ -97,6 +124,13 @@ func TestCheckpointAndConsistencyEndpoints(t *testing.T) {
 	// from the latest size itself: an empty proof; beyond it, or below 1: 400.
 	r = e.do(http.MethodGet, "/v1/ledger/checkpoint?from_tree_size="+strconv.FormatInt(latest.TreeSize, 10), "")
 	statusIs(t, r, http.StatusOK)
+	body = r.json()
+	if p, ok := body["consistency_proof"].([]any); !ok || len(p) != 0 {
+		t.Fatalf("consistency_proof = %v, want an empty list", body["consistency_proof"])
+	}
+	if f, ok := body["from_tree_size"].(float64); !ok || int64(f) != latest.TreeSize {
+		t.Fatalf("from_tree_size = %v, want %d", body["from_tree_size"], latest.TreeSize)
+	}
 	for _, from := range []int64{latest.TreeSize + 1, 0, -3} {
 		r = e.do(http.MethodGet, "/v1/ledger/checkpoint?from_tree_size="+strconv.FormatInt(from, 10), "")
 		statusIs(t, r, http.StatusBadRequest)
@@ -132,19 +166,22 @@ func TestUsageProofEndpoint(t *testing.T) {
 	}
 	var hashes tlog.RecordProof
 	for _, p := range body["inclusion_proof"].([]any) {
-		b, _ := base64.StdEncoding.DecodeString(p.(string))
+		b, err := base64.StdEncoding.DecodeString(p.(string))
+		if err != nil || len(b) != len(tlog.Hash{}) {
+			t.Fatalf("proof element %v: %v", p, err)
+		}
 		var h tlog.Hash
 		copy(h[:], b)
 		hashes = append(hashes, h)
 	}
-	leaf, _ := base64.StdEncoding.DecodeString(body["leaf_hash"].(string))
+	leaf, err := base64.StdEncoding.DecodeString(body["leaf_hash"].(string))
+	if err != nil || len(leaf) != len(tlog.Hash{}) {
+		t.Fatalf("leaf_hash %v: %v", body["leaf_hash"], err)
+	}
 	var lh tlog.Hash
 	copy(lh[:], leaf)
 	if err := tlog.CheckRecord(hashes, cp.TreeSize, cp.RootHash, *rc.LeafIndex, lh); err != nil {
 		t.Fatalf("the served inclusion proof does not verify: %v", err)
-	}
-	if want := checkpoint.EncodeHashes(hashes); len(want) != len(body["inclusion_proof"].([]any)) {
-		t.Fatal("proof length")
 	}
 
 	// An unknown id: 404. So is another consumer's record.

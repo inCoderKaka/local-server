@@ -72,6 +72,12 @@ Errors use the OpenAI error envelope plus a typed `code`. Use `Retry-After` wher
 | `context_too_long` | Shorten the prompt or ask for a larger context limit |
 | `engine_unavailable` | Fall back |
 | `over_budget` | The model and context can never fit this host's memory budget; use a smaller model or shorter context, retrying the same request does not help |
+| `policy_denied` | A policy rule refuses the request, or it carries a property your grant does not allow; `rule_id`, `rule_name` and `properties` say which. Change the request or ask the host, because retrying the same request does not help |
+| `outside_time_window` | A policy rule allows this request only in its time windows; retry after `Retry-After`, when the rule's next window opens |
+| `invalid_request_properties` | Fix the `LS-Request-Properties` header; it is malformed or over the host's limits |
+| `unsupported_parameter` | Remove the field named in `param` |
+| `invalid_api_key` | The access key is missing, unknown, expired or revoked; get a valid key from the host |
+| `rate_limit_exceeded` | Slow down and retry after `Retry-After`; after repeated failed key checks this is a lockout |
 
 A good client:
 - checks `/v1/health` before falling back;

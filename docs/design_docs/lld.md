@@ -258,7 +258,7 @@ sequenceDiagram
 
 Failure branches:
 - **Engine down:** `503 engine_unavailable`.
-- **Metering write keeps failing:** it is retried in memory first. If it still fails, the answer is returned with a signed receipt marked `unmetered` and no leaf index. The failure is logged, counted and emitted as `metering.failed` (D-51).
+- **Metering write keeps failing:** it is retried in memory first. If it still fails, the answer is returned with a signed receipt marked `unmetered` and no leaf index. The failure is logged, counted and emitted as `metering.failed` (D-51). If the unmetered receipt cannot be signed either, the call answers 500 and metering.failed is still emitted: no answer goes out without a receipt (D-16, D-51).
 - **Context overflow:** with `on_context_overflow = refuse`, the adapter sends `truncate:false` and `shift:false`, and maps Ollama's error to `context_too_long` (D-48).
 
 ### F2 — async job
