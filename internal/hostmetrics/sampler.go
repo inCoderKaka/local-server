@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
@@ -45,9 +46,14 @@ type Sampler struct {
 	memory       telemetry.Gauge
 	cpu          telemetry.Gauge
 	unattributed telemetry.Gauge
+	model        telemetry.Gauge
 
 	mu      sync.Mutex
 	current *Reading
+	// modelSeries are the model names whose series is set on the model gauge; only SampleOnce
+	// callers touch it, under modelMu.
+	modelMu     sync.Mutex
+	modelSeries map[string]bool
 }
 
 // NewSampler registers the host-metrics settings and the retention rule of hst_metric_minute with
@@ -69,6 +75,8 @@ func newSampler(db *storage.DB, st *settings.Store, tel telemetry.Telemetry, loa
 	s.memory = tel.Gauge("hostmetrics_memory_bytes", "scope", "measure")
 	s.cpu = tel.Gauge("hostmetrics_cpu_percent", "scope", "measure")
 	s.unattributed = tel.Gauge("hostmetrics_unattributed_processes")
+	s.model = tel.Gauge("hostmetrics_loaded_model_bytes", "model")
+	s.modelSeries = map[string]bool{}
 	return s, nil
 }
 
@@ -130,6 +138,27 @@ func (s *Sampler) setGauges(r Reading) {
 	cpu("slice", r.Slice.CPU)
 	cpu("other", r.Other.CPU)
 	s.unattributed.Set(float64(r.Unattributed))
+	s.setModelGauges(r.Slice.LoadedModels)
+}
+
+// setModelGauges sets one series per loaded model and deletes the series of a model that was in
+// the previous reading and is not in this one, so an unloaded model leaves /metrics (D-74). When
+// the engine could not be asked (models nil) every series is deleted: a stale size would be a
+// guess.
+func (s *Sampler) setModelGauges(models []engine.LoadedModel) {
+	s.modelMu.Lock()
+	defer s.modelMu.Unlock()
+	now := make(map[string]bool, len(models))
+	for _, m := range models {
+		now[m.Name] = true
+		s.model.Set(float64(m.SizeBytes), m.Name)
+	}
+	for name := range s.modelSeries {
+		if !now[name] {
+			s.model.Delete(name)
+		}
+	}
+	s.modelSeries = now
 }
 
 // measures is the JSON stored in hst_metric_minute.measures. Keys without a _cpu suffix describe

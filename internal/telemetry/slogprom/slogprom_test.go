@@ -263,3 +263,31 @@ func TestSinkErrorIntervalDefaultWhenNilOrNonPositive(t *testing.T) {
 		})
 	}
 }
+
+func TestGaugeDeleteRemovesSeries(t *testing.T) {
+	tel, err := New(Config{Out: &bytes.Buffer{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := tel.Gauge("ls_loaded_bytes", "model")
+	g.Set(1, "a")
+	g.Set(2, "b")
+	scrape := func() string {
+		rec := httptest.NewRecorder()
+		tel.MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+		return rec.Body.String()
+	}
+	if body := scrape(); !strings.Contains(body, `ls_loaded_bytes{model="a"} 1`) || !strings.Contains(body, `ls_loaded_bytes{model="b"} 2`) {
+		t.Fatalf("both series expected:\n%s", body)
+	}
+	g.Delete("a")
+	g.Delete("never-set") // no effect
+	body := scrape()
+	if strings.Contains(body, `model="a"`) || !strings.Contains(body, `ls_loaded_bytes{model="b"} 2`) {
+		t.Fatalf("series a must be gone and b kept:\n%s", body)
+	}
+	g.Set(5, "a")
+	if !strings.Contains(scrape(), `ls_loaded_bytes{model="a"} 5`) {
+		t.Fatal("a deleted series can be set again")
+	}
+}

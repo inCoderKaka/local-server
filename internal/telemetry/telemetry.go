@@ -34,9 +34,17 @@ type Counter interface {
 }
 
 // Gauge is a value that goes up and down.
+//
+// Delete removes the series for these label values, so it no longer appears
+// on /metrics. Use it when a label value stops being true (a model unloads);
+// otherwise the series keeps its last value for the life of the process. It
+// does nothing when the series does not exist. Only Gauge has it: a counter or
+// histogram series is history that must not vanish, and a gauge is the one
+// metric that describes the present state.
 type Gauge interface {
 	Set(value float64, labelValues ...string)
 	Add(delta float64, labelValues ...string)
+	Delete(labelValues ...string)
 }
 
 // Histogram records observations in buckets.
@@ -70,5 +78,6 @@ func (nop) StartSpan(ctx context.Context, _ string) (context.Context, Span) { re
 func (nopMetric) Inc(...string)              {}
 func (nopMetric) Add(float64, ...string)     {}
 func (nopMetric) Set(float64, ...string)     {}
+func (nopMetric) Delete(...string)           {}
 func (nopMetric) Observe(float64, ...string) {}
 func (nopSpan) End()                         {}

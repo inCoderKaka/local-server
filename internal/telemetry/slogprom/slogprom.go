@@ -319,6 +319,9 @@ type gauge struct {
 func (g *gauge) Set(x float64, lv ...string) { g.v.WithLabelValues(lv...).Set(x) }
 func (g *gauge) Add(d float64, lv ...string) { g.v.WithLabelValues(lv...).Add(d) }
 
+// Delete removes the series; a wrong count of label values deletes nothing.
+func (g *gauge) Delete(lv ...string) { g.v.DeleteLabelValues(lv...) }
+
 type histogram struct {
 	v      *prometheus.HistogramVec
 	labels []string

@@ -68,6 +68,11 @@ func (g *gaugeRec) Set(v float64, l ...string) {
 	g.vals[key(l)] = v
 }
 func (g *gaugeRec) Add(float64, ...string) {}
+func (g *gaugeRec) Delete(l ...string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.vals, key(l))
+}
 func (g *gaugeRec) get(l ...string) (float64, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -439,5 +444,35 @@ func TestSliceMemoryNoDoubleCount(t *testing.T) {
 		if got := sliceMemory(c.ls, c.rss, c.size, c.vram); got != c.want {
 			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
 		}
+	}
+}
+
+func TestUnloadedModelSeriesDeleted(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if err := e.eng.Load(ctx, "m1", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	e.sample(t)
+	g := e.tel.gauges["hostmetrics_loaded_model_bytes"]
+	if v, ok := g.get("m1"); !ok || v != float64(gib) {
+		t.Fatalf("loaded model series = %v, %v; want %d", v, ok, gib)
+	}
+	if err := e.eng.Unload(ctx, "m1"); err != nil {
+		t.Fatal(err)
+	}
+	e.sample(t)
+	if _, ok := g.get("m1"); ok {
+		t.Fatal("series of an unloaded model must be deleted")
+	}
+	// The engine failing deletes the series of a model that was loaded: a stale size is a guess.
+	if err := e.eng.Load(ctx, "m1", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	e.sample(t)
+	e.eng.InjectError(fake.OpLoaded, errors.New("down"), 1)
+	e.sample(t)
+	if _, ok := g.get("m1"); ok {
+		t.Fatal("series must be deleted while the engine cannot be asked")
 	}
 }

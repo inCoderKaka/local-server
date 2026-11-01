@@ -89,6 +89,8 @@ func TestMiddlewareRequestID(t *testing.T) {
 func TestNop(t *testing.T) {
 	n := Nop()
 	n.Counter("a").Inc()
+	n.Gauge("g", "l").Set(1, "x")
+	n.Gauge("g", "l").Delete("x")
 	n.Logger().Info("x")
 	_, sp := n.StartSpan(t.Context(), "s")
 	sp.End()

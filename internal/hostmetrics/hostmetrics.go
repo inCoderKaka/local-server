@@ -69,8 +69,11 @@ type Slice struct {
 	// unavailable when the engine cannot be asked (Ollama down).
 	LoadedModelsMemory Bytes
 	LoadedAccelerator  Bytes
-	LocalServerCPU     Percent
-	OllamaCPU          Percent
+	// LoadedModels is the engine's loaded list, nil when it cannot be asked. Names are model
+	// names, never content.
+	LoadedModels   []engine.LoadedModel
+	LocalServerCPU Percent
+	OllamaCPU      Percent
 	// Memory is local-server's RSS plus the larger of Ollama's RSS and the loaded models' host
 	// RAM (their size minus their accelerator memory), so a model already in Ollama's RSS is not
 	// counted twice (D-91). CPU is the sum. Neither is above the host total; Clamped says they
@@ -221,6 +224,7 @@ func (r *Reader) Read(ctx context.Context) (Reading, error) {
 			}
 			s.LoadedModelsMemory = Bytes{size, MeasureEngineLoaded}
 			s.LoadedAccelerator = Bytes{vram, MeasureEngineLoaded}
+			s.LoadedModels = models
 		}
 	}
 
