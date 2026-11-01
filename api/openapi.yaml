@@ -170,6 +170,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ChatCompletionRequest'
+            examples:
+              default:
+                $ref: '#/components/examples/ChatCompletionRequest'
       responses:
         '200':
           description: The completion, or a stream of chunks when `stream` is true.
@@ -180,6 +183,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatCompletion'
+              examples:
+                default:
+                  $ref: '#/components/examples/ChatCompletion'
             text/event-stream:
               schema:
                 $ref: '#/components/schemas/ChatCompletionEventStream'
@@ -202,6 +208,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/EmbeddingRequest'
+            examples:
+              default:
+                $ref: '#/components/examples/EmbeddingRequest'
       responses:
         '200':
           description: The embeddings.
@@ -212,6 +221,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EmbeddingList'
+              examples:
+                default:
+                  $ref: '#/components/examples/EmbeddingList'
         default:
           $ref: '#/components/responses/Error'
   /v1/models:
@@ -230,6 +242,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ModelList'
+              examples:
+                default:
+                  $ref: '#/components/examples/ModelList'
         default:
           $ref: '#/components/responses/Error'
 
@@ -254,6 +269,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HostHealth'
+              examples:
+                default:
+                  $ref: '#/components/examples/HostHealth'
         default:
           $ref: '#/components/responses/Error'
   /v1/capabilities:
@@ -272,6 +290,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Capabilities'
+              examples:
+                default:
+                  $ref: '#/components/examples/Capabilities'
         default:
           $ref: '#/components/responses/Error'
 
@@ -300,6 +321,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ChatCompletionRequest'
+            examples:
+              default:
+                $ref: '#/components/examples/ChatCompletionRequest'
       responses:
         '200':
           description: A job with this Idempotency-Key already exists; it is returned unchanged.
@@ -307,12 +331,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
+              examples:
+                default:
+                  $ref: '#/components/examples/Job'
         '202':
           description: The job is queued.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
+              examples:
+                default:
+                  $ref: '#/components/examples/JobQueued'
         default:
           $ref: '#/components/responses/Error'
   /v1/jobs/{job_id}:
@@ -332,6 +362,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
+              examples:
+                default:
+                  $ref: '#/components/examples/Job'
         default:
           $ref: '#/components/responses/Error'
   /v1/jobs/{job_id}/cancel:
@@ -351,6 +384,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Job'
+              examples:
+                default:
+                  $ref: '#/components/examples/JobCancelled'
         default:
           $ref: '#/components/responses/Error'
   /v1/jobs/{job_id}/result:
@@ -377,6 +413,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobResult'
+              examples:
+                default:
+                  $ref: '#/components/examples/JobResult'
         default:
           $ref: '#/components/responses/Error'
 
@@ -401,6 +440,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceRequestList'
+              examples:
+                default:
+                  $ref: '#/components/examples/ResourceRequestList'
         default:
           $ref: '#/components/responses/Error'
     post:
@@ -418,6 +460,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ResourceRequestCreate'
+            examples:
+              default:
+                $ref: '#/components/examples/ResourceRequestCreate'
       responses:
         '201':
           description: The new resource request.
@@ -425,6 +470,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceRequest'
+              examples:
+                default:
+                  $ref: '#/components/examples/ResourceRequest'
         default:
           $ref: '#/components/responses/Error'
   /v1/resource-requests/{resource_request_id}:
@@ -445,6 +493,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceRequest'
+              examples:
+                default:
+                  $ref: '#/components/examples/ResourceRequest'
         default:
           $ref: '#/components/responses/Error'
   /v1/resource-requests/{resource_request_id}/comments:
@@ -465,6 +516,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CommentCreate'
+            examples:
+              default:
+                $ref: '#/components/examples/CommentCreate'
       responses:
         '201':
           description: The request with the new comment.
@@ -472,6 +526,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceRequest'
+              examples:
+                default:
+                  $ref: '#/components/examples/ResourceRequest'
         default:
           $ref: '#/components/responses/Error'
   /v1/resource-requests/{resource_request_id}/withdraw:
@@ -492,6 +549,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceRequest'
+              examples:
+                default:
+                  $ref: '#/components/examples/ResourceRequestWithdrawn'
         default:
           $ref: '#/components/responses/Error'
 
@@ -520,6 +580,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UsageRollupList'
+              examples:
+                default:
+                  $ref: '#/components/examples/UsageRollupList'
         default:
           $ref: '#/components/responses/Error'
   /v1/usage/{usage_id}/proof:
@@ -544,6 +607,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UsageProof'
+              examples:
+                default:
+                  $ref: '#/components/examples/UsageProof'
         default:
           $ref: '#/components/responses/Error'
   /v1/keys:
@@ -562,6 +628,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HostKeySet'
+              examples:
+                default:
+                  $ref: '#/components/examples/HostKeySet'
         default:
           $ref: '#/components/responses/Error'
   /v1/ledger/checkpoint:
@@ -592,6 +661,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LedgerCheckpoint'
+              examples:
+                default:
+                  $ref: '#/components/examples/LedgerCheckpoint'
         default:
           $ref: '#/components/responses/Error'
 
@@ -612,6 +684,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NotificationPreferenceList'
+              examples:
+                default:
+                  $ref: '#/components/examples/NotificationPreferenceList'
         default:
           $ref: '#/components/responses/Error'
     put:
@@ -629,6 +704,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/NotificationPreferenceList'
+            examples:
+              default:
+                $ref: '#/components/examples/NotificationPreferenceList'
       responses:
         '200':
           description: The stored preferences.
@@ -636,6 +714,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NotificationPreferenceList'
+              examples:
+                default:
+                  $ref: '#/components/examples/NotificationPreferenceList'
         default:
           $ref: '#/components/responses/Error'
   /v1/webhook-endpoints:
@@ -654,6 +735,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WebhookEndpointList'
+              examples:
+                default:
+                  $ref: '#/components/examples/WebhookEndpointList'
         default:
           $ref: '#/components/responses/Error'
     post:
@@ -676,6 +760,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/WebhookEndpointCreate'
+            examples:
+              default:
+                $ref: '#/components/examples/WebhookEndpointCreate'
       responses:
         '201':
           description: The endpoint and its signing secret, shown once.
@@ -683,6 +770,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WebhookEndpointCreated'
+              examples:
+                default:
+                  $ref: '#/components/examples/WebhookEndpointCreated'
         default:
           $ref: '#/components/responses/Error'
   /v1/webhook-endpoints/{webhook_endpoint_id}:
@@ -703,6 +793,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WebhookEndpoint'
+              examples:
+                default:
+                  $ref: '#/components/examples/WebhookEndpoint'
         default:
           $ref: '#/components/responses/Error'
     patch:
@@ -722,6 +815,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/WebhookEndpointUpdate'
+            examples:
+              default:
+                $ref: '#/components/examples/WebhookEndpointUpdate'
       responses:
         '200':
           description: The changed endpoint.
@@ -729,6 +825,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WebhookEndpoint'
+              examples:
+                default:
+                  $ref: '#/components/examples/WebhookEndpoint'
         default:
           $ref: '#/components/responses/Error'
     delete:
@@ -762,6 +861,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/InviteRedemptionPassword'
+            examples:
+              default:
+                $ref: '#/components/examples/InviteRedemptionPassword'
       responses:
         '201':
           description: The new consumer; the session cookie is set.
@@ -772,6 +874,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Consumer'
+              examples:
+                default:
+                  $ref: '#/components/examples/Consumer'
         default:
           $ref: '#/components/responses/Error'
   /v1/invite-redemptions/passkey/begin:
@@ -788,6 +893,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/InviteRedemptionPasskeyBegin'
+            examples:
+              default:
+                $ref: '#/components/examples/InviteRedemptionPasskeyBegin'
       responses:
         '200':
           description: The ceremony id and the WebAuthn creation options.
@@ -795,6 +903,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PasskeyCeremony'
+              examples:
+                default:
+                  $ref: '#/components/examples/PasskeyCeremony'
         default:
           $ref: '#/components/responses/Error'
   /v1/invite-redemptions/passkey/finish:
@@ -811,6 +922,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PasskeyCeremonyFinish'
+            examples:
+              default:
+                $ref: '#/components/examples/PasskeyCeremonyFinish'
       responses:
         '201':
           description: The new consumer; the session cookie is set.
@@ -821,6 +935,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Consumer'
+              examples:
+                default:
+                  $ref: '#/components/examples/Consumer'
         default:
           $ref: '#/components/responses/Error'
   /v1/session:
@@ -853,6 +970,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PasswordLogin'
+            examples:
+              default:
+                $ref: '#/components/examples/PasswordLogin'
       responses:
         '200':
           description: The consumer; the session cookie is set.
@@ -863,6 +983,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Consumer'
+              examples:
+                default:
+                  $ref: '#/components/examples/Consumer'
         default:
           $ref: '#/components/responses/Error'
   /v1/session/passkey/begin:
@@ -879,6 +1002,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PasskeyCeremony'
+              examples:
+                default:
+                  $ref: '#/components/examples/PasskeyCeremony'
         default:
           $ref: '#/components/responses/Error'
   /v1/session/passkey/finish:
@@ -895,6 +1021,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PasskeyCeremonyFinish'
+            examples:
+              default:
+                $ref: '#/components/examples/PasskeyCeremonyFinish'
       responses:
         '200':
           description: The consumer; the session cookie is set.
@@ -905,6 +1034,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Consumer'
+              examples:
+                default:
+                  $ref: '#/components/examples/Consumer'
         default:
           $ref: '#/components/responses/Error'
   /v1/me:
@@ -923,6 +1055,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Consumer'
+              examples:
+                default:
+                  $ref: '#/components/examples/Consumer'
         default:
           $ref: '#/components/responses/Error'
   /v1/me/limits:
@@ -941,6 +1076,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GrantVersion'
+              examples:
+                default:
+                  $ref: '#/components/examples/GrantVersion'
         default:
           $ref: '#/components/responses/Error'
   /v1/me/access-keys:
@@ -959,6 +1097,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessKeyList'
+              examples:
+                default:
+                  $ref: '#/components/examples/AccessKeyList'
         default:
           $ref: '#/components/responses/Error'
   /v1/me/settings:
@@ -977,6 +1118,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SettingList'
+              examples:
+                default:
+                  $ref: '#/components/examples/SettingList'
         default:
           $ref: '#/components/responses/Error'
     patch:
@@ -994,6 +1138,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SettingsUpdate'
+            examples:
+              default:
+                $ref: '#/components/examples/SettingsUpdate'
       responses:
         '200':
           description: The consumer-owned settings after the change.
@@ -1001,6 +1148,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SettingList'
+              examples:
+                default:
+                  $ref: '#/components/examples/SettingList'
         default:
           $ref: '#/components/responses/Error'
   /v1/me/password:
@@ -1018,6 +1168,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PasswordChange'
+            examples:
+              default:
+                $ref: '#/components/examples/PasswordChange'
       responses:
         '204':
           description: The password is set.
@@ -1038,6 +1191,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PasskeyCeremony'
+              examples:
+                default:
+                  $ref: '#/components/examples/PasskeyCeremony'
         default:
           $ref: '#/components/responses/Error'
   /v1/me/passkeys/finish:
@@ -1055,6 +1211,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PasskeyCeremonyFinish'
+            examples:
+              default:
+                $ref: '#/components/examples/PasskeyCeremonyFinish'
       responses:
         '204':
           description: The passkey is stored.
@@ -1076,6 +1235,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminSetupStatus'
+              examples:
+                default:
+                  $ref: '#/components/examples/AdminSetupStatus'
         default:
           $ref: '#/components/responses/Error'
     post:
@@ -1091,6 +1253,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AdminCredentials'
+            examples:
+              default:
+                $ref: '#/components/examples/AdminCredentials'
       responses:
         '201':
           description: The new admin; the session cookie is set.
@@ -1101,6 +1266,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminUser'
+              examples:
+                default:
+                  $ref: '#/components/examples/AdminUser'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/session:
@@ -1118,6 +1286,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminUser'
+              examples:
+                default:
+                  $ref: '#/components/examples/AdminUser'
         default:
           $ref: '#/components/responses/Error'
     post:
@@ -1133,6 +1304,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AdminCredentials'
+            examples:
+              default:
+                $ref: '#/components/examples/AdminCredentials'
       responses:
         '200':
           description: The admin; the session cookie is set.
@@ -1143,6 +1317,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminUser'
+              examples:
+                default:
+                  $ref: '#/components/examples/AdminUser'
         default:
           $ref: '#/components/responses/Error'
     delete:
@@ -1177,6 +1354,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HostInfo'
+              examples:
+                default:
+                  $ref: '#/components/examples/HostInfo'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/host/pause:
@@ -1194,6 +1374,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HostInfo'
+              examples:
+                default:
+                  $ref: '#/components/examples/HostInfoPaused'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/host/resume:
@@ -1211,6 +1394,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HostInfo'
+              examples:
+                default:
+                  $ref: '#/components/examples/HostInfo'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/host-metrics:
@@ -1228,6 +1414,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HostMetricsSample'
+              examples:
+                default:
+                  $ref: '#/components/examples/HostMetricsSample'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/host-metrics/history:
@@ -1248,6 +1437,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HostMetricsHistory'
+              examples:
+                default:
+                  $ref: '#/components/examples/HostMetricsHistory'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/settings:
@@ -1265,6 +1457,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SettingList'
+              examples:
+                default:
+                  $ref: '#/components/examples/HostSettingList'
         default:
           $ref: '#/components/responses/Error'
     patch:
@@ -1281,6 +1476,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/SettingsUpdate'
+            examples:
+              default:
+                $ref: '#/components/examples/HostSettingsUpdate'
       responses:
         '200':
           description: The host-owned settings after the change.
@@ -1288,6 +1486,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SettingList'
+              examples:
+                default:
+                  $ref: '#/components/examples/HostSettingList'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/audit-events:
@@ -1316,6 +1517,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuditEventList'
+              examples:
+                default:
+                  $ref: '#/components/examples/AuditEventList'
         default:
           $ref: '#/components/responses/Error'
 
@@ -1344,6 +1548,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ConsumerList'
+              examples:
+                default:
+                  $ref: '#/components/examples/ConsumerList'
         default:
           $ref: '#/components/responses/Error'
     post:
@@ -1360,6 +1567,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ConsumerCreate'
+            examples:
+              default:
+                $ref: '#/components/examples/ConsumerCreate'
       responses:
         '201':
           description: The new consumer.
@@ -1367,6 +1577,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Consumer'
+              examples:
+                default:
+                  $ref: '#/components/examples/Consumer'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/consumers/{consumer_id}:
@@ -1386,6 +1599,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Consumer'
+              examples:
+                default:
+                  $ref: '#/components/examples/Consumer'
         default:
           $ref: '#/components/responses/Error'
     patch:
@@ -1404,6 +1620,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ConsumerUpdate'
+            examples:
+              default:
+                $ref: '#/components/examples/ConsumerUpdate'
       responses:
         '200':
           description: The changed consumer.
@@ -1411,6 +1630,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Consumer'
+              examples:
+                default:
+                  $ref: '#/components/examples/Consumer'
         default:
           $ref: '#/components/responses/Error'
     delete:
@@ -1444,6 +1666,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Consumer'
+              examples:
+                default:
+                  $ref: '#/components/examples/ConsumerSuspended'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/consumers/{consumer_id}/reactivate:
@@ -1463,6 +1688,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Consumer'
+              examples:
+                default:
+                  $ref: '#/components/examples/Consumer'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/consumers/{consumer_id}/access-keys:
@@ -1482,6 +1710,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessKeyList'
+              examples:
+                default:
+                  $ref: '#/components/examples/AccessKeyList'
         default:
           $ref: '#/components/responses/Error'
     post:
@@ -1500,6 +1731,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AccessKeyCreate'
+            examples:
+              default:
+                $ref: '#/components/examples/AccessKeyCreate'
       responses:
         '201':
           description: The key and its secret, shown once.
@@ -1507,6 +1741,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessKeyIssued'
+              examples:
+                default:
+                  $ref: '#/components/examples/AccessKeyIssued'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/access-keys/{access_key_id}:
@@ -1526,6 +1763,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AccessKeyUpdate'
+            examples:
+              default:
+                $ref: '#/components/examples/AccessKeyUpdate'
       responses:
         '200':
           description: The changed key.
@@ -1533,6 +1773,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessKey'
+              examples:
+                default:
+                  $ref: '#/components/examples/AccessKey'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/access-keys/{access_key_id}/revoke:
@@ -1552,6 +1795,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessKey'
+              examples:
+                default:
+                  $ref: '#/components/examples/AccessKeyRevoked'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/invites:
@@ -1572,6 +1818,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InviteList'
+              examples:
+                default:
+                  $ref: '#/components/examples/InviteList'
         default:
           $ref: '#/components/responses/Error'
     post:
@@ -1588,6 +1837,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/InviteCreate'
+            examples:
+              default:
+                $ref: '#/components/examples/InviteCreate'
       responses:
         '201':
           description: The invite, its token and its link, shown once.
@@ -1595,6 +1847,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/InviteIssued'
+              examples:
+                default:
+                  $ref: '#/components/examples/InviteIssued'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/invites/{invite_id}/revoke:
@@ -1614,6 +1869,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Invite'
+              examples:
+                default:
+                  $ref: '#/components/examples/InviteRevoked'
         default:
           $ref: '#/components/responses/Error'
 
@@ -1635,6 +1893,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GrantVersion'
+              examples:
+                default:
+                  $ref: '#/components/examples/GrantVersion'
         default:
           $ref: '#/components/responses/Error'
     put:
@@ -1653,6 +1914,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/GrantLimits'
+            examples:
+              default:
+                $ref: '#/components/examples/GrantLimits'
       responses:
         '200':
           description: The new current grant version.
@@ -1660,6 +1924,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GrantVersion'
+              examples:
+                default:
+                  $ref: '#/components/examples/GrantVersion'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/consumers/{consumer_id}/grant/versions:
@@ -1681,6 +1948,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GrantVersionList'
+              examples:
+                default:
+                  $ref: '#/components/examples/GrantVersionList'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/models:
@@ -1698,6 +1968,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HostModelList'
+              examples:
+                default:
+                  $ref: '#/components/examples/HostModelList'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/models/{model_id}:
@@ -1717,6 +1990,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/HostModelUpdate'
+            examples:
+              default:
+                $ref: '#/components/examples/HostModelUpdate'
       responses:
         '200':
           description: The changed model.
@@ -1724,6 +2000,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HostModel'
+              examples:
+                default:
+                  $ref: '#/components/examples/HostModel'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/policy-rules:
@@ -1749,6 +2028,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PolicyRuleList'
+              examples:
+                default:
+                  $ref: '#/components/examples/PolicyRuleList'
         default:
           $ref: '#/components/responses/Error'
     post:
@@ -1765,6 +2047,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PolicyRuleCreate'
+            examples:
+              default:
+                $ref: '#/components/examples/PolicyRuleCreate'
       responses:
         '201':
           description: The new rule.
@@ -1772,6 +2057,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PolicyRule'
+              examples:
+                default:
+                  $ref: '#/components/examples/PolicyRule'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/policy-rules/{policy_rule_id}:
@@ -1791,6 +2079,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PolicyRule'
+              examples:
+                default:
+                  $ref: '#/components/examples/PolicyRule'
         default:
           $ref: '#/components/responses/Error'
     put:
@@ -1809,6 +2100,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/PolicyRuleUpdate'
+            examples:
+              default:
+                $ref: '#/components/examples/PolicyRuleUpdate'
       responses:
         '200':
           description: The rule's new version.
@@ -1816,6 +2110,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PolicyRule'
+              examples:
+                default:
+                  $ref: '#/components/examples/PolicyRule'
         default:
           $ref: '#/components/responses/Error'
     delete:
@@ -1860,6 +2157,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceRequestList'
+              examples:
+                default:
+                  $ref: '#/components/examples/ResourceRequestList'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/resource-requests/{resource_request_id}:
@@ -1879,6 +2179,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceRequest'
+              examples:
+                default:
+                  $ref: '#/components/examples/ResourceRequest'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/resource-requests/{resource_request_id}/approve:
@@ -1898,6 +2201,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ResourceRequestApproval'
+            examples:
+              default:
+                $ref: '#/components/examples/ResourceRequestApproval'
       responses:
         '200':
           description: The approved request.
@@ -1905,6 +2211,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceRequest'
+              examples:
+                default:
+                  $ref: '#/components/examples/ResourceRequestApproved'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/resource-requests/{resource_request_id}/reject:
@@ -1924,6 +2233,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ResourceRequestRejection'
+            examples:
+              default:
+                $ref: '#/components/examples/ResourceRequestRejection'
       responses:
         '200':
           description: The rejected request.
@@ -1931,6 +2243,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceRequest'
+              examples:
+                default:
+                  $ref: '#/components/examples/ResourceRequestRejected'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/resource-requests/{resource_request_id}/comments:
@@ -1950,6 +2265,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CommentCreate'
+            examples:
+              default:
+                $ref: '#/components/examples/CommentCreate'
       responses:
         '201':
           description: The request with the new comment.
@@ -1957,6 +2275,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResourceRequest'
+              examples:
+                default:
+                  $ref: '#/components/examples/ResourceRequest'
         default:
           $ref: '#/components/responses/Error'
 
@@ -1991,6 +2312,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UsageRollupList'
+              examples:
+                default:
+                  $ref: '#/components/examples/UsageRollupList'
         default:
           $ref: '#/components/responses/Error'
 
@@ -2010,6 +2334,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NotificationPreferenceList'
+              examples:
+                default:
+                  $ref: '#/components/examples/NotificationPreferenceList'
         default:
           $ref: '#/components/responses/Error'
     put:
@@ -2026,6 +2353,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/NotificationPreferenceList'
+            examples:
+              default:
+                $ref: '#/components/examples/NotificationPreferenceList'
       responses:
         '200':
           description: The stored preferences.
@@ -2033,6 +2363,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NotificationPreferenceList'
+              examples:
+                default:
+                  $ref: '#/components/examples/NotificationPreferenceList'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/webhook-endpoints:
@@ -2050,6 +2383,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WebhookEndpointList'
+              examples:
+                default:
+                  $ref: '#/components/examples/WebhookEndpointList'
         default:
           $ref: '#/components/responses/Error'
     post:
@@ -2066,6 +2402,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/WebhookEndpointCreate'
+            examples:
+              default:
+                $ref: '#/components/examples/WebhookEndpointCreate'
       responses:
         '201':
           description: The endpoint and its signing secret, shown once.
@@ -2073,6 +2412,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WebhookEndpointCreated'
+              examples:
+                default:
+                  $ref: '#/components/examples/WebhookEndpointCreated'
         default:
           $ref: '#/components/responses/Error'
   /admin/v1/webhook-endpoints/{webhook_endpoint_id}:
@@ -2092,6 +2434,9 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/WebhookEndpointUpdate'
+            examples:
+              default:
+                $ref: '#/components/examples/WebhookEndpointUpdate'
       responses:
         '200':
           description: The changed endpoint.
@@ -2099,6 +2444,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/WebhookEndpoint'
+              examples:
+                default:
+                  $ref: '#/components/examples/WebhookEndpoint'
         default:
           $ref: '#/components/responses/Error'
     delete:
@@ -2135,6 +2483,9 @@ webhooks:
           application/json:
             schema:
               $ref: '#/components/schemas/JobDoneEvent'
+            examples:
+              default:
+                $ref: '#/components/examples/JobDoneEvent'
       responses:
         '200':
           $ref: '#/components/responses/WebhookAccepted'
@@ -2157,6 +2508,9 @@ webhooks:
           application/json:
             schema:
               $ref: '#/components/schemas/ResourceRequestCreatedEvent'
+            examples:
+              default:
+                $ref: '#/components/examples/ResourceRequestCreatedEvent'
       responses:
         '200':
           $ref: '#/components/responses/WebhookAccepted'
@@ -2179,6 +2533,9 @@ webhooks:
           application/json:
             schema:
               $ref: '#/components/schemas/ResourceRequestDecidedEvent'
+            examples:
+              default:
+                $ref: '#/components/examples/ResourceRequestDecidedEvent'
       responses:
         '200':
           $ref: '#/components/responses/WebhookAccepted'
@@ -2201,6 +2558,9 @@ webhooks:
           application/json:
             schema:
               $ref: '#/components/schemas/QuotaNearLimitEvent'
+            examples:
+              default:
+                $ref: '#/components/examples/QuotaNearLimitEvent'
       responses:
         '200':
           $ref: '#/components/responses/WebhookAccepted'
@@ -2223,6 +2583,9 @@ webhooks:
           application/json:
             schema:
               $ref: '#/components/schemas/HostPausedEvent'
+            examples:
+              default:
+                $ref: '#/components/examples/HostPausedEvent'
       responses:
         '200':
           $ref: '#/components/responses/WebhookAccepted'
@@ -2245,6 +2608,9 @@ webhooks:
           application/json:
             schema:
               $ref: '#/components/schemas/MeteringFailedEvent'
+            examples:
+              default:
+                $ref: '#/components/examples/MeteringFailedEvent'
       responses:
         '200':
           $ref: '#/components/responses/WebhookAccepted'
@@ -2503,6 +2869,1025 @@ components:
       description: Any 2xx status means the delivery was received.
     WebhookGone:
       description: The receiver asks for no more deliveries; the endpoint is disabled.
+
+  examples:
+    ChatCompletionRequest:
+      summary: Chat completion request
+      description: Chat completion request, with placeholder values only.
+      value:
+        model: example-model
+        messages:
+          - role: user
+            content: Placeholder prompt.
+    ChatCompletion:
+      summary: Chat completion
+      description: Chat completion, with placeholder values only.
+      value:
+        id: chatcmpl-example
+        object: chat.completion
+        created: 1768471200
+        model: example-model
+        choices:
+          - index: 0
+            message:
+              role: assistant
+              content: Placeholder reply.
+            finish_reason: stop
+        usage:
+          prompt_tokens: 10
+          completion_tokens: 5
+          total_tokens: 15
+    JobResult:
+      summary: Job result
+      description: Job result, with placeholder values only.
+      value:
+        id: chatcmpl-example-job
+        object: chat.completion
+        created: 1768471200
+        model: example-model
+        choices:
+          - index: 0
+            message:
+              role: assistant
+              content: Placeholder reply.
+            finish_reason: stop
+        usage:
+          prompt_tokens: 10
+          completion_tokens: 5
+          total_tokens: 15
+    EmbeddingRequest:
+      summary: Embedding request
+      description: Embedding request, with placeholder values only.
+      value:
+        model: example-model
+        input: Placeholder text.
+    EmbeddingList:
+      summary: Embedding list
+      description: Embedding list, with placeholder values only.
+      value:
+        object: list
+        data:
+          - object: embedding
+            index: 0
+            embedding: [0.1, -0.2, 0.3]
+        model: example-model
+        usage:
+          prompt_tokens: 3
+          total_tokens: 3
+    ModelList:
+      summary: Model list
+      description: Model list, with placeholder values only.
+      value:
+        object: list
+        data:
+          - id: example-model
+            object: model
+            created: 1768471200
+            owned_by: example
+    HostHealth:
+      summary: Host health
+      description: Host health, with placeholder values only.
+      value:
+        sharing_state: sharing
+        sharing_resumes_at: null
+        engine_state: available
+        loaded_models: [example-model]
+        queue_depth:
+          interactive: 0
+          background: 0
+        checked_at: '2026-01-15T10:00:00Z'
+    Capabilities:
+      summary: Capabilities
+      description: Capabilities, with placeholder values only.
+      value:
+        consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+        access_key_id: '0192e5a0-0002-7000-8000-000000000002'
+        grant_version_id: '0192e5a0-0003-7000-8000-000000000003'
+        models:
+          - model: example-model
+            context_limit: 4096
+            max_output_tokens: 1024
+        concurrency: 2
+        on_context_overflow: refuse
+        allowed_request_properties: [background]
+        quotas:
+          - scope: grant
+            window_seconds: 86400
+            tokens: 100000
+            used_tokens: 2500
+            remaining_tokens: 97500
+            requests: 500
+            used_requests: 12
+            remaining_requests: 488
+            resets_at: '2026-01-16T10:00:00Z'
+        rate_limit:
+          requests: 10
+          window_seconds: 60
+        expires_at: null
+        benchmark: null
+    Job:
+      summary: Job
+      description: Job, with placeholder values only.
+      value:
+        id: '0192e5a0-0005-7000-8000-000000000005'
+        status: succeeded
+        failure_reason: null
+        model: example-model
+        idempotency_key: '0192e5a0-0063-7000-8000-000000000063'
+        created_at: '2026-01-15T10:00:00Z'
+        started_at: '2026-01-15T10:00:00Z'
+        finished_at: '2026-01-15T10:05:00Z'
+        deadline_at: '2026-01-16T10:00:00Z'
+        result_available: true
+        result_expires_at: '2026-01-16T10:00:00Z'
+    JobQueued:
+      summary: Job queued
+      description: Job queued, with placeholder values only.
+      value:
+        id: '0192e5a0-0005-7000-8000-000000000005'
+        status: queued
+        failure_reason: null
+        model: example-model
+        idempotency_key: '0192e5a0-0063-7000-8000-000000000063'
+        created_at: '2026-01-15T10:00:00Z'
+        started_at: null
+        finished_at: null
+        deadline_at: '2026-01-16T10:00:00Z'
+        result_available: false
+        result_expires_at: null
+    JobCancelled:
+      summary: Job cancelled
+      description: Job cancelled, with placeholder values only.
+      value:
+        id: '0192e5a0-0005-7000-8000-000000000005'
+        status: cancelled
+        failure_reason: null
+        model: example-model
+        idempotency_key: '0192e5a0-0063-7000-8000-000000000063'
+        created_at: '2026-01-15T10:00:00Z'
+        started_at: null
+        finished_at: '2026-01-15T10:05:00Z'
+        deadline_at: '2026-01-16T10:00:00Z'
+        result_available: false
+        result_expires_at: null
+    ResourceRequestCreate:
+      summary: Resource request create
+      description: Resource request create, with placeholder values only.
+      value:
+        message: Placeholder request message.
+        ask:
+          models: [example-model]
+          context_limit: 8192
+    ResourceRequest:
+      summary: Resource request
+      description: Resource request, with placeholder values only.
+      value:
+        id: '0192e5a0-0006-7000-8000-000000000006'
+        consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+        status: open
+        message: Placeholder request message.
+        ask:
+          models: [example-model]
+          context_limit: 8192
+        created_at: '2026-01-15T10:00:00Z'
+        expires_at: '2026-01-16T10:00:00Z'
+        decided_at: null
+        resulting_grant_version_id: null
+        comments:
+          - id: '0192e5a0-0007-7000-8000-000000000007'
+            author:
+              principal_id: '0192e5a0-0001-7000-8000-000000000001'
+              kind: consumer
+              display_name: Example Consumer
+            body: Placeholder comment.
+            created_at: '2026-01-15T10:05:00Z'
+    ResourceRequestApproved:
+      summary: Resource request approved
+      description: Resource request approved, with placeholder values only.
+      value:
+        id: '0192e5a0-0006-7000-8000-000000000006'
+        consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+        status: approved
+        message: Placeholder request message.
+        ask:
+          models: [example-model]
+          context_limit: 8192
+        created_at: '2026-01-15T10:00:00Z'
+        expires_at: null
+        decided_at: '2026-01-15T10:05:00Z'
+        resulting_grant_version_id: '0192e5a0-0003-7000-8000-000000000003'
+        comments:
+          - id: '0192e5a0-0007-7000-8000-000000000007'
+            author:
+              principal_id: '0192e5a0-0001-7000-8000-000000000001'
+              kind: consumer
+              display_name: Example Consumer
+            body: Placeholder comment.
+            created_at: '2026-01-15T10:05:00Z'
+    ResourceRequestRejected:
+      summary: Resource request rejected
+      description: Resource request rejected, with placeholder values only.
+      value:
+        id: '0192e5a0-0006-7000-8000-000000000006'
+        consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+        status: rejected
+        message: Placeholder request message.
+        ask:
+          models: [example-model]
+          context_limit: 8192
+        created_at: '2026-01-15T10:00:00Z'
+        expires_at: null
+        decided_at: '2026-01-15T10:05:00Z'
+        resulting_grant_version_id: null
+        comments:
+          - id: '0192e5a0-0007-7000-8000-000000000007'
+            author:
+              principal_id: '0192e5a0-0001-7000-8000-000000000001'
+              kind: consumer
+              display_name: Example Consumer
+            body: Placeholder comment.
+            created_at: '2026-01-15T10:05:00Z'
+    ResourceRequestWithdrawn:
+      summary: Resource request withdrawn
+      description: Resource request withdrawn, with placeholder values only.
+      value:
+        id: '0192e5a0-0006-7000-8000-000000000006'
+        consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+        status: withdrawn
+        message: Placeholder request message.
+        ask:
+          models: [example-model]
+          context_limit: 8192
+        created_at: '2026-01-15T10:00:00Z'
+        expires_at: null
+        decided_at: '2026-01-15T10:05:00Z'
+        resulting_grant_version_id: null
+        comments:
+          - id: '0192e5a0-0007-7000-8000-000000000007'
+            author:
+              principal_id: '0192e5a0-0001-7000-8000-000000000001'
+              kind: consumer
+              display_name: Example Consumer
+            body: Placeholder comment.
+            created_at: '2026-01-15T10:05:00Z'
+    ResourceRequestList:
+      summary: Resource request list
+      description: Resource request list, with placeholder values only.
+      value:
+        data:
+          - id: '0192e5a0-0006-7000-8000-000000000006'
+            consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+            status: open
+            message: Placeholder request message.
+            ask:
+              models: [example-model]
+              context_limit: 8192
+            created_at: '2026-01-15T10:00:00Z'
+            expires_at: '2026-01-16T10:00:00Z'
+            decided_at: null
+            resulting_grant_version_id: null
+        next_cursor: null
+    CommentCreate:
+      summary: Comment create
+      description: Comment create, with placeholder values only.
+      value:
+        body: Placeholder comment.
+    ResourceRequestApproval:
+      summary: Resource request approval
+      description: Resource request approval, with placeholder values only.
+      value:
+        limits:
+          models:
+            - model: example-model
+              context_limit: 4096
+              max_output_tokens: 1024
+          quotas:
+            - window_seconds: 86400
+              tokens: 100000
+              requests: 500
+          concurrency: 2
+          on_context_overflow: refuse
+          allowed_request_properties: [background]
+          expires_at: null
+        comment: Placeholder comment.
+    ResourceRequestRejection:
+      summary: Resource request rejection
+      description: Resource request rejection, with placeholder values only.
+      value:
+        comment: Placeholder comment.
+    UsageRollupList:
+      summary: Usage rollup list
+      description: Usage rollup list, with placeholder values only.
+      value:
+        data:
+          - bucket_start: '2026-01-15T10:00:00Z'
+            granularity: hour
+            consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+            access_key_id: '0192e5a0-0002-7000-8000-000000000002'
+            model: example-model
+            requests: 12
+            prompt_tokens: 1200
+            completion_tokens: 600
+            total_tokens: 1800
+        next_cursor: null
+    UsageProof:
+      summary: Usage proof
+      description: Usage proof, with placeholder values only.
+      value:
+        usage_id: '0192e5a0-0008-7000-8000-000000000008'
+        leaf_index: 2
+        leaf_hash: ZXhhbXBsZS1sZWFmLWhhc2gtcGxhY2Vob2xkZXItMDA=
+        tree_size: 3
+        checkpoint: "example.invalid/ledger\n3\nZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=\n\n— example.invalid ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=\n"
+        inclusion_proof: ['ZXhhbXBsZS1wcm9vZi1oYXNoLXBsYWNlaG9sZGVyMA==', 'ZXhhbXBsZS1wcm9vZi1oYXNoLXBsYWNlaG9sZGVyMQ==']
+    LedgerCheckpoint:
+      summary: Ledger checkpoint
+      description: Ledger checkpoint, with placeholder values only.
+      value:
+        checkpoint: "example.invalid/ledger\n3\nZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=\n\n— example.invalid ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=\n"
+        tree_size: 3
+        root_hash: ZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=
+        from_tree_size: null
+        consistency_proof: null
+    HostKeySet:
+      summary: Host key set
+      description: Host key set, with placeholder values only.
+      value:
+        keys:
+          - kty: OKP
+            crv: Ed25519
+            x: ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5
+            kid: ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5
+            alg: Ed25519
+            use: sig
+            ls_role: identity
+            ls_parent_kid: null
+            ls_endorsement: null
+            ls_note_verifier_key: null
+            ls_created_at: '2026-01-01T00:00:00.000Z'
+            ls_retired_at: null
+          - kty: OKP
+            crv: Ed25519
+            x: ZXhhbXBsZS1yZWNlaXB0LXB1YmxpYy1rZXk
+            kid: '0123456789abcdef'
+            alg: Ed25519
+            use: sig
+            ls_role: receipt
+            ls_parent_kid: ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5
+            ls_endorsement:
+              certificate: ZXhhbXBsZS1jZXJ0aWZpY2F0ZQ
+              signature: ZXhhbXBsZS1zaWduYXR1cmU
+            ls_note_verifier_key: null
+            ls_created_at: '2026-01-01T00:00:00.000Z'
+            ls_retired_at: null
+    NotificationPreferenceList:
+      summary: Notification preference list
+      description: Notification preference list, with placeholder values only.
+      value:
+        data:
+          - event_type: job.done
+            in_app: true
+            webhook: true
+          - event_type: quota.near_limit
+            in_app: true
+            webhook: false
+    WebhookEndpoint:
+      summary: Webhook endpoint
+      description: Webhook endpoint, with placeholder values only.
+      value:
+        id: '0192e5a0-0009-7000-8000-000000000009'
+        url: https://hooks.example.invalid/local-server
+        description: Placeholder endpoint.
+        event_types: [job.done]
+        status: active
+        disabled_reason: null
+        created_at: '2026-01-15T10:00:00Z'
+    WebhookEndpointList:
+      summary: Webhook endpoint list
+      description: Webhook endpoint list, with placeholder values only.
+      value:
+        data:
+          - id: '0192e5a0-0009-7000-8000-000000000009'
+            url: https://hooks.example.invalid/local-server
+            description: Placeholder endpoint.
+            event_types: [job.done]
+            status: active
+            disabled_reason: null
+            created_at: '2026-01-15T10:00:00Z'
+    WebhookEndpointCreate:
+      summary: Webhook endpoint create
+      description: Webhook endpoint create, with placeholder values only.
+      value:
+        url: https://hooks.example.invalid/local-server
+        description: Placeholder endpoint.
+        event_types: [job.done]
+    WebhookEndpointUpdate:
+      summary: Webhook endpoint update
+      description: Webhook endpoint update, with placeholder values only.
+      value:
+        description: Placeholder note.
+        event_types: [job.done, host.paused]
+    WebhookEndpointCreated:
+      summary: Webhook endpoint created
+      description: Webhook endpoint created, with placeholder values only.
+      value:
+        endpoint:
+          id: '0192e5a0-0009-7000-8000-000000000009'
+          url: https://hooks.example.invalid/local-server
+          description: Placeholder endpoint.
+          event_types: [job.done]
+          status: active
+          disabled_reason: null
+          created_at: '2026-01-15T10:00:00Z'
+        secret: 'whsec_ZXhhbXBsZQ=='
+    InviteRedemptionPassword:
+      summary: Invite redemption password
+      description: Invite redemption password, with placeholder values only.
+      value:
+        invite_token: ls_invite_example_placeholder
+        display_name: Example Consumer
+        username: example-user
+        email: user@example.invalid
+        password: example-password-placeholder
+        consent:
+          terms_version: terms-2026-10-v1
+          privacy_version: privacy-2026-10-v1
+    InviteRedemptionPasskeyBegin:
+      summary: Invite redemption passkey begin
+      description: Invite redemption passkey begin, with placeholder values only.
+      value:
+        invite_token: ls_invite_example_placeholder
+        display_name: Example Consumer
+        email: user@example.invalid
+        consent:
+          terms_version: terms-2026-10-v1
+          privacy_version: privacy-2026-10-v1
+    PasskeyCeremony:
+      summary: Passkey ceremony
+      description: Passkey ceremony, with placeholder values only.
+      value:
+        ceremony_id: ceremony-example
+        options:
+          challenge: ZXhhbXBsZS1jaGFsbGVuZ2U
+          rpId: host.example.invalid
+          timeout: 60000
+    PasskeyCeremonyFinish:
+      summary: Passkey ceremony finish
+      description: Passkey ceremony finish, with placeholder values only.
+      value:
+        ceremony_id: ceremony-example
+        credential:
+          id: ZXhhbXBsZS1jcmVkZW50aWFs
+          type: public-key
+          response:
+            clientDataJSON: ZXhhbXBsZQ
+    PasswordLogin:
+      summary: Password login
+      description: Password login, with placeholder values only.
+      value:
+        username: example-user
+        password: example-password-placeholder
+    PasswordChange:
+      summary: Password change
+      description: Password change, with placeholder values only.
+      value:
+        current_password: example-password-placeholder
+        new_password: example-new-password-placeholder
+    Consumer:
+      summary: Consumer
+      description: Consumer, with placeholder values only.
+      value:
+        id: '0192e5a0-0001-7000-8000-000000000001'
+        kind: individual
+        status: active
+        display_name: Example Consumer
+        username: example-user
+        email: user@example.invalid
+        has_login: true
+        created_at: '2026-01-15T10:00:00Z'
+        deleted_at: null
+    ConsumerSuspended:
+      summary: Consumer suspended
+      description: Consumer suspended, with placeholder values only.
+      value:
+        id: '0192e5a0-0001-7000-8000-000000000001'
+        kind: individual
+        status: suspended
+        display_name: Example Consumer
+        username: example-user
+        email: user@example.invalid
+        has_login: true
+        created_at: '2026-01-15T10:00:00Z'
+        deleted_at: null
+    ConsumerList:
+      summary: Consumer list
+      description: Consumer list, with placeholder values only.
+      value:
+        data:
+          - id: '0192e5a0-0001-7000-8000-000000000001'
+            kind: individual
+            status: active
+            display_name: Example Consumer
+            username: example-user
+            email: user@example.invalid
+            has_login: true
+            created_at: '2026-01-15T10:00:00Z'
+            deleted_at: null
+        next_cursor: null
+    ConsumerCreate:
+      summary: Consumer create
+      description: Consumer create, with placeholder values only.
+      value:
+        kind: application
+        display_name: Example App
+    ConsumerUpdate:
+      summary: Consumer update
+      description: Consumer update, with placeholder values only.
+      value:
+        display_name: Renamed Example Consumer
+    GrantLimits:
+      summary: Grant limits
+      description: Grant limits, with placeholder values only.
+      value:
+        models:
+          - model: example-model
+            context_limit: 4096
+            max_output_tokens: 1024
+        quotas:
+          - window_seconds: 86400
+            tokens: 100000
+            requests: 500
+        concurrency: 2
+        on_context_overflow: refuse
+        allowed_request_properties: [background]
+        expires_at: null
+    GrantVersion:
+      summary: Grant version
+      description: Grant version, with placeholder values only.
+      value:
+        id: '0192e5a0-0003-7000-8000-000000000003'
+        grant_id: '0192e5a0-0004-7000-8000-000000000004'
+        consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+        version: 1
+        created_at: '2026-01-15T10:00:00Z'
+        resource_request_id: null
+        limits:
+          models:
+            - model: example-model
+              context_limit: 4096
+              max_output_tokens: 1024
+          quotas:
+            - window_seconds: 86400
+              tokens: 100000
+              requests: 500
+          concurrency: 2
+          on_context_overflow: refuse
+          allowed_request_properties: [background]
+          expires_at: null
+    GrantVersionList:
+      summary: Grant version list
+      description: Grant version list, with placeholder values only.
+      value:
+        data:
+          - id: '0192e5a0-0003-7000-8000-000000000003'
+            grant_id: '0192e5a0-0004-7000-8000-000000000004'
+            consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+            version: 1
+            created_at: '2026-01-15T10:00:00Z'
+            resource_request_id: null
+            limits:
+              models:
+                - model: example-model
+                  context_limit: 4096
+                  max_output_tokens: 1024
+              quotas:
+                - window_seconds: 86400
+                  tokens: 100000
+                  requests: 500
+              concurrency: 2
+              on_context_overflow: refuse
+              allowed_request_properties: [background]
+              expires_at: null
+        next_cursor: null
+    AccessKey:
+      summary: Access key
+      description: Access key, with placeholder values only.
+      value:
+        id: '0192e5a0-0002-7000-8000-000000000002'
+        consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+        prefix: example
+        name: Example key
+        status: active
+        narrowing: null
+        bound_node: null
+        created_at: '2026-01-15T10:00:00Z'
+        expires_at: null
+        revoked_at: null
+    AccessKeyRevoked:
+      summary: Access key revoked
+      description: Access key revoked, with placeholder values only.
+      value:
+        id: '0192e5a0-0002-7000-8000-000000000002'
+        consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+        prefix: example
+        name: Example key
+        status: revoked
+        narrowing: null
+        bound_node: null
+        created_at: '2026-01-15T10:00:00Z'
+        expires_at: null
+        revoked_at: '2026-01-15T10:05:00Z'
+    AccessKeyList:
+      summary: Access key list
+      description: Access key list, with placeholder values only.
+      value:
+        data:
+          - id: '0192e5a0-0002-7000-8000-000000000002'
+            consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+            prefix: example
+            name: Example key
+            status: active
+            narrowing: null
+            bound_node: null
+            created_at: '2026-01-15T10:00:00Z'
+            expires_at: null
+            revoked_at: null
+    AccessKeyCreate:
+      summary: Access key create
+      description: Access key create, with placeholder values only.
+      value:
+        name: Example key
+        expires_at: '2027-01-01T00:00:00Z'
+        narrowing:
+          models: [example-model]
+          max_output_tokens: 512
+    AccessKeyUpdate:
+      summary: Access key update
+      description: Access key update, with placeholder values only.
+      value:
+        name: Renamed example key
+        narrowing: null
+    AccessKeyIssued:
+      summary: Access key issued
+      description: Access key issued, with placeholder values only.
+      value:
+        access_key:
+          id: '0192e5a0-0002-7000-8000-000000000002'
+          consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+          prefix: example
+          name: Example key
+          status: active
+          narrowing: null
+          bound_node: null
+          created_at: '2026-01-15T10:00:00Z'
+          expires_at: null
+          revoked_at: null
+        secret: ls_example_placeholder_secret
+    SettingList:
+      summary: Setting list
+      description: Setting list, with placeholder values only.
+      value:
+        data:
+          - key: jobs.result_ttl_seconds
+            owner: consumer
+            value: 3600
+            default_value: 86400
+            description: Seconds an unfetched job result is kept.
+    HostSettingList:
+      summary: Host setting list
+      description: Host setting list, with placeholder values only.
+      value:
+        data:
+          - key: limits.rate_capacity
+            owner: host
+            value: 20
+            default_value: 10
+            description: Requests allowed in a burst.
+    SettingsUpdate:
+      summary: Settings update
+      description: Settings update, with placeholder values only.
+      value:
+        values:
+          jobs.result_ttl_seconds: 3600
+    HostSettingsUpdate:
+      summary: Host settings update
+      description: Host settings update, with placeholder values only.
+      value:
+        values:
+          limits.rate_capacity: 20
+    AdminSetupStatus:
+      summary: Admin setup status
+      description: Admin setup status, with placeholder values only.
+      value:
+        admin_exists: false
+    AdminCredentials:
+      summary: Admin credentials
+      description: Admin credentials, with placeholder values only.
+      value:
+        username: example-admin
+        password: example-password-placeholder
+    AdminUser:
+      summary: Admin user
+      description: Admin user, with placeholder values only.
+      value:
+        id: '0192e5a0-000b-7000-8000-00000000000b'
+        username: example-admin
+        created_at: '2026-01-15T10:00:00Z'
+    HostInfo:
+      summary: Host info
+      description: Host info, with placeholder values only.
+      value:
+        host_kid: ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5
+        sharing_state: sharing
+        paused_at: null
+        sharing_resumes_at: null
+        software_version: '0.0.0-example'
+        engine_state: available
+        engine_version: '0.0.0-example'
+    HostInfoPaused:
+      summary: Host info paused
+      description: Host info paused, with placeholder values only.
+      value:
+        host_kid: ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5
+        sharing_state: paused
+        paused_at: '2026-01-15T10:05:00Z'
+        sharing_resumes_at: null
+        software_version: '0.0.0-example'
+        engine_state: available
+        engine_version: '0.0.0-example'
+    HostMetricsSample:
+      summary: Host metrics sample
+      description: Host metrics sample, with placeholder values only.
+      value:
+        sampled_at: '2026-01-15T10:00:00Z'
+        total:
+          memory_bytes:
+            value: 17179869184
+            method: example-counter
+          cpu_percent:
+            value: 12.5
+            method: example-counter
+        share_budget_slice:
+          memory_bytes:
+            value: 8589934592
+            method: example-counter
+          cpu_percent:
+            value: 6.25
+            method: example-counter
+        other_apps:
+          memory_bytes:
+            value: 4294967296
+            method: example-counter
+          cpu_percent:
+            value: 3.5
+            method: example-counter
+        unattributed:
+          memory_bytes:
+            value: null
+            method: example-counter
+          cpu_percent:
+            value: null
+            method: example-counter
+    HostMetricsHistory:
+      summary: Host metrics history
+      description: Host metrics history, with placeholder values only.
+      value:
+        data:
+          - sampled_at: '2026-01-15T10:00:00Z'
+            total:
+              memory_bytes:
+                value: 17179869184
+                method: example-counter
+              cpu_percent:
+                value: 12.5
+                method: example-counter
+            share_budget_slice:
+              memory_bytes:
+                value: 8589934592
+                method: example-counter
+              cpu_percent:
+                value: 6.25
+                method: example-counter
+            other_apps:
+              memory_bytes:
+                value: 4294967296
+                method: example-counter
+              cpu_percent:
+                value: 3.5
+                method: example-counter
+            unattributed:
+              memory_bytes:
+                value: null
+                method: example-counter
+              cpu_percent:
+                value: null
+                method: example-counter
+    AuditEventList:
+      summary: Audit event list
+      description: Audit event list, with placeholder values only.
+      value:
+        data:
+          - id: '0192e5a0-000e-7000-8000-00000000000e'
+            occurred_at: '2026-01-15T10:05:00Z'
+            actor:
+              principal_id: '0192e5a0-000b-7000-8000-00000000000b'
+              kind: host_admin
+              display_name: Example Admin
+            action: access_key.revoked
+            target_kind: access_key
+            target_id: '0192e5a0-0002-7000-8000-000000000002'
+            details: {}
+        next_cursor: null
+    InviteRevoked:
+      summary: Invite revoked
+      description: Invite revoked, with placeholder values only.
+      value:
+        id: '0192e5a0-000a-7000-8000-00000000000a'
+        status: revoked
+        note: For an example person
+        created_at: '2026-01-15T10:00:00Z'
+        expires_at: '2026-01-16T10:00:00Z'
+        redeemed_consumer_id: null
+    InviteList:
+      summary: Invite list
+      description: Invite list, with placeholder values only.
+      value:
+        data:
+          - id: '0192e5a0-000a-7000-8000-00000000000a'
+            status: pending
+            note: For an example person
+            created_at: '2026-01-15T10:00:00Z'
+            expires_at: '2026-01-16T10:00:00Z'
+            redeemed_consumer_id: null
+        next_cursor: null
+    InviteCreate:
+      summary: Invite create
+      description: Invite create, with placeholder values only.
+      value:
+        note: For an example person
+        expires_at: '2026-01-16T10:00:00Z'
+    InviteIssued:
+      summary: Invite issued
+      description: Invite issued, with placeholder values only.
+      value:
+        invite:
+          id: '0192e5a0-000a-7000-8000-00000000000a'
+          status: pending
+          note: For an example person
+          created_at: '2026-01-15T10:00:00Z'
+          expires_at: '2026-01-16T10:00:00Z'
+          redeemed_consumer_id: null
+        token: ls_invite_example_placeholder
+        link: https://host.example.invalid/invite#ls_invite_example_placeholder
+    HostModel:
+      summary: Host model
+      description: Host model, with placeholder values only.
+      value:
+        id: '0192e5a0-000c-7000-8000-00000000000c'
+        name: example-model
+        engine: ollama
+        allowed: true
+        preload: false
+        keep_alive_seconds: null
+        loaded: true
+        size_bytes: 4000000000
+    HostModelList:
+      summary: Host model list
+      description: Host model list, with placeholder values only.
+      value:
+        data:
+          - id: '0192e5a0-000c-7000-8000-00000000000c'
+            name: example-model
+            engine: ollama
+            allowed: true
+            preload: false
+            keep_alive_seconds: null
+            loaded: true
+            size_bytes: 4000000000
+    HostModelUpdate:
+      summary: Host model update
+      description: Host model update, with placeholder values only.
+      value:
+        allowed: true
+        preload: true
+        keep_alive_seconds: 300
+    PolicyRule:
+      summary: Policy rule
+      description: Policy rule, with placeholder values only.
+      value:
+        id: '0192e5a0-000d-7000-8000-00000000000d'
+        grant_id: null
+        version: 1
+        rule:
+          format_version: 1
+          when:
+            properties:
+              background: true
+          priority: background
+          caps:
+            max_output_tokens: 512
+        created_at: '2026-01-15T10:00:00Z'
+    PolicyRuleList:
+      summary: Policy rule list
+      description: Policy rule list, with placeholder values only.
+      value:
+        data:
+          - id: '0192e5a0-000d-7000-8000-00000000000d'
+            grant_id: null
+            version: 1
+            rule:
+              format_version: 1
+              when:
+                properties:
+                  background: true
+              priority: background
+              caps:
+                max_output_tokens: 512
+            created_at: '2026-01-15T10:00:00Z'
+    PolicyRuleCreate:
+      summary: Policy rule create
+      description: Policy rule create, with placeholder values only.
+      value:
+        grant_id: '0192e5a0-0004-7000-8000-000000000004'
+        rule:
+          format_version: 1
+          when:
+            properties:
+              background: true
+          priority: background
+          caps:
+            max_output_tokens: 512
+    PolicyRuleUpdate:
+      summary: Policy rule update
+      description: Policy rule update, with placeholder values only.
+      value:
+        rule:
+          format_version: 1
+          when:
+            properties:
+              background: true
+          priority: background
+          caps:
+            max_output_tokens: 512
+    JobDoneEvent:
+      summary: Job done event
+      description: Job done event, with placeholder values only.
+      value:
+        type: job.done
+        timestamp: '2026-01-15T10:05:00Z'
+        data:
+          job_id: '0192e5a0-0005-7000-8000-000000000005'
+          status: succeeded
+          result_expires_at: '2026-01-16T10:00:00Z'
+    ResourceRequestCreatedEvent:
+      summary: Resource request created event
+      description: Resource request created event, with placeholder values only.
+      value:
+        type: resource_request.created
+        timestamp: '2026-01-15T10:00:00Z'
+        data:
+          resource_request_id: '0192e5a0-0006-7000-8000-000000000006'
+          consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+    ResourceRequestDecidedEvent:
+      summary: Resource request decided event
+      description: Resource request decided event, with placeholder values only.
+      value:
+        type: resource_request.decided
+        timestamp: '2026-01-15T10:05:00Z'
+        data:
+          resource_request_id: '0192e5a0-0006-7000-8000-000000000006'
+          status: approved
+          resulting_grant_version_id: '0192e5a0-0003-7000-8000-000000000003'
+    QuotaNearLimitEvent:
+      summary: Quota near limit event
+      description: Quota near limit event, with placeholder values only.
+      value:
+        type: quota.near_limit
+        timestamp: '2026-01-15T10:05:00Z'
+        data:
+          scope: grant
+          window_seconds: 86400
+          tokens: 100000
+          used_tokens: 92000
+          remaining_tokens: 8000
+          resets_at: '2026-01-16T10:00:00Z'
+    HostPausedEvent:
+      summary: Host paused event
+      description: Host paused event, with placeholder values only.
+      value:
+        type: host.paused
+        timestamp: '2026-01-15T10:05:00Z'
+        data:
+          sharing_state: paused
+          sharing_resumes_at: null
+    MeteringFailedEvent:
+      summary: Metering failed event
+      description: Metering failed event, with placeholder values only.
+      value:
+        type: metering.failed
+        timestamp: '2026-01-15T10:05:00Z'
+        data:
+          usage_id: '0192e5a0-0008-7000-8000-000000000008'
 
   schemas:
     # -------------------------------------------------------------- errors
