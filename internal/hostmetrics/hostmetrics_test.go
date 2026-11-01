@@ -476,3 +476,37 @@ func TestUnloadedModelSeriesDeleted(t *testing.T) {
 		t.Fatal("series must be deleted while the engine cannot be asked")
 	}
 }
+
+func TestMeasureChangeDeletesOldSeries(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if err := e.eng.Load(ctx, "m1", time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	e.sample(t)
+	mem := e.tel.gauges["hostmetrics_memory_bytes"]
+	for _, scope := range []string{"loaded_models", "loaded_accelerator"} {
+		if _, ok := mem.get(scope, "engine_loaded"); !ok {
+			t.Fatalf("%s engine_loaded series missing", scope)
+		}
+	}
+	e.eng.InjectError(fake.OpLoaded, errors.New("down"), 1)
+	e.sample(t)
+	for _, scope := range []string{"loaded_models", "loaded_accelerator"} {
+		if _, ok := mem.get(scope, "engine_loaded"); ok {
+			t.Fatalf("%s engine_loaded series must be gone", scope)
+		}
+		if _, ok := mem.get(scope, "unavailable"); !ok {
+			t.Fatalf("%s unavailable series missing", scope)
+		}
+	}
+	e.sample(t)
+	for _, scope := range []string{"loaded_models", "loaded_accelerator"} {
+		if _, ok := mem.get(scope, "unavailable"); ok {
+			t.Fatalf("%s unavailable series must be gone", scope)
+		}
+		if _, ok := mem.get(scope, "engine_loaded"); !ok {
+			t.Fatalf("%s engine_loaded series missing after recovery", scope)
+		}
+	}
+}

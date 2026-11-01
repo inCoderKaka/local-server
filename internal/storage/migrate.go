@@ -353,18 +353,30 @@ func columnNames(ctx context.Context, c *sql.Conn, table string) ([]string, erro
 // checkForeignKeys refuses to boot when a foreign key cannot work: its parent table does
 // not exist (a module is not registered), its parent belongs to a module registered after
 // the child's (wrong registration order), or an existing row violates it. SQLite itself
-// accepts all of these at CREATE TABLE and fails only on the first insert. It reads schema
-// and row positions only, never row content (D-31, D-40).
+// accepts all of these at CREATE TABLE and fails only on the first insert. Table ownership
+// comes from the data catalog (the --@table lines), not from prefixes, because two modules
+// may share a prefix; table names are compared case-insensitively, as SQLite resolves them.
+// It reads schema and row positions only, never row content (D-31, D-40).
 func checkForeignKeys(ctx context.Context, c *sql.Conn, mods []Module) error {
-	owner := func(table string) (int, bool) {
-		for i, m := range mods {
-			for _, p := range m.Prefixes {
-				if strings.HasPrefix(table, p) {
-					return i, true
-				}
-			}
+	idx := make(map[string]int, len(mods))
+	for i, m := range mods {
+		idx[m.Name] = i
+	}
+	owners := map[string]int{}
+	or, err := c.QueryContext(ctx, `SELECT table_name, module FROM ops_data_catalog WHERE column_name=''`)
+	if err != nil {
+		return err
+	}
+	for or.Next() {
+		var table, module string
+		if err := or.Scan(&table, &module); err != nil {
+			or.Close()
+			return err
 		}
-		return 0, false
+		owners[strings.ToLower(table)] = idx[module]
+	}
+	if err := errors.Join(or.Err(), or.Close()); err != nil {
+		return err
 	}
 	rows, err := c.QueryContext(ctx, `SELECT m.name, f."table" FROM sqlite_master m, pragma_foreign_key_list(m.name) f
 		WHERE m.type='table' AND m.name NOT LIKE 'sqlite\_%' ESCAPE '\' ORDER BY m.name, f.id`)
@@ -385,14 +397,12 @@ func checkForeignKeys(ctx context.Context, c *sql.Conn, mods []Module) error {
 		return err
 	}
 	for _, f := range fks {
-		if ok, err := tableExists(ctx, c, f.parent); err != nil {
-			return err
-		} else if !ok {
+		pi, ok := owners[strings.ToLower(f.parent)]
+		if !ok {
 			return fmt.Errorf("storage: table %s references table %s, which does not exist; register the module that owns %s", f.child, f.parent, f.parent)
 		}
-		ci, cok := owner(f.child)
-		pi, pok := owner(f.parent)
-		if cok && pok && pi > ci {
+		ci := owners[strings.ToLower(f.child)]
+		if pi > ci {
 			return fmt.Errorf("storage: table %s (module %s) references table %s of module %s, which is registered after it; register %s first", f.child, mods[ci].Name, f.parent, mods[pi].Name, mods[pi].Name)
 		}
 	}
@@ -407,6 +417,9 @@ func checkForeignKeys(ctx context.Context, c *sql.Conn, mods []Module) error {
 		var fkid int
 		if err := vr.Scan(&child, &rowid, &parent, &fkid); err != nil {
 			return err
+		}
+		if !rowid.Valid { // a WITHOUT ROWID table has no rowid
+			return fmt.Errorf("storage: table %s has a row with no matching row in %s (foreign key check)", child, parent)
 		}
 		return fmt.Errorf("storage: table %s has a row (rowid %d) with no matching row in %s (foreign key check)", child, rowid.Int64, parent)
 	}

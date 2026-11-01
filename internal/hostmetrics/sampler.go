@@ -50,10 +50,13 @@ type Sampler struct {
 
 	mu      sync.Mutex
 	current *Reading
-	// modelSeries are the model names whose series is set on the model gauge; only SampleOnce
-	// callers touch it, under modelMu.
-	modelMu     sync.Mutex
+	// modelSeries are the model names whose series is set on the model gauge. memMeasure and
+	// cpuMeasure map a scope to the measure label last set on the memory and CPU gauges, so a
+	// changed measure deletes the old series. Only SampleOnce callers touch them, under gaugeMu.
+	gaugeMu     sync.Mutex
 	modelSeries map[string]bool
+	memMeasure  map[string]string
+	cpuMeasure  map[string]string
 }
 
 // NewSampler registers the host-metrics settings and the retention rule of hst_metric_minute with
@@ -77,6 +80,8 @@ func newSampler(db *storage.DB, st *settings.Store, tel telemetry.Telemetry, loa
 	s.unattributed = tel.Gauge("hostmetrics_unattributed_processes")
 	s.model = tel.Gauge("hostmetrics_loaded_model_bytes", "model")
 	s.modelSeries = map[string]bool{}
+	s.memMeasure = map[string]string{}
+	s.cpuMeasure = map[string]string{}
 	return s, nil
 }
 
@@ -122,8 +127,22 @@ func (s *Sampler) SampleOnce(ctx context.Context) (Reading, error) {
 }
 
 func (s *Sampler) setGauges(r Reading) {
-	mem := func(scope string, b Bytes) { s.memory.Set(float64(b.Value), scope, string(b.Measure)) }
-	cpu := func(scope string, p Percent) { s.cpu.Set(p.Value, scope, string(p.Measure)) }
+	s.gaugeMu.Lock()
+	defer s.gaugeMu.Unlock()
+	mem := func(scope string, b Bytes) {
+		if prev, ok := s.memMeasure[scope]; ok && prev != string(b.Measure) {
+			s.memory.Delete(scope, prev)
+		}
+		s.memory.Set(float64(b.Value), scope, string(b.Measure))
+		s.memMeasure[scope] = string(b.Measure)
+	}
+	cpu := func(scope string, p Percent) {
+		if prev, ok := s.cpuMeasure[scope]; ok && prev != string(p.Measure) {
+			s.cpu.Delete(scope, prev)
+		}
+		s.cpu.Set(p.Value, scope, string(p.Measure))
+		s.cpuMeasure[scope] = string(p.Measure)
+	}
 	mem("host_total", r.Host.MemoryTotal)
 	mem("host_used", r.Host.MemoryUsed)
 	mem("local_server", r.Slice.LocalServerMemory)
@@ -144,10 +163,8 @@ func (s *Sampler) setGauges(r Reading) {
 // setModelGauges sets one series per loaded model and deletes the series of a model that was in
 // the previous reading and is not in this one, so an unloaded model leaves /metrics (D-74). When
 // the engine could not be asked (models nil) every series is deleted: a stale size would be a
-// guess.
+// guess. The caller holds gaugeMu.
 func (s *Sampler) setModelGauges(models []engine.LoadedModel) {
-	s.modelMu.Lock()
-	defer s.modelMu.Unlock()
 	now := make(map[string]bool, len(models))
 	for _, m := range models {
 		now[m.Name] = true

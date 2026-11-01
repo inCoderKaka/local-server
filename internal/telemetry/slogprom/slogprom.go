@@ -319,8 +319,14 @@ type gauge struct {
 func (g *gauge) Set(x float64, lv ...string) { g.v.WithLabelValues(lv...).Set(x) }
 func (g *gauge) Add(d float64, lv ...string) { g.v.WithLabelValues(lv...).Add(d) }
 
-// Delete removes the series; a wrong count of label values deletes nothing.
-func (g *gauge) Delete(lv ...string) { g.v.DeleteLabelValues(lv...) }
+// Delete removes the series; it does nothing when the series does not exist and panics on a
+// wrong count of label values, as Set does.
+func (g *gauge) Delete(lv ...string) {
+	if len(lv) != len(g.labels) {
+		panic(fmt.Sprintf("slogprom: gauge with labels %v: Delete got %d label values, want %d", g.labels, len(lv), len(g.labels)))
+	}
+	g.v.DeleteLabelValues(lv...)
+}
 
 type histogram struct {
 	v      *prometheus.HistogramVec

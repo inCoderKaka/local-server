@@ -290,4 +290,12 @@ func TestGaugeDeleteRemovesSeries(t *testing.T) {
 	if !strings.Contains(scrape(), `ls_loaded_bytes{model="a"} 5`) {
 		t.Fatal("a deleted series can be set again")
 	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("Delete with a wrong count of label values must panic")
+			}
+		}()
+		g.Delete()
+	}()
 }

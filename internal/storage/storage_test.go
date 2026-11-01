@@ -546,3 +546,59 @@ func TestForeignKeyOrderChecked(t *testing.T) {
 		t.Fatalf("missing parent err = %v", err)
 	}
 }
+
+func TestForeignKeyViolationRefused(t *testing.T) {
+	parent := Module{Name: "pmod", Prefixes: []string{"par_"}, Migrations: fstest.MapFS{"0001_init.sql": {Data: []byte(`CREATE TABLE par_a (id INTEGER PRIMARY KEY) STRICT;
+--@table par_a classification=internal billable=false | Parent.
+--@column par_a.id classification=internal billable=false | Id.
+`)}}}
+	child := Module{Name: "cmod", Prefixes: []string{"chd_"}, Migrations: fstest.MapFS{"0001_init.sql": {Data: []byte(`CREATE TABLE chd_b (id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES par_a(id)) STRICT;
+--@table chd_b classification=internal billable=false | Child.
+--@column chd_b.id classification=internal billable=false | Id.
+--@column chd_b.a_id classification=internal billable=false | Parent.
+`)}}}
+	path := filepath.Join(t.TempDir(), "v.db")
+	open(t, path, parent, child).Close()
+	raw, err := sql.Open("sqlite", path) // a plain path: foreign keys are off by SQLite default
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec("INSERT INTO chd_b (id, a_id) VALUES (1, 4242)"); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+	_, err = Open(context.Background(), DefaultConfig(path, parent, child))
+	if err == nil || !strings.Contains(err.Error(), "chd_b") || !strings.Contains(err.Error(), "par_a") ||
+		!strings.Contains(err.Error(), "foreign key check") || strings.Contains(err.Error(), "4242") {
+		t.Fatalf("violation err = %v", err)
+	}
+}
+
+func TestForeignKeyOrderSharedPrefix(t *testing.T) {
+	amod := Module{Name: "amod", Prefixes: []string{"shr_"}, Migrations: fstest.MapFS{"0001_init.sql": {Data: []byte(`CREATE TABLE shr_child (id INTEGER PRIMARY KEY, p_id INTEGER REFERENCES shr_parent(id)) STRICT;
+--@table shr_child classification=internal billable=false | Child.
+--@column shr_child.id classification=internal billable=false | Id.
+--@column shr_child.p_id classification=internal billable=false | Parent.
+`)}}}
+	bmod := Module{Name: "bmod", Prefixes: []string{"shr_"}, Migrations: fstest.MapFS{"0001_init.sql": {Data: []byte(`CREATE TABLE shr_parent (id INTEGER PRIMARY KEY) STRICT;
+--@table shr_parent classification=internal billable=false | Parent.
+--@column shr_parent.id classification=internal billable=false | Id.
+`)}}}
+	ctx := context.Background()
+	_, err := Open(ctx, DefaultConfig(filepath.Join(t.TempDir(), "wrong.db"), amod, bmod))
+	if err == nil || !strings.Contains(err.Error(), "registered after") {
+		t.Fatalf("shared prefix wrong order err = %v", err)
+	}
+	open(t, filepath.Join(t.TempDir(), "ok.db"), bmod, amod).Close()
+
+	pmod := Module{Name: "pmod", Prefixes: []string{"par_"}, Migrations: fstest.MapFS{"0001_init.sql": {Data: []byte(`CREATE TABLE par_a (id INTEGER PRIMARY KEY) STRICT;
+--@table par_a classification=internal billable=false | Parent.
+--@column par_a.id classification=internal billable=false | Id.
+`)}}}
+	cmod := Module{Name: "cmod", Prefixes: []string{"chd_"}, Migrations: fstest.MapFS{"0001_init.sql": {Data: []byte(`CREATE TABLE chd_b (id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES PAR_A(id)) STRICT;
+--@table chd_b classification=internal billable=false | Child.
+--@column chd_b.id classification=internal billable=false | Id.
+--@column chd_b.a_id classification=internal billable=false | Parent.
+`)}}}
+	open(t, filepath.Join(t.TempDir(), "case.db"), pmod, cmod).Close()
+}

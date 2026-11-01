@@ -224,7 +224,7 @@ func (r *Reader) Read(ctx context.Context) (Reading, error) {
 			}
 			s.LoadedModelsMemory = Bytes{size, MeasureEngineLoaded}
 			s.LoadedAccelerator = Bytes{vram, MeasureEngineLoaded}
-			s.LoadedModels = models
+			s.LoadedModels = append(make([]engine.LoadedModel, 0, len(models)), models...)
 		}
 	}
 
