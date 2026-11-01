@@ -189,6 +189,9 @@ paths:
             text/event-stream:
               schema:
                 $ref: '#/components/schemas/ChatCompletionEventStream'
+              examples:
+                default:
+                  $ref: '#/components/examples/ChatCompletionEventStream'
         default:
           $ref: '#/components/responses/Error'
   /v1/embeddings:
@@ -272,6 +275,10 @@ paths:
               examples:
                 default:
                   $ref: '#/components/examples/HostHealth'
+                paused:
+                  $ref: '#/components/examples/HostHealthPaused'
+                quiet:
+                  $ref: '#/components/examples/HostHealthQuiet'
         default:
           $ref: '#/components/responses/Error'
   /v1/capabilities:
@@ -2644,6 +2651,7 @@ components:
         Absent on a streamed response (`stream: true`): the stream's receipt is not known until
         the stream ends, so it travels in the SSE comment line `: ls-receipt <JWS>` sent after the last chunk and before `data: [DONE]` (D-27, D-33, D-39, D-78).
       required: false
+      example: ZXhhbXBsZS1oZWFkZXI.ZXhhbXBsZS1wYXlsb2Fk.ZXhhbXBsZS1zaWduYXR1cmU
       schema:
         type: string
         contentMediaType: application/jose
@@ -2656,6 +2664,7 @@ components:
         protected header `{"alg": "Ed25519", "kid": "<receipt-signing key id>", "typ": "ls-receipt+jws"}`,
         payload a `UsageReceipt`. Verify it with the receipt-signing key from `/v1/keys`.
       required: true
+      example: ZXhhbXBsZS1oZWFkZXI.ZXhhbXBsZS1wYXlsb2Fk.ZXhhbXBsZS1zaWduYXR1cmU
       schema:
         type: string
         contentMediaType: application/jose
@@ -2865,6 +2874,27 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+          examples:
+            invalid_api_key:
+              $ref: '#/components/examples/ErrorInvalidApiKey'
+            quota_exceeded:
+              $ref: '#/components/examples/ErrorQuotaExceeded'
+            queue_full:
+              $ref: '#/components/examples/ErrorQueueFull'
+            host_paused:
+              $ref: '#/components/examples/ErrorHostPaused'
+            over_budget:
+              $ref: '#/components/examples/ErrorOverBudget'
+            policy_denied_rule:
+              $ref: '#/components/examples/ErrorPolicyDeniedRule'
+            policy_denied_property:
+              $ref: '#/components/examples/ErrorPolicyDeniedProperty'
+            outside_time_window:
+              $ref: '#/components/examples/ErrorOutsideTimeWindow'
+            unsupported_parameter:
+              $ref: '#/components/examples/ErrorUnsupportedParameter'
+            not_found:
+              $ref: '#/components/examples/ErrorNotFound'
     WebhookAccepted:
       description: Any 2xx status means the delivery was received.
     WebhookGone:
@@ -2956,6 +2986,30 @@ components:
           interactive: 0
           background: 0
         checked_at: '2026-01-15T10:00:00Z'
+    HostHealthPaused:
+      summary: Host health, paused
+      description: Host health while sharing is paused, with placeholder values only.
+      value:
+        sharing_state: paused
+        sharing_resumes_at: null
+        engine_state: available
+        loaded_models: [example-model]
+        queue_depth:
+          interactive: 0
+          background: 0
+        checked_at: '2026-01-15T10:00:00Z'
+    HostHealthQuiet:
+      summary: Host health, quiet hours
+      description: Host health during quiet hours, with placeholder values only.
+      value:
+        sharing_state: quiet
+        sharing_resumes_at: '2026-01-15T18:00:00Z'
+        engine_state: available
+        loaded_models: [example-model]
+        queue_depth:
+          interactive: 0
+          background: 0
+        checked_at: '2026-01-15T10:00:00Z'
     Capabilities:
       summary: Capabilities
       description: Capabilities, with placeholder values only.
@@ -2999,7 +3053,7 @@ components:
         finished_at: '2026-01-15T10:05:00Z'
         deadline_at: '2026-01-16T10:00:00Z'
         result_available: true
-        result_expires_at: '2026-01-16T10:00:00Z'
+        result_expires_at: '2026-01-16T10:05:00Z'
     JobQueued:
       summary: Job queued
       description: Job queued, with placeholder values only.
@@ -3838,7 +3892,7 @@ components:
         data:
           job_id: '0192e5a0-0005-7000-8000-000000000005'
           status: succeeded
-          result_expires_at: '2026-01-16T10:00:00Z'
+          result_expires_at: '2026-01-16T10:05:00Z'
     ResourceRequestCreatedEvent:
       summary: Resource request created event
       description: Resource request created event, with placeholder values only.
@@ -3888,6 +3942,114 @@ components:
         timestamp: '2026-01-15T10:05:00Z'
         data:
           usage_id: '0192e5a0-0008-7000-8000-000000000008'
+    ErrorInvalidApiKey:
+      summary: Error, invalid access key
+      description: Error sent with HTTP status 401, with placeholder values only.
+      value:
+        error:
+          message: The access key is missing, unknown, expired or revoked.
+          type: invalid_request_error
+          param: null
+          code: invalid_api_key
+    ErrorQuotaExceeded:
+      summary: Error, quota exceeded
+      description: Error sent with HTTP status 429 and the `Retry-After` header, with placeholder values only.
+      value:
+        error:
+          message: The token quota for this window is used up.
+          type: insufficient_quota
+          param: null
+          code: quota_exceeded
+    ErrorQueueFull:
+      summary: Error, queue full
+      description: Error sent with HTTP status 429 and the `Retry-After` header, with placeholder values only.
+      value:
+        error:
+          message: 'The host is busy: its queue is full or the request waited too long for a slot. Retry after the time in Retry-After.'
+          type: server_error
+          param: null
+          code: queue_full
+    ErrorHostPaused:
+      summary: Error, host paused
+      description: Error sent with HTTP status 503 and the `Retry-After` header, with placeholder values only.
+      value:
+        error:
+          message: The host has paused sharing.
+          type: server_error
+          param: null
+          code: host_paused
+    ErrorOverBudget:
+      summary: Error, over budget
+      description: Error sent with HTTP status 422, with placeholder values only.
+      value:
+        error:
+          message: The model and the request's context can never fit the host's memory budget.
+          type: invalid_request_error
+          param: null
+          code: over_budget
+    ErrorPolicyDeniedRule:
+      summary: Error, policy denied by a rule
+      description: Error sent with HTTP status 403, with placeholder values only.
+      value:
+        error:
+          message: A policy rule on this host refuses the request.
+          type: invalid_request_error
+          param: null
+          code: policy_denied
+          rule_id: '0192e5a0-000d-7000-8000-00000000000d'
+          rule_name: Example rule
+    ErrorPolicyDeniedProperty:
+      summary: Error, policy denied by a request property
+      description: Error sent with HTTP status 403, with placeholder values only.
+      value:
+        error:
+          message: The request carries a property this access key may not use.
+          type: invalid_request_error
+          param: null
+          code: policy_denied
+          properties: [purpose]
+    ErrorOutsideTimeWindow:
+      summary: Error, outside time window
+      description: Error sent with HTTP status 429 and the `Retry-After` header, with placeholder values only.
+      value:
+        error:
+          message: A policy rule allows this request only inside its time windows, and none is open now.
+          type: requests
+          param: null
+          code: outside_time_window
+          rule_id: '0192e5a0-000d-7000-8000-00000000000d'
+          rule_name: Example rule
+    ErrorUnsupportedParameter:
+      summary: Error, unsupported parameter
+      description: Error sent with HTTP status 400, with placeholder values only.
+      value:
+        error:
+          message: This field is not supported by this host.
+          type: invalid_request_error
+          param: n
+          code: unsupported_parameter
+    ErrorNotFound:
+      summary: Error, not found
+      description: Error sent with HTTP status 404, with placeholder values only.
+      value:
+        error:
+          message: No metered usage record has this id.
+          type: invalid_request_error
+          param: usage_id
+          code: null
+    ChatCompletionEventStream:
+      summary: Chat completion event stream
+      description: Chat completion event stream with `stream_options.include_usage`, with placeholder values only.
+      value: |
+        data: {"id":"chatcmpl-example","object":"chat.completion.chunk","created":1768471200,"model":"example-model","choices":[{"index":0,"delta":{"role":"assistant","content":"Placeholder"},"finish_reason":null}],"usage":null}
+
+        data: {"id":"chatcmpl-example","object":"chat.completion.chunk","created":1768471200,"model":"example-model","choices":[{"index":0,"delta":{"content":" reply."},"finish_reason":"stop"}],"usage":null}
+
+        data: {"id":"chatcmpl-example","object":"chat.completion.chunk","created":1768471200,"model":"example-model","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}
+
+        : ls-receipt ZXhhbXBsZS1oZWFkZXI.ZXhhbXBsZS1wYXlsb2Fk.ZXhhbXBsZS1zaWduYXR1cmU
+
+        data: [DONE]
 
   schemas:
     # -------------------------------------------------------------- errors
@@ -4566,6 +4728,41 @@ components:
         `unmetered` receipt means the host answered but could not record the call: it has
         the engine's token counts and no `leaf_index` or `tree_size`, and is signed evidence
         that the call cannot be billed later.
+      examples:
+        - v: 1
+          metering: metered
+          usage_id: '0192e5a0-0008-7000-8000-000000000008'
+          host_kid: ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5
+          consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+          access_key_id: '0192e5a0-0002-7000-8000-000000000002'
+          grant_version_id: '0192e5a0-0003-7000-8000-000000000003'
+          job_id: null
+          operation: chat.completions
+          model: example-model
+          outcome: completed
+          prompt_tokens: 10
+          completion_tokens: 5
+          total_tokens: 15
+          started_at: '2026-01-15T10:00:00Z'
+          finished_at: '2026-01-15T10:00:02Z'
+          leaf_index: 2
+          tree_size: 3
+        - v: 1
+          metering: unmetered
+          usage_id: '0192e5a0-0008-7000-8000-000000000008'
+          host_kid: ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5
+          consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+          access_key_id: '0192e5a0-0002-7000-8000-000000000002'
+          grant_version_id: '0192e5a0-0003-7000-8000-000000000003'
+          job_id: null
+          operation: chat.completions
+          model: example-model
+          outcome: completed
+          prompt_tokens: 10
+          completion_tokens: 5
+          total_tokens: 15
+          started_at: '2026-01-15T10:00:00Z'
+          finished_at: '2026-01-15T10:00:02Z'
       required: [v, metering, usage_id, host_kid, consumer_id, access_key_id, grant_version_id, operation, model, outcome, prompt_tokens, completion_tokens, total_tokens, started_at, finished_at]
       properties:
         v:
