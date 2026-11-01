@@ -21,7 +21,9 @@ type QuotaStatus struct {
 }
 
 // RateStatus is the per-key request allowance (the settings limits.rate_capacity and
-// limits.rate_window).
+// limits.rate_window). Window is the setting rounded up to a whole second, at least one, because
+// the API reports whole seconds (window_seconds, minimum 1). Rounding up never overstates the
+// refill rate. Check enforces the setting itself, with a floor of 1ms.
 type RateStatus struct {
 	Capacity int64
 	Window   time.Duration
@@ -88,7 +90,11 @@ func (l *Limiter) StatusOf(ctx context.Context, id *auth.Identity) (Status, erro
 		if err != nil {
 			return out, err
 		}
-		out.Rate = &RateStatus{Capacity: max(capacity, 1), Window: max(window, time.Second)}
+		w := max(window, time.Second)
+		if r := w % time.Second; r != 0 {
+			w += time.Second - r
+		}
+		out.Rate = &RateStatus{Capacity: max(capacity, 1), Window: w}
 	}
 	return out, nil
 }

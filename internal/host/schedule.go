@@ -40,7 +40,7 @@ type Schedule struct {
 	Enabled bool
 	// Location is the zone the window is read in; nil means UTC.
 	Location *time.Location
-	// Start and End are offsets from local midnight. The window is [Start, End); when End is
+	// Start and End are wall-clock times of day (as offsets from 00:00) in Location. The window is [Start, End); when End is
 	// before Start it crosses midnight; when they are equal the window is empty.
 	Start, End time.Duration
 }
@@ -122,9 +122,30 @@ func (s Schedule) NextEnd(t time.Time) time.Time {
 		loc = time.UTC
 	}
 	y, m, d := t.In(loc).Date()
-	end := time.Date(y, m, d, 0, 0, 0, 0, loc).Add(s.End)
+	end := wallTime(y, m, d, s.End, loc)
 	if !end.After(t) {
-		end = time.Date(y, m, d+1, 0, 0, 0, 0, loc).Add(s.End)
+		end = wallTime(y, m, d+1, s.End, loc)
 	}
 	return end
+}
+
+// wallTime returns the instant the clock in loc shows off past midnight on y-m-d. When that
+// wall time falls in a daylight-saving gap it does not exist, and the window ends at the
+// transition, the first instant the clock shows a later time.
+func wallTime(y int, m time.Month, d int, off time.Duration, loc *time.Location) time.Time {
+	hh, mm := int(off/time.Hour), int(off%time.Hour/time.Minute)
+	c := time.Date(y, m, d, hh, mm, 0, 0, loc)
+	want := time.Date(y, m, d, hh, mm, 0, 0, time.UTC)
+	cy, cm, cd := c.Date()
+	ch, cmin, _ := c.Clock()
+	got := time.Date(cy, cm, cd, ch, cmin, 0, 0, time.UTC)
+	switch {
+	case got.After(want): // normalised past the gap
+		start, _ := c.ZoneBounds()
+		return start
+	case got.Before(want): // normalised before the gap
+		_, end := c.ZoneBounds()
+		return end
+	}
+	return c
 }

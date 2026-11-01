@@ -257,6 +257,22 @@ func TestCapabilitiesUnrestrictedAndDefaults(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesRateWindowRoundsUpToWholeSeconds(t *testing.T) {
+	for _, c := range []struct {
+		window string
+		want   float64
+	}{{"1500ms", 2}, {"500ms", 1}} {
+		e := newEnv(t)
+		e.set(limits.KeyRateEnabled, "true")
+		e.set(limits.KeyRateCapacity, "30")
+		e.set(limits.KeyRateWindow, c.window)
+		cp := e.do(http.MethodGet, "/v1/capabilities", "").json()
+		if rl, _ := cp["rate_limit"].(map[string]any); rl["window_seconds"] != c.want {
+			t.Fatalf("window %s: rate_limit = %v, want window_seconds %v", c.window, cp["rate_limit"], c.want)
+		}
+	}
+}
+
 // The text "null" is not an array: policy refuses it as an invalid grant (I-113), so capabilities
 // must not report it as "unrestricted".
 func TestCapabilitiesRefusesNullAllowedPropertiesText(t *testing.T) {
