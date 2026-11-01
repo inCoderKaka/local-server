@@ -110,7 +110,7 @@ func TestErrorEnvelopeForNotFoundMethodAndNotImplemented(t *testing.T) {
 		}
 	})
 	t.Run("an operation whose ticket has not landed", func(t *testing.T) {
-		wantEnvelope(t, e.do(http.MethodGet, "/v1/models", ""), http.StatusNotImplemented)
+		wantEnvelope(t, e.do(http.MethodGet, "/v1/resource-requests", ""), http.StatusNotImplemented)
 	})
 	t.Run("no key", func(t *testing.T) {
 		r := e.doAuth("", http.MethodPost, "/v1/chat/completions", okChat)

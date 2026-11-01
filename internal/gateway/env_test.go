@@ -166,6 +166,8 @@ func (t *timedSched) Admit(ctx context.Context, r scheduler.Request) (*scheduler
 	return t.s.Admit(ctx, r)
 }
 
+func (t *timedSched) Stats() scheduler.Stats { return t.s.Stats() }
+
 // lastRequest is the request of the latest Admit.
 func (t *timedSched) lastRequest() scheduler.Request {
 	t.mu.Lock()
@@ -308,7 +310,7 @@ func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
 		}
 	}
 	e.gw, err = gateway.New(gateway.Config{DB: db, Settings: e.st, Events: e.bus, Grants: e.gr, Auth: e.au, Limits: e.lim, Policy: pol,
-		Scheduler: e.timed, Engine: e.eng, Ledger: e.meter, Checkpoints: e.cps, Telemetry: e.tel})
+		Scheduler: e.timed, Sharing: e.share, Engine: e.eng, Ledger: e.meter, Checkpoints: e.cps, Telemetry: e.tel})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -44,8 +44,7 @@ info:
     `logit_bias`, `tool_choice`, `user`, `logprobs`), is rejected with `400` and code
     `unsupported_parameter`, with `param` naming the field. Nothing is silently ignored (D-32).
     A field this file lists but the host's engine cannot carry yet (for example `tools`,
-    `temperature` and `response_format` other than `text`) is rejected the same way, and so
-    is `stream: true` on a host whose gateway does not stream yet.
+    `temperature` and `response_format` other than `text`) is rejected the same way.
 
     ## Errors
 
@@ -3321,8 +3320,8 @@ components:
         on_context_overflow:
           $ref: '#/components/schemas/ContextOverflow'
         allowed_request_properties:
-          type: array
-          description: Request property names the caller may send.
+          type: [array, 'null']
+          description: Request property names the caller may send; an empty list allows none, and null means the grant does not restrict them.
           items:
             type: string
         quotas:

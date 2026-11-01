@@ -906,7 +906,8 @@ type Capabilities struct {
 	// Most requests the caller may run at once.
 	Concurrency       int             `json:"concurrency"`
 	OnContextOverflow ContextOverflow `json:"on_context_overflow"`
-	// Request property names the caller may send.
+	// Request property names the caller may send; an empty list allows none, and null means the grant does
+	// not restrict them.
 	AllowedRequestProperties []string `json:"allowed_request_properties"`
 	// Every quota that applies, with what is left.
 	Quotas []QuotaStatus `json:"quotas"`

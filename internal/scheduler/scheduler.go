@@ -69,6 +69,9 @@ type Options struct {
 type Stats struct {
 	Queued  int
 	Running int
+	// QueuedInteractive and QueuedBackground split Queued by priority class (req_001 D-05, D-26).
+	QueuedInteractive int
+	QueuedBackground  int
 }
 
 type waitState int
@@ -148,7 +151,15 @@ func New(eng Engine, st *settings.Store, sharing Sharing, opts Options) (*Schedu
 func (s *Scheduler) Stats() Stats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return Stats{Queued: len(s.queue), Running: s.running}
+	st := Stats{Queued: len(s.queue), Running: s.running}
+	for _, w := range s.queue {
+		if w.req.Class == ClassBackground {
+			st.QueuedBackground++
+		} else {
+			st.QueuedInteractive++
+		}
+	}
+	return st
 }
 
 // Ticket is a granted slot. Release it exactly when the engine call ends; a second

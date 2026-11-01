@@ -587,17 +587,6 @@ func (s *Capabilities) Validate() error {
 		})
 	}
 	if err := func() error {
-		if s.AllowedRequestProperties == nil {
-			return errors.New("nil is invalid value")
-		}
-		return nil
-	}(); err != nil {
-		failures = append(failures, validate.FieldError{
-			Name:  "allowed_request_properties",
-			Error: err,
-		})
-	}
-	if err := func() error {
 		if s.Quotas == nil {
 			return errors.New("nil is invalid value")
 		}

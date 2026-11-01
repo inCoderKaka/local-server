@@ -21,6 +21,7 @@ const (
 	KeyStreamFirstToken     = "gateway.stream_first_token_timeout"
 	KeyStreamIdle           = "gateway.stream_idle_timeout"
 	KeyStreamTotal          = "gateway.stream_total_timeout"
+	KeyHealthEngineTimeout  = "gateway.health_engine_timeout"
 	KeyMeteringAttempts     = "gateway.metering_attempts"
 	KeyMeteringRetryDelay   = "gateway.metering_retry_delay"
 	KeyMeteringTimeout      = "gateway.metering_timeout"
@@ -64,6 +65,8 @@ func Defs() []settings.Def {
 			Description: "Longest a streamed chat call may wait for the engine's next chunk. When it expires the engine call is cancelled and the stream ends with an error event; the tokens so far are metered with outcome failed."},
 		{Key: KeyStreamTotal, Kind: settings.Duration, Default: "10m", Owner: h,
 			Description: "Longest a streamed chat call may take in total, from the request to the engine until its last chunk. When it expires the engine call is cancelled and the stream ends with an error event; the tokens so far are metered with outcome failed."},
+		{Key: KeyHealthEngineTimeout, Kind: settings.Duration, Default: "2s", Owner: h,
+			Description: "Longest GET /v1/health waits for the engine to list its loaded models. When it expires the engine is reported unavailable and the response is still sent."},
 		{Key: KeyMeteringAttempts, Kind: settings.Int, Default: "3", Owner: h,
 			Description: "Times the gateway tries to write a call's usage record before it answers with an unmetered receipt."},
 		{Key: KeyMeteringRetryDelay, Kind: settings.Duration, Default: "100ms", Owner: h,
@@ -102,7 +105,7 @@ func setValidators(st *settings.Store) error {
 			return err
 		}
 	}
-	for _, key := range []string{KeyEngineTimeout, KeyStreamFirstToken, KeyStreamIdle, KeyStreamTotal, KeyMeteringTimeout, KeyRuleInvalidInterval, KeySLOOverhead, KeySLOAdmission, KeySLOReceiptSigning} {
+	for _, key := range []string{KeyEngineTimeout, KeyStreamFirstToken, KeyStreamIdle, KeyStreamTotal, KeyHealthEngineTimeout, KeyMeteringTimeout, KeyRuleInvalidInterval, KeySLOOverhead, KeySLOAdmission, KeySLOReceiptSigning} {
 		err := st.SetValidator(key, func(_ context.Context, v string) error {
 			d, err := time.ParseDuration(v)
 			if err != nil {

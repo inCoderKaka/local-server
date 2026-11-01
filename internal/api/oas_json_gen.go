@@ -1904,11 +1904,15 @@ func (s *Capabilities) encodeFields(e *jx.Encoder) {
 	}
 	{
 		e.FieldStart("allowed_request_properties")
-		e.ArrStart()
-		for _, elem := range s.AllowedRequestProperties {
-			e.Str(elem)
+		if s.AllowedRequestProperties == nil {
+			e.Null()
+		} else {
+			e.ArrStart()
+			for _, elem := range s.AllowedRequestProperties {
+				e.Str(elem)
+			}
+			e.ArrEnd()
 		}
-		e.ArrEnd()
 	}
 	{
 		e.FieldStart("quotas")
@@ -2038,18 +2042,25 @@ func (s *Capabilities) Decode(d *jx.Decoder) error {
 		case "allowed_request_properties":
 			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
-				s.AllowedRequestProperties = make([]string, 0)
-				if err := d.Arr(func(d *jx.Decoder) error {
-					var elem string
-					v, err := d.Str()
-					elem = string(v)
-					if err != nil {
+				switch tt := d.Next(); tt {
+				case jx.Null:
+					if err := d.Skip(); err != nil {
 						return err
 					}
-					s.AllowedRequestProperties = append(s.AllowedRequestProperties, elem)
-					return nil
-				}); err != nil {
-					return err
+				default:
+					s.AllowedRequestProperties = make([]string, 0)
+					if err := d.Arr(func(d *jx.Decoder) error {
+						var elem string
+						v, err := d.Str()
+						elem = string(v)
+						if err != nil {
+							return err
+						}
+						s.AllowedRequestProperties = append(s.AllowedRequestProperties, elem)
+						return nil
+					}); err != nil {
+						return err
+					}
 				}
 				return nil
 			}(); err != nil {

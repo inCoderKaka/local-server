@@ -110,3 +110,21 @@ func LoadSchedule(ctx context.Context, st *settings.Store) (Schedule, error) {
 	}
 	return Schedule{Enabled: true, Location: loc, Start: start, End: end}, nil
 }
+
+// NextEnd returns when the quiet window that contains t ends (req_001 D-05, D-06). It is only
+// meaningful while Quiet(t) is true; the zero Time is returned otherwise.
+func (s Schedule) NextEnd(t time.Time) time.Time {
+	if !s.Quiet(t) {
+		return time.Time{}
+	}
+	loc := s.Location
+	if loc == nil {
+		loc = time.UTC
+	}
+	y, m, d := t.In(loc).Date()
+	end := time.Date(y, m, d, 0, 0, 0, 0, loc).Add(s.End)
+	if !end.After(t) {
+		end = time.Date(y, m, d+1, 0, 0, 0, 0, loc).Add(s.End)
+	}
+	return end
+}

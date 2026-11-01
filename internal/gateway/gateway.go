@@ -18,6 +18,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/gateway/stream"
 	"github.com/inCoderKaka/local-server/internal/grants"
+	"github.com/inCoderKaka/local-server/internal/host"
 	"github.com/inCoderKaka/local-server/internal/ledger"
 	"github.com/inCoderKaka/local-server/internal/ledger/checkpoint"
 	"github.com/inCoderKaka/local-server/internal/limits"
@@ -42,17 +43,25 @@ type Limiter interface {
 	Check(ctx context.Context, id *auth.Identity) error
 	CountAdmitted(ctx context.Context, id *auth.Identity) error
 	Record(ctx context.Context, id *auth.Identity) error
+	StatusOf(ctx context.Context, id *auth.Identity) (limits.Status, error)
 }
 
 // Admitter is the part of scheduler.Scheduler the gateway uses.
 type Admitter interface {
 	Admit(ctx context.Context, req scheduler.Request) (*scheduler.Ticket, error)
+	Stats() scheduler.Stats
+}
+
+// Sharing is the part of host.SharingState the gateway uses.
+type Sharing interface {
+	Effective(ctx context.Context) (host.State, error)
 }
 
 // Engine is the part of the engine port the gateway uses.
 type Engine interface {
 	Chat(ctx context.Context, req engine.ChatRequest) (engine.ChatStream, error)
 	Embed(ctx context.Context, req engine.EmbedRequest) (engine.EmbedResult, error)
+	Loaded(ctx context.Context) ([]engine.LoadedModel, error)
 }
 
 // Meter is the part of ledger.Ledger the gateway uses.
@@ -75,11 +84,13 @@ type Config struct {
 	Settings *settings.Store
 	Events   events.Notifier
 	// Grants resolves the grant's model ids to engine model names.
-	Grants      *grants.Repos
-	Auth        Authenticator
-	Limits      Limiter
-	Policy      policy.Policy
-	Scheduler   Admitter
+	Grants    *grants.Repos
+	Auth      Authenticator
+	Limits    Limiter
+	Policy    policy.Policy
+	Scheduler Admitter
+	// Sharing reports paused and quiet hours for /v1/health.
+	Sharing     Sharing
 	Engine      Engine
 	Ledger      Meter
 	Checkpoints Checkpoints
@@ -119,8 +130,8 @@ var (
 // New registers the gateway settings and builds the gateway.
 func New(cfg Config) (*Gateway, error) {
 	if cfg.DB == nil || cfg.Settings == nil || cfg.Events == nil || cfg.Grants == nil || cfg.Auth == nil || cfg.Limits == nil ||
-		cfg.Policy == nil || cfg.Scheduler == nil || cfg.Engine == nil || cfg.Ledger == nil || cfg.Checkpoints == nil {
-		return nil, errors.New("gateway: DB, Settings, Events, Grants, Auth, Limits, Policy, Scheduler, Engine, Ledger and Checkpoints are required")
+		cfg.Policy == nil || cfg.Scheduler == nil || cfg.Sharing == nil || cfg.Engine == nil || cfg.Ledger == nil || cfg.Checkpoints == nil {
+		return nil, errors.New("gateway: DB, Settings, Events, Grants, Auth, Limits, Policy, Scheduler, Sharing, Engine, Ledger and Checkpoints are required")
 	}
 	if cfg.Telemetry == nil {
 		cfg.Telemetry = telemetry.Nop()
