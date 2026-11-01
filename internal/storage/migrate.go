@@ -349,3 +349,66 @@ func columnNames(ctx context.Context, c *sql.Conn, table string) ([]string, erro
 	}
 	return out, errors.Join(rows.Err(), rows.Close())
 }
+
+// checkForeignKeys refuses to boot when a foreign key cannot work: its parent table does
+// not exist (a module is not registered), its parent belongs to a module registered after
+// the child's (wrong registration order), or an existing row violates it. SQLite itself
+// accepts all of these at CREATE TABLE and fails only on the first insert. It reads schema
+// and row positions only, never row content (D-31, D-40).
+func checkForeignKeys(ctx context.Context, c *sql.Conn, mods []Module) error {
+	owner := func(table string) (int, bool) {
+		for i, m := range mods {
+			for _, p := range m.Prefixes {
+				if strings.HasPrefix(table, p) {
+					return i, true
+				}
+			}
+		}
+		return 0, false
+	}
+	rows, err := c.QueryContext(ctx, `SELECT m.name, f."table" FROM sqlite_master m, pragma_foreign_key_list(m.name) f
+		WHERE m.type='table' AND m.name NOT LIKE 'sqlite\_%' ESCAPE '\' ORDER BY m.name, f.id`)
+	if err != nil {
+		return err
+	}
+	type fk struct{ child, parent string }
+	var fks []fk
+	for rows.Next() {
+		var f fk
+		if err := rows.Scan(&f.child, &f.parent); err != nil {
+			rows.Close()
+			return err
+		}
+		fks = append(fks, f)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, f := range fks {
+		if ok, err := tableExists(ctx, c, f.parent); err != nil {
+			return err
+		} else if !ok {
+			return fmt.Errorf("storage: table %s references table %s, which does not exist; register the module that owns %s", f.child, f.parent, f.parent)
+		}
+		ci, cok := owner(f.child)
+		pi, pok := owner(f.parent)
+		if cok && pok && pi > ci {
+			return fmt.Errorf("storage: table %s (module %s) references table %s of module %s, which is registered after it; register %s first", f.child, mods[ci].Name, f.parent, mods[pi].Name, mods[pi].Name)
+		}
+	}
+	vr, err := c.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return err
+	}
+	defer vr.Close()
+	if vr.Next() {
+		var child, parent string
+		var rowid sql.NullInt64
+		var fkid int
+		if err := vr.Scan(&child, &rowid, &parent, &fkid); err != nil {
+			return err
+		}
+		return fmt.Errorf("storage: table %s has a row (rowid %d) with no matching row in %s (foreign key check)", child, rowid.Int64, parent)
+	}
+	return vr.Err()
+}

@@ -524,3 +524,25 @@ func TestSynchronousInvalidRefused(t *testing.T) {
 		t.Fatal("Open accepted synchronous=OFF")
 	}
 }
+
+func TestForeignKeyOrderChecked(t *testing.T) {
+	parent := Module{Name: "pmod", Prefixes: []string{"par_"}, Migrations: fstest.MapFS{"0001_init.sql": {Data: []byte(`CREATE TABLE par_a (id INTEGER PRIMARY KEY) STRICT;
+--@table par_a classification=internal billable=false | Parent.
+--@column par_a.id classification=internal billable=false | Id.
+`)}}}
+	child := Module{Name: "cmod", Prefixes: []string{"chd_"}, Migrations: fstest.MapFS{"0001_init.sql": {Data: []byte(`CREATE TABLE chd_b (id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES par_a(id)) STRICT;
+--@table chd_b classification=internal billable=false | Child.
+--@column chd_b.id classification=internal billable=false | Id.
+--@column chd_b.a_id classification=internal billable=false | Parent.
+`)}}}
+	ctx := context.Background()
+	open(t, filepath.Join(t.TempDir(), "ok.db"), parent, child).Close()
+	_, err := Open(ctx, DefaultConfig(filepath.Join(t.TempDir(), "wrong.db"), child, parent))
+	if err == nil || !strings.Contains(err.Error(), "chd_b") || !strings.Contains(err.Error(), "par_a") || !strings.Contains(err.Error(), "registered after") {
+		t.Fatalf("wrong order err = %v", err)
+	}
+	_, err = Open(ctx, DefaultConfig(filepath.Join(t.TempDir(), "missing.db"), child))
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("missing parent err = %v", err)
+	}
+}

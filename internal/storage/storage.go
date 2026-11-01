@@ -179,6 +179,9 @@ func Open(ctx context.Context, cfg Config) (*DB, error) {
 	if err := syncCatalog(ctx, conn, mods); err != nil {
 		return fail(err)
 	}
+	if err := checkForeignKeys(ctx, conn, mods); err != nil {
+		return fail(err)
+	}
 	r, err := sql.Open("sqlite", dsn(cfg.Path, cfg.BusyTimeout, true, cfg.Synchronous))
 	if err != nil {
 		return fail(err)
