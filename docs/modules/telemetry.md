@@ -8,7 +8,7 @@ Structured logs, metrics and request ids behind the Telemetry port (structured l
 
 - Packages: `internal/telemetry/` (the port, `Redacted`, request id context helpers and HTTP middleware, `Nop`) and `internal/telemetry/slogprom/` (the default adapter: slog JSON, Prometheus registry served as an `http.Handler` for `/metrics`, no-op spans, rotating log file through lumberjack). Built by PLT-F-003.
 - Tables: none.
-- Port: `Telemetry`.
+- Port: `Telemetry`. A `Gauge` series can be deleted (`Delete(labelValues...)`, idempotent; a wrong label count panics, as `Set` does; PLT-B-021).
 
 ## Imports
 

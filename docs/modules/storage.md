@@ -8,7 +8,7 @@ Opens the SQLite database, runs per-module forward-only migrations and provides 
 
 - Packages: `internal/storage/` (built by PLT-F-002).
 - Tables: `ops_schema_migrations`, `ops_migration_run`, `ops_data_catalog`, migrations in `internal/storage/migrations/`. Also `syn_change` (migration 2): it is written in the same transaction as the change it records, so the unit of work owns its creation; the off-host module adds `syn_cursor` and ships the rows. Migration 3 adds the `syn_change_created_at` index used by the `sync.change.retention` delete (D-77).
-- Port: `repositories, unit of work`. Public surface: `Open(ctx, Config)`, `DB.Write(ctx, func(*Tx) error)`, `Tx.Exec/Query/QueryRow/Capture`, `DB.Reader()`, `DB.SchemaDoc`, `Module{Name, Prefixes, Migrations}`. Package comment in `internal/storage/doc.go` is the contract.
+- Port: `repositories, unit of work`. Public surface: `Open(ctx, Config)`, `DB.Write(ctx, func(*Tx) error)`, `Tx.Exec/Query/QueryRow/Capture`, `DB.Reader()`, `DB.SchemaDoc`, `Module{Name, Prefixes, Migrations}`. `Open` refuses to boot when a foreign key's parent table is missing, when the parent's owning module (from `ops_data_catalog`) is registered after the child's, or when `PRAGMA foreign_key_check` finds a violating row (table and rowid only; PLT-F-057). Package comment in `internal/storage/doc.go` is the contract.
 - Generated: `docs/schema-reference.md` (`go generate ./internal/storage`; `TestSchemaDoc` fails when it is stale).
 
 ## Behaviour
