@@ -16,6 +16,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/engine"
+	"github.com/inCoderKaka/local-server/internal/gateway/stream"
 	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/ledger"
 	"github.com/inCoderKaka/local-server/internal/ledger/checkpoint"
@@ -215,7 +216,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, e)
 		return
 	}
-	g.srv.ServeHTTP(w, r)
+	g.srv.ServeHTTP(stream.NewFlushWriter(w), r)
 }
 
 func (g *Gateway) notFound(w http.ResponseWriter, _ *http.Request) {
@@ -256,11 +257,14 @@ func (g *Gateway) errorHandler(ctx context.Context, w http.ResponseWriter, _ *ht
 func (g *Gateway) NewError(ctx context.Context, err error) *api.ErrorStatusCodeWithHeaders {
 	e, internal := classify(err, g.now())
 	var ee *engine.Error
+	var te *stream.TimeoutError
 	switch {
 	case internal:
 		g.log.ErrorContext(ctx, "gateway: request failed", "err", err)
 	case errors.As(err, &ee) && (e.status == http.StatusServiceUnavailable || e.status == http.StatusGatewayTimeout):
 		g.log.WarnContext(ctx, "gateway: model engine call failed", "status", e.status, "code", string(ee.Code), "err", err)
+	case errors.As(err, &te):
+		g.log.WarnContext(ctx, "gateway: streamed engine call timed out", "kind", te.Kind)
 	}
 	return e.response()
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/engine"
+	"github.com/inCoderKaka/local-server/internal/gateway/stream"
 	"github.com/inCoderKaka/local-server/internal/ledger/checkpoint"
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/policy"
@@ -134,6 +135,7 @@ func classify(err error, now time.Time) (e *apiError, internal bool) {
 	var pe *policy.Error
 	var ee *engine.Error
 	var nc *checkpoint.NotYetCoveredError
+	var te *stream.TimeoutError
 	switch {
 	case errors.As(err, &qe):
 		msg := "The token quota for this window is used up."
@@ -171,6 +173,8 @@ func classify(err error, now time.Time) (e *apiError, internal bool) {
 		return newErr(http.StatusNotFound, typeInvalidRequest, "", "", "No checkpoint has been signed yet."), false
 	case errors.Is(err, checkpoint.ErrBadTreeSize):
 		return invalidParam("from_tree_size", "from_tree_size must be between 1 and the latest checkpoint's tree size."), false
+	case errors.As(err, &te):
+		return newErr(http.StatusGatewayTimeout, typeServer, "", "", "The model engine did not answer in time."), false
 	case errors.Is(err, context.Canceled):
 		// The client went away; nobody reads this answer.
 		return newErr(499, typeServer, "", "", "The client closed the request."), false

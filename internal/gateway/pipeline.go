@@ -139,16 +139,23 @@ func (g *Gateway) meter(ctx context.Context, c call, u ledger.Usage) (metered, e
 // estimate is never billed. Completion tokens are the content chunks received, one token each on
 // Ollama's stream. The receipt is dropped, because the client is gone.
 func (g *Gateway) meterAborted(ctx context.Context, c call, op, model string, completionTokens int64, startedAt time.Time) {
-	u := ledger.Usage{UsageID: ledger.NewUsageID(), ConsumerID: c.id.ConsumerID, AccessKeyID: c.id.KeyID,
-		GrantVersionID: c.id.GrantVersionID, Operation: op, Model: model, Outcome: ledger.OutcomeAborted,
-		PromptTokens: 0, CompletionTokens: completionTokens, StartedAt: startedAt, FinishedAt: g.now()}
-	m, err := g.meter(ctx, c, u)
+	m, err := g.meterPartial(ctx, c, ledger.NewUsageID(), op, model, ledger.OutcomeAborted, completionTokens, startedAt)
 	if err != nil {
 		return // meter already logged, counted and emitted the failure
 	}
 	if m.committed {
 		g.afterMetered(ctx, c)
 	}
+}
+
+// meterPartial meters a call that ended before its final chunk, with the prompt uncounted and the
+// completion tokens received so far (the same rule as meterAborted). A streamed call that fails
+// midway is metered with it as outcome failed, and its receipt goes out on the stream (D-16).
+func (g *Gateway) meterPartial(ctx context.Context, c call, usageID, op, model, outcome string, completionTokens int64, startedAt time.Time) (metered, error) {
+	u := ledger.Usage{UsageID: usageID, ConsumerID: c.id.ConsumerID, AccessKeyID: c.id.KeyID,
+		GrantVersionID: c.id.GrantVersionID, Operation: op, Model: model, Outcome: outcome,
+		PromptTokens: 0, CompletionTokens: completionTokens, StartedAt: startedAt, FinishedAt: g.now()}
+	return g.meter(ctx, c, u)
 }
 
 // meteringFailedPayload carries ids and counters only (req_001 D-31); it extends the

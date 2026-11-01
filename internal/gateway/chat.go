@@ -12,8 +12,8 @@ import (
 	"github.com/inCoderKaka/local-server/internal/ledger"
 )
 
-// CreateChatCompletion implements POST /v1/chat/completions without streaming (F1,
-// req_001 D-39). Auth and limits already ran in the security handler.
+// CreateChatCompletion implements POST /v1/chat/completions (F1, req_001 D-39); stream: true
+// goes to streamChat. Auth and limits already ran in the security handler.
 func (g *Gateway) CreateChatCompletion(ctx context.Context, req *api.ChatCompletionRequest, _ api.CreateChatCompletionParams) (api.CreateChatCompletionRes, error) {
 	c, err := g.newCall(ctx)
 	if err != nil {
@@ -34,6 +34,9 @@ func (g *Gateway) CreateChatCompletion(ctx context.Context, req *api.ChatComplet
 	tk, admission, err := g.admit(ctx, c, in.model, dec, p)
 	if err != nil {
 		return nil, err
+	}
+	if in.stream {
+		return g.streamChat(ctx, c, in, p, tk, admission)
 	}
 	defer tk.Release()
 	startedAt := g.now()

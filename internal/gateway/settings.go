@@ -18,6 +18,9 @@ const (
 	KeyCharsPerToken        = "gateway.chars_per_token"
 	KeyMaxEmbeddingInputs   = "gateway.max_embedding_inputs"
 	KeyEngineTimeout        = "gateway.engine_timeout"
+	KeyStreamFirstToken     = "gateway.stream_first_token_timeout"
+	KeyStreamIdle           = "gateway.stream_idle_timeout"
+	KeyStreamTotal          = "gateway.stream_total_timeout"
 	KeyMeteringAttempts     = "gateway.metering_attempts"
 	KeyMeteringRetryDelay   = "gateway.metering_retry_delay"
 	KeyMeteringTimeout      = "gateway.metering_timeout"
@@ -55,6 +58,12 @@ func Defs() []settings.Def {
 			Description: "Most texts one embeddings request may carry."},
 		{Key: KeyEngineTimeout, Kind: settings.Duration, Default: "5m", Owner: h,
 			Description: "Longest a non-streamed engine call may take in total, from the request to the engine until its last chunk. A model load the scheduler runs during admission is not included; the engine adapter's load timeout bounds it."},
+		{Key: KeyStreamFirstToken, Kind: settings.Duration, Default: "60s", Owner: h,
+			Description: "Longest a streamed chat call may take from the request to the engine until the engine's first chunk (the model's reading of the prompt). When it expires the engine call is cancelled and the request fails with a 504. A model load the scheduler runs during admission is not included."},
+		{Key: KeyStreamIdle, Kind: settings.Duration, Default: "30s", Owner: h,
+			Description: "Longest a streamed chat call may wait for the engine's next chunk. When it expires the engine call is cancelled and the stream ends with an error event; the tokens so far are metered with outcome failed."},
+		{Key: KeyStreamTotal, Kind: settings.Duration, Default: "10m", Owner: h,
+			Description: "Longest a streamed chat call may take in total, from the request to the engine until its last chunk. When it expires the engine call is cancelled and the stream ends with an error event; the tokens so far are metered with outcome failed."},
 		{Key: KeyMeteringAttempts, Kind: settings.Int, Default: "3", Owner: h,
 			Description: "Times the gateway tries to write a call's usage record before it answers with an unmetered receipt."},
 		{Key: KeyMeteringRetryDelay, Kind: settings.Duration, Default: "100ms", Owner: h,
@@ -93,7 +102,7 @@ func setValidators(st *settings.Store) error {
 			return err
 		}
 	}
-	for _, key := range []string{KeyEngineTimeout, KeyMeteringTimeout, KeyRuleInvalidInterval, KeySLOOverhead, KeySLOAdmission, KeySLOReceiptSigning} {
+	for _, key := range []string{KeyEngineTimeout, KeyStreamFirstToken, KeyStreamIdle, KeyStreamTotal, KeyMeteringTimeout, KeyRuleInvalidInterval, KeySLOOverhead, KeySLOAdmission, KeySLOReceiptSigning} {
 		err := st.SetValidator(key, func(_ context.Context, v string) error {
 			d, err := time.ParseDuration(v)
 			if err != nil {
@@ -125,6 +134,7 @@ type config struct {
 	defaultMaxTokens, maxTokensCeiling, defaultContext int64
 	charsPerToken, maxEmbeddingInputs                  int64
 	engineTimeout                                      time.Duration
+	streamFirstToken, streamIdle, streamTotal          time.Duration
 	meteringAttempts                                   int64
 	meteringRetryDelay, meteringTimeout                time.Duration
 	ruleInvalidInterval                                time.Duration
@@ -153,6 +163,7 @@ func (g *Gateway) loadConfig(ctx context.Context) (config, error) {
 	c.defaultMaxTokens, c.maxTokensCeiling, c.defaultContext = max(i(KeyDefaultMaxTokens), 1), max(i(KeyMaxTokensCeiling), 1), max(i(KeyDefaultContextTokens), 1)
 	c.charsPerToken, c.maxEmbeddingInputs = max(i(KeyCharsPerToken), 1), max(i(KeyMaxEmbeddingInputs), 1)
 	c.engineTimeout = d(KeyEngineTimeout)
+	c.streamFirstToken, c.streamIdle, c.streamTotal = d(KeyStreamFirstToken), d(KeyStreamIdle), d(KeyStreamTotal)
 	c.meteringAttempts = max(i(KeyMeteringAttempts), 1)
 	c.meteringRetryDelay, c.meteringTimeout = max(d(KeyMeteringRetryDelay), 0), d(KeyMeteringTimeout)
 	c.ruleInvalidInterval = d(KeyRuleInvalidInterval)

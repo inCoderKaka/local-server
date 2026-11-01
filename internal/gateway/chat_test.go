@@ -114,7 +114,6 @@ func TestFieldsTheEngineCannotCarryAreRefusedNotIgnored(t *testing.T) {
 		{"presence_penalty", pre + `"presence_penalty":1}`},
 		{"tools", pre + `"tools":[{"type":"function","function":{"name":"f"}}]}`},
 		{"response_format", pre + `"response_format":{"type":"json_object"}}`},
-		{"stream", pre + `"stream":true}`},
 		{"messages", `{"model":"` + chatModel + `","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]}]}`},
 		{"messages", `{"model":"` + chatModel + `","messages":[{"role":"tool","content":"x","tool_call_id":"1"}]}`},
 	} {

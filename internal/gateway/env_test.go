@@ -111,7 +111,9 @@ type recEngine struct {
 	// nanos is the time spent inside Chat and Embed, for the SLO measurements.
 	nanos atomic.Int64
 	// wrapChat, when set, wraps each chat stream; embedHook, when set, runs before each Embed.
-	wrapChat  func(engine.ChatStream) engine.ChatStream
+	wrapChat func(engine.ChatStream) engine.ChatStream
+	// lastCtx is the context of the latest Chat call, to see whether the gateway cancelled it.
+	lastCtx   context.Context
 	embedHook func()
 }
 
@@ -120,12 +122,19 @@ func (e *recEngine) Chat(ctx context.Context, r engine.ChatRequest) (engine.Chat
 	defer func() { e.nanos.Add(int64(time.Since(t0))) }()
 	e.mu.Lock()
 	e.chats = append(e.chats, r)
+	e.lastCtx = ctx
 	e.mu.Unlock()
 	s, err := e.Engine.Chat(ctx, r)
 	if err == nil && e.wrapChat != nil {
 		s = e.wrapChat(s)
 	}
 	return s, err
+}
+
+func (e *recEngine) chatCtx() context.Context {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.lastCtx
 }
 
 func (e *recEngine) Embed(ctx context.Context, r engine.EmbedRequest) (engine.EmbedResult, error) {

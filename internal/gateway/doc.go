@@ -1,6 +1,6 @@
 // Package gateway is the gateway module; see docs/modules/gateway.md. It serves the consumer
 // API (req_001 D-10, D-32, D-33): the OpenAI-compatible POST /v1/chat/completions and
-// POST /v1/embeddings (not streamed; streaming is PLT-F-019), and the ledger endpoints GET
+// POST /v1/embeddings (not streamed), and the ledger endpoints GET
 // /v1/keys, GET /v1/ledger/checkpoint and GET /v1/usage/{usage_id}/proof. Every other /v1
 // operation answers 501 until its ticket lands.
 //
@@ -17,7 +17,11 @@
 //     D-32), max_tokens is capped, the prompt size is pre-checked against the context cap
 //     (context_too_long unless the grant's on_context_overflow is truncate, D-48);
 //   - step 5, admit: scheduler.Admit with the grant's concurrency limit, then limits.CountAdmitted (D-100);
-//   - step 6, the engine call (non-streamed; step 7, SSE, is PLT-F-019);
+//   - step 6, the engine call;
+//   - step 7, SSE, for stream: true (package stream, PLT-F-019): chunks flushed as they arrive, the
+//     receipt as the comment line ": ls-receipt <JWS>" before data: [DONE]. The first-token, idle
+//     and total timeouts (gateway.stream_*) cancel the engine call; a client that disconnects
+//     cancels it too and its tokens so far are metered as aborted;
 //   - steps 8 and 9, metering: one metering transaction (ledger.Record: usage_record, ledger leaf,
 //     sync_change) and the signed receipt in the LS-Receipt header. If metering keeps failing the
 //     answer is still returned with the signed unmetered receipt, the failure is logged and

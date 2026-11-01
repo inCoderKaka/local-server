@@ -24,6 +24,8 @@ import (
 type chatInput struct {
 	model    string
 	messages []engine.Message
+	// stream is stream: true; includeUsage is stream_options.include_usage.
+	stream, includeUsage bool
 	// maxTokens is what the request asked for; 0 means it asked for nothing.
 	maxTokens int64
 	// promptBytes is the size of all message text, the base of the prompt-size estimate.
@@ -37,11 +39,12 @@ func validateChat(req *api.ChatCompletionRequest) (chatInput, *apiError) {
 		return in, invalidParam("model", "model is required.")
 	}
 	in.model = req.Model
-	if req.Stream.IsSet() && !req.Stream.Null && req.Stream.Value {
-		return in, unsupportedParam("stream", "Streaming is not available on this host yet.")
-	}
+	in.stream = req.Stream.IsSet() && !req.Stream.Null && req.Stream.Value
 	if req.StreamOptions.IsSet() {
-		return in, invalidParam("stream_options", "stream_options is only allowed with stream: true.")
+		if !in.stream {
+			return in, invalidParam("stream_options", "stream_options is only allowed with stream: true.")
+		}
+		in.includeUsage = req.StreamOptions.Value.IncludeUsage.Value
 	}
 	for _, f := range []struct {
 		name string
