@@ -59,14 +59,17 @@ type Config struct {
 	File FileConfig
 	// Out receives logs when File.Path is empty. Nil means os.Stderr.
 	Out io.Writer
-	// SinkErrorInterval is the shortest gap between two stderr lines reporting a
-	// failing log sink (D-82). Zero means DefaultSinkErrorInterval. Startup passes
-	// the telemetry.log_sink_error_interval setting.
-	SinkErrorInterval time.Duration
-	// Stderr receives the sink-failure line. Nil means os.Stderr. For tests.
+	// SinkErrorInterval returns the shortest gap between two stderr lines reporting
+	// a failing log sink (D-82). Startup passes a function that reads
+	// telemetry.log_sink_error_interval, so a change applies from the next stderr
+	// line. It is called once per stderr line while the log handler's lock is held,
+	// so it must not log through this Telemetry (that would deadlock). Nil, or a
+	// result of zero or less, means DefaultSinkErrorInterval.
+	SinkErrorInterval func() time.Duration
+	// Stderr receives the sink-failure line. Nil means os.Stderr.
 	Stderr io.Writer
-	// Now is the clock for the rate limit. Nil means time.Now. For tests.
-	Now func() time.Time
+	// now is the clock for the rate limit. Nil means time.Now.
+	now func() time.Time
 }
 
 // forbiddenLabels are label names that suggest content; creating a metric with
@@ -119,15 +122,16 @@ func New(cfg Config) (*Telemetry, error) {
 		gauges:     map[string]*gauge{},
 		histograms: map[string]*histogram{},
 	}
+	// Counter builds a CounterVec, so a series with no labels is missing from
+	// /metrics until its first Add; Add(0) shows it at 0 from the start.
+	errs := t.Counter(SinkErrorMetric)
+	errs.Add(0)
 	sw := &sinkWriter{
 		w:        w,
-		errs:     t.Counter(SinkErrorMetric),
+		errs:     errs,
 		interval: cfg.SinkErrorInterval,
 		stderr:   cfg.Stderr,
-		now:      cfg.Now,
-	}
-	if sw.interval <= 0 {
-		sw.interval = DefaultSinkErrorInterval
+		now:      cfg.now,
 	}
 	if sw.stderr == nil {
 		sw.stderr = os.Stderr
@@ -147,13 +151,12 @@ func New(cfg Config) (*Telemetry, error) {
 type sinkWriter struct {
 	w        io.Writer
 	errs     telemetry.Counter
-	interval time.Duration
+	interval func() time.Duration
 	stderr   io.Writer
 	now      func() time.Time
 
 	mu         sync.Mutex
-	reported   bool
-	last       time.Time
+	next       time.Time // earliest time of the next stderr line; zero means report at once
 	suppressed int
 }
 
@@ -170,12 +173,19 @@ func (s *sinkWriter) report(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
-	if s.reported && now.Sub(s.last) < s.interval {
+	if now.Before(s.next) {
 		s.suppressed++
 		return
 	}
 	fmt.Fprintf(s.stderr, "local-server: log sink failed: %v (errors suppressed since last report: %d)\n", err, s.suppressed)
-	s.reported, s.last, s.suppressed = true, now, 0
+	s.suppressed = 0
+	d := DefaultSinkErrorInterval
+	if s.interval != nil {
+		if v := s.interval(); v > 0 {
+			d = v
+		}
+	}
+	s.next = now.Add(d)
 }
 
 func orDefault(v, d int) int {

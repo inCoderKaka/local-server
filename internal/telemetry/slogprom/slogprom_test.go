@@ -140,7 +140,7 @@ func TestSinkFailureCountsAndRateLimitsStderr(t *testing.T) {
 	clk := &fakeClock{t: time.Unix(1000, 0)}
 	tel, err := New(Config{
 		Out: failWriter{errors.New("disk full")}, Stderr: &errOut,
-		SinkErrorInterval: time.Minute, Now: clk.now,
+		SinkErrorInterval: func() time.Duration { return time.Minute }, now: clk.now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -185,8 +185,81 @@ func TestSinkWriterPassesThroughAndHealthyWritesAreQuiet(t *testing.T) {
 	if !strings.Contains(out.String(), "hello") || errOut.Len() != 0 {
 		t.Fatalf("out=%q stderr=%q", out.String(), errOut.String())
 	}
-	sw := &sinkWriter{w: failWriter{io.ErrShortWrite}, errs: tel.Counter(SinkErrorMetric), interval: time.Minute, stderr: &errOut, now: time.Now}
+	rec := httptest.NewRecorder()
+	tel.MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec.Body.String(), "telemetry_log_write_errors_total 0") {
+		t.Fatalf("counter not shown at 0:\n%s", rec.Body.String())
+	}
+	sw := &sinkWriter{w: failWriter{io.ErrShortWrite}, errs: tel.Counter(SinkErrorMetric), interval: func() time.Duration { return time.Minute }, stderr: &errOut, now: time.Now}
 	if n, err := sw.Write([]byte("abc")); n != 0 || !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("not passed through: %d %v", n, err)
+	}
+}
+
+// PLT-B-012 (req_001 D-82, D-54): a changed interval applies from the next stderr line.
+func TestSinkErrorIntervalChangeAppliesFromNextLine(t *testing.T) {
+	var errOut bytes.Buffer
+	clk := &fakeClock{t: time.Unix(1000, 0)}
+	iv := time.Minute
+	tel, err := New(Config{
+		Out: failWriter{errors.New("disk full")}, Stderr: &errOut,
+		SinkErrorInterval: func() time.Duration { return iv }, now: clk.now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := func() { tel.Logger().Info("chat") }
+	reports := func() int { return strings.Count(errOut.String(), "\n") }
+	log()
+	if reports() != 1 {
+		t.Fatalf("first line not reported: %q", errOut.String())
+	}
+	iv = 10 * time.Minute
+	clk.t = clk.t.Add(61 * time.Second)
+	log() // the old 1m gap was already set, so this is reported and sets the 10m gap
+	if reports() != 2 {
+		t.Fatalf("not reported after 61s: %q", errOut.String())
+	}
+	clk.t = clk.t.Add(5 * time.Minute)
+	log()
+	if reports() != 2 {
+		t.Fatalf("reported inside the new interval: %q", errOut.String())
+	}
+	clk.t = clk.t.Add(6 * time.Minute)
+	log()
+	lines := strings.Split(strings.TrimSpace(errOut.String()), "\n")
+	if len(lines) != 3 || !strings.Contains(lines[2], "suppressed since last report: 1") {
+		t.Fatalf("third report wrong: %q", errOut.String())
+	}
+}
+
+func TestSinkErrorIntervalDefaultWhenNilOrNonPositive(t *testing.T) {
+	for name, getter := range map[string]func() time.Duration{
+		"nil":  nil,
+		"zero": func() time.Duration { return 0 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var errOut bytes.Buffer
+			clk := &fakeClock{t: time.Unix(1000, 0)}
+			tel, err := New(Config{
+				Out: failWriter{errors.New("disk full")}, Stderr: &errOut,
+				SinkErrorInterval: getter, now: clk.now,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			log := func() { tel.Logger().Info("chat") }
+			log()
+			clk.t = clk.t.Add(59 * time.Second)
+			log()
+			if n := strings.Count(errOut.String(), "\n"); n != 1 {
+				t.Fatalf("lines after 59s = %d; want 1", n)
+			}
+			clk.t = clk.t.Add(2 * time.Second)
+			log()
+			if n := strings.Count(errOut.String(), "\n"); n != 2 {
+				t.Fatalf("lines after 61s = %d; want 2", n)
+			}
+		})
 	}
 }
