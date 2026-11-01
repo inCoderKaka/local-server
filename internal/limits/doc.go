@@ -23,23 +23,24 @@
 // A quota is the key's or the grant version's tokens-per-window figure (Narrowing and
 // grants.Version store it as quota_tokens_per_day; the window length is the setting
 // limits.quota_window, one day by default). Usage is the sum of use_record.total_tokens of
-// calls that finished in the current fixed window, aligned to whole multiples of the window length counted from 0001-01-01 UTC (midnight UTC for lengths that divide 24h),
-// so Retry-After is the time to the end of the window. A request quota
-// (quota_requests_per_day, req_001 D-98) is the same figure per request, with the same scope
-// rules and the same quota_exceeded refusal (QuotaError.Unit says which). It counts every call
-// the gateway admitted, metered or not (req_001 D-100): the gateway calls Limiter.CountAdmitted
-// once per admitted call, which raises an in-memory counter per subject and window, and Check
-// reads the larger of that counter and the use_record rows of the window. After a restart a
-// counter starts from the metered rows on record (they are the floor), so unmetered calls made
-// before the restart are forgotten. Calls in flight can overshoot the quota as they do token
-// quotas. The key's quota counts that key's
-// records; the grant's quota counts all records of the grant's consumer. Check does not count
-// tokens of calls still running, so concurrent calls can overshoot a quota by what is in flight.
+// calls that finished in the current fixed window, aligned to whole multiples of the window
+// length counted from 0001-01-01 UTC (midnight UTC for lengths that divide 24h), so Retry-After
+// is the time to the end of the window. A request quota (quota_requests_per_day, req_001 D-98)
+// is the same figure per request, with the same scope rules and the same quota_exceeded refusal
+// (QuotaError.Unit says which). It counts every call the gateway admitted, metered or not
+// (req_001 D-100): the gateway calls Limiter.CountAdmitted once per admitted call, which raises
+// an in-memory counter per subject and window, and Check reads the larger of that counter and
+// the use_record rows of the window. A counter starts from the metered rows on record when its
+// window's first call is admitted (they are the floor), so after a restart unmetered calls made
+// before it are forgotten. The key's quotas count that key's calls; the grant's quotas count
+// all calls of the grant's consumer, across its keys. Check runs before the scheduler admits a
+// call and counts neither the tokens of calls still running nor, for the request quota, calls
+// still queued, so concurrent calls can overshoot a quota by what is queued or in flight.
 //
 // # In-memory state
 //
-// Rate buckets, failure counters and near-limit marks live in memory and start empty after a
-// restart. A restart therefore forgets a lockout, and can raise one more quota.near_limit event
+// Rate buckets, failure counters, near-limit marks and request counters live in memory and
+// start empty after a restart. A restart therefore forgets a lockout, and can raise one more quota.near_limit event
 // for a window that already raised one. Failure counters are keyed by remote host and key
 // prefix only (never the secret) and are evicted after limits.tracker_idle_ttl; their number is
 // capped by limits.tracker_max_entries.

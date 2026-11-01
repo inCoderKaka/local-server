@@ -193,13 +193,10 @@ func (l *Limiter) quotas(ctx context.Context, id *auth.Identity, key identity.Ac
 	if keyLimit == nil && v.QuotaTokensPerDay == nil && keyReqLimit == nil && v.QuotaRequestsPerDay == nil {
 		return nil, nil
 	}
-	window, err := l.cfg.Settings.Duration(ctx, KeyQuotaWindow, "")
+	window, start, end, err := l.quotaWindow(ctx, now)
 	if err != nil {
 		return nil, err
 	}
-	window = max(window, time.Second)
-	start := now.UTC().Truncate(window)
-	end := start.Add(window)
 	var out []quota
 	add := func(scope, subject, unit string, by usage.By, value string, limit *int64) error {
 		if limit == nil {
@@ -229,6 +226,18 @@ func (l *Limiter) quotas(ctx context.Context, id *auth.Identity, key identity.Ac
 		}
 	}
 	return out, nil
+}
+
+// quotaWindow returns the quota window length and the fixed window that contains now. The
+// length is the setting limits.quota_window, at least one second.
+func (l *Limiter) quotaWindow(ctx context.Context, now time.Time) (window time.Duration, start, end time.Time, err error) {
+	window, err = l.cfg.Settings.Duration(ctx, KeyQuotaWindow, "")
+	if err != nil {
+		return 0, time.Time{}, time.Time{}, err
+	}
+	window = max(window, time.Second)
+	start = now.UTC().Truncate(window)
+	return window, start, start.Add(window), nil
 }
 
 // used returns the tokens (UnitTokens) or the number of calls (UnitRequests) that finished in

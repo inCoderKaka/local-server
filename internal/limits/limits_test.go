@@ -233,7 +233,7 @@ func TestKeyNarrowingLimitsOnlyThatKey(t *testing.T) {
 func TestRequestQuotaNPlusOne(t *testing.T) {
 	e := setup(t, nil)
 	k := e.issue(auth.Narrowing{QuotaRequestsPerDay: i64(3)})
-	other := e.issue(auth.Narrowing{})
+	other := e.issue(auth.Narrowing{QuotaRequestsPerDay: i64(3)})
 	for i := 1; i <= 3; i++ {
 		if err := e.lim.Check(ctx(), k.id); err != nil {
 			t.Fatalf("request %d: %v", i, err)
@@ -290,8 +290,8 @@ func TestRequestQuotaCountsUnmeteredAdmittedCalls(t *testing.T) {
 	if !errors.As(err, &qe) || qe.Unit != limits.UnitRequests || qe.Used != 3 || qe.Limit != 3 {
 		t.Fatalf("request 4: %v, want the request quota used up by unmetered calls", err)
 	}
-	// The consumer's calls are counted for the grant too, whichever key made them; a key with
-	// no quota of its own is unaffected by another key's key-scoped count.
+	// A key with its own request quota is unaffected by another key's key-scoped count (the
+	// grant has no request quota here).
 	if err := e.lim.Check(ctx(), other.id); err != nil {
 		t.Fatalf("other key: %v", err)
 	}
