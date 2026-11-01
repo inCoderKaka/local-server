@@ -450,3 +450,41 @@ func TestErrorsCarryNoContent(t *testing.T) {
 		t.Fatalf("error leaks prompt text: %v", err)
 	}
 }
+
+func TestChatRequestSamplingOptions(t *testing.T) {
+	f := newFakeOllama(t)
+	a := newAdapter(f, nil)
+	defer a.Close()
+	run := func(req engine.ChatRequest) map[string]any {
+		s, err := a.Chat(context.Background(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, readAll{s})
+		s.Close()
+		return f.last("/api/chat")["options"].(map[string]any)
+	}
+	opts := run(chatRequest(""))
+	for _, k := range []string{"temperature", "top_p", "seed", "stop"} {
+		if _, ok := opts[k]; ok {
+			t.Fatalf("unset %s must be omitted, options = %v", k, opts)
+		}
+	}
+	temp, topP, seed := 0.0, 0.5, 0
+	req := chatRequest("")
+	req.Temperature, req.TopP, req.Seed, req.Stop = &temp, &topP, &seed, []string{"a", "b"}
+	opts = run(req)
+	stop, _ := opts["stop"].([]any)
+	if v, ok := opts["temperature"]; !ok || v != float64(0) {
+		t.Fatalf("temperature = %v, %v", v, ok)
+	}
+	if opts["top_p"] != 0.5 || len(stop) != 2 || stop[0] != "a" || stop[1] != "b" {
+		t.Fatalf("options = %v", opts)
+	}
+	if v, ok := opts["seed"]; !ok || v != float64(0) {
+		t.Fatalf("seed = %v, %v", v, ok)
+	}
+	if opts["num_ctx"] != float64(2048) || opts["num_predict"] != float64(100) {
+		t.Fatalf("base options changed: %v", opts)
+	}
+}

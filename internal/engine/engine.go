@@ -73,6 +73,12 @@ type ChatRequest struct {
 	KeepAlive time.Duration
 	// OnContextOverflow is zero (refuse) or one of the OverflowPolicy values.
 	OnContextOverflow OverflowPolicy
+	// Optional sampling controls. Nil (or an empty Stop) means not set and the
+	// engine's own default applies; pointers let a zero value be expressed.
+	Temperature *float64
+	TopP        *float64
+	Seed        *int
+	Stop        []string
 }
 
 // ChatChunk is one streamed piece. The last chunk has Done set and carries

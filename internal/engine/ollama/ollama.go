@@ -169,6 +169,11 @@ func (a *Adapter) keepAliveSecs(d time.Duration) int64 {
 type options struct {
 	NumCtx     int `json:"num_ctx"`
 	NumPredict int `json:"num_predict,omitempty"`
+	// Sampling controls are sent only when the caller set them.
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
+	Seed        *int     `json:"seed,omitempty"`
+	Stop        []string `json:"stop,omitempty"`
 }
 
 // ListModels reads /api/tags.

@@ -53,6 +53,7 @@ type Engine struct {
 	now    func() time.Time
 	inject map[Op][]error
 	calls  map[Op]int
+	last   *Sampling
 }
 
 // Option configures New.
@@ -113,6 +114,40 @@ func (e *Engine) InjectError(op Op, err error, n int) {
 	for i := 0; i < n; i++ {
 		e.inject[op] = append(e.inject[op], err)
 	}
+}
+
+// Sampling is the optional sampling controls of a chat call; nil fields and an
+// empty Stop were not set.
+type Sampling struct {
+	Temperature *float64
+	TopP        *float64
+	Seed        *int
+	Stop        []string
+}
+
+// LastChatSampling returns the sampling controls of the last accepted Chat
+// call (a copy), and false if there was none. Prompt content is not recorded.
+func (e *Engine) LastChatSampling() (Sampling, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.last == nil {
+		return Sampling{}, false
+	}
+	out := *e.last
+	if out.Temperature != nil {
+		v := *out.Temperature
+		out.Temperature = &v
+	}
+	if out.TopP != nil {
+		v := *out.TopP
+		out.TopP = &v
+	}
+	if out.Seed != nil {
+		v := *out.Seed
+		out.Seed = &v
+	}
+	out.Stop = append([]string(nil), out.Stop...)
+	return out, true
 }
 
 // Calls reports how many times op was called.
@@ -259,6 +294,8 @@ func (e *Engine) Chat(ctx context.Context, req engine.ChatRequest) (engine.ChatS
 		_, prompt = truncate(msgs, req.NumCtx)
 	}
 	e.load(s, req.KeepAlive)
+	e.last = &Sampling{Temperature: copyPtr(req.Temperature), TopP: copyPtr(req.TopP),
+		Seed: copyPtr(req.Seed), Stop: append([]string(nil), req.Stop...)}
 	words := strings.Fields(e.reply)
 	reason := "stop"
 	if len(words) > req.NumPredict {
@@ -270,6 +307,14 @@ func (e *Engine) Chat(ctx context.Context, req engine.ChatRequest) (engine.ChatS
 	}
 	e.calls[OpChatStream]++
 	return st, nil
+}
+
+func copyPtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
 
 // truncate drops the oldest non-system messages until the prompt fits or only

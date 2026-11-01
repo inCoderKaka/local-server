@@ -79,3 +79,29 @@ func TestLoadExpiryUsesClock(t *testing.T) {
 		t.Fatalf("loaded = %+v", ls)
 	}
 }
+
+func TestRecordsSampling(t *testing.T) {
+	e := fake.New()
+	ctx := context.Background()
+	req := engine.ChatRequest{Model: "fake-chat", Messages: []engine.Message{{Role: engine.RoleUser, Content: "hi"}}, NumCtx: 32, NumPredict: 8}
+	if _, ok := e.LastChatSampling(); ok {
+		t.Fatal("sampling recorded before any call")
+	}
+	if _, err := e.Chat(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := e.LastChatSampling()
+	if !ok || got.Temperature != nil || got.TopP != nil || got.Seed != nil || len(got.Stop) != 0 {
+		t.Fatalf("unset sampling = %+v, %v", got, ok)
+	}
+	temp, topP, seed := 0.0, 0.9, 0
+	req.Temperature, req.TopP, req.Seed, req.Stop = &temp, &topP, &seed, []string{"END"}
+	if _, err := e.Chat(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = e.LastChatSampling()
+	if got.Temperature == nil || *got.Temperature != 0 || got.TopP == nil || *got.TopP != 0.9 ||
+		got.Seed == nil || *got.Seed != 0 || len(got.Stop) != 1 || got.Stop[0] != "END" {
+		t.Fatalf("sampling = %+v", got)
+	}
+}

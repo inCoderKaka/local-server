@@ -39,7 +39,8 @@ func (a *Adapter) Chat(ctx context.Context, req engine.ChatRequest) (engine.Chat
 		KeepAlive int64         `json:"keep_alive"`
 		Options   options       `json:"options"`
 	}{Model: req.Model, Messages: msgs, Stream: true, KeepAlive: a.keepAliveSecs(req.KeepAlive),
-		Options: options{NumCtx: req.NumCtx, NumPredict: req.NumPredict}}
+		Options: options{NumCtx: req.NumCtx, NumPredict: req.NumPredict,
+			Temperature: req.Temperature, TopP: req.TopP, Seed: req.Seed, Stop: req.Stop}}
 	body.Truncate = truncateFlag(req.OnContextOverflow)
 	body.Shift = body.Truncate
 
