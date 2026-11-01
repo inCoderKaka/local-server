@@ -42,7 +42,7 @@ The base URL's host name and port are the host's tailnet name and the port they 
 | `POST /v1/chat/completions` | OpenAI | Chat, including streaming with `stream_options.include_usage` |
 | `POST /v1/embeddings` | OpenAI | Embeddings |
 | `GET /v1/models` | OpenAI | Only the models your grant allows |
-| `GET /v1/health` | local-server | Online, paused, loaded models, queue depth. Call it to decide quickly whether to fall back |
+| `GET /v1/health` | local-server | Online; sharing, paused or quiet; whether the engine answers; the loaded models your grant allows; queue depth. Call it to decide quickly whether to fall back |
 | `GET /v1/capabilities` | local-server | Your models, context limits, max output and remaining quota |
 | `POST /v1/jobs`, `GET /v1/jobs/{id}`, `GET /v1/jobs/{id}/result` | local-server | Background work that should outlive a request |
 | `/v1/resource-requests` | local-server | Ask the host for more, with comments |
