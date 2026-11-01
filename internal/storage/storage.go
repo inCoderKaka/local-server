@@ -32,6 +32,11 @@ var ownMigrations embed.FS
 // ErrClosed is returned by Write after Close.
 var ErrClosed = errors.New("storage: closed")
 
+// ErrNoRows is returned by row reads (Reader and Tx QueryRow Scan) when no row matches.
+// Callers test errors.Is(err, storage.ErrNoRows), so modules need not import database/sql
+// just for it. It is the same value as sql.ErrNoRows.
+var ErrNoRows = sql.ErrNoRows
+
 // Module registers one module's embedded migrations.
 type Module struct {
 	// Name is the module name from tools/archcheck, for example "ledger".

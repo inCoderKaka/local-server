@@ -602,3 +602,12 @@ func TestForeignKeyOrderSharedPrefix(t *testing.T) {
 `)}}}
 	open(t, filepath.Join(t.TempDir(), "case.db"), pmod, cmod).Close()
 }
+
+func TestErrNoRows(t *testing.T) {
+	db := open(t, filepath.Join(t.TempDir(), "n.db"), demo(map[string]string{"0001_init.sql": demoSQL}))
+	var id int
+	err := db.Reader().QueryRow(context.Background(), `SELECT id FROM tst_item WHERE id = -1`).Scan(&id)
+	if !errors.Is(err, ErrNoRows) {
+		t.Fatalf("missing row err = %v, want ErrNoRows", err)
+	}
+}

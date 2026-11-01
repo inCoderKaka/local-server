@@ -37,7 +37,11 @@ const (
 func longText(words int) string { return strings.TrimSpace(strings.Repeat("alpha ", words)) }
 
 func chatReq(policy engine.OverflowPolicy, msgs ...engine.Message) engine.ChatRequest {
-	return engine.ChatRequest{Model: ChatModel, Messages: msgs, NumCtx: smallCtx, NumPredict: maxPredict,
+	return chatReqFor(ChatModel, policy, msgs...)
+}
+
+func chatReqFor(model string, policy engine.OverflowPolicy, msgs ...engine.Message) engine.ChatRequest {
+	return engine.ChatRequest{Model: model, Messages: msgs, NumCtx: smallCtx, NumPredict: maxPredict,
 		KeepAlive: time.Minute, OnContextOverflow: policy}
 }
 
@@ -83,8 +87,16 @@ func chatErr(ctx context.Context, e engine.Engine, req engine.ChatRequest) error
 	return err
 }
 
-// Run executes the contract suite against engines made by f.
-func Run(t *testing.T, f Factory) {
+// Run executes the contract suite against engines made by f, serving the
+// default ChatModel and EmbedModel.
+func Run(t *testing.T, f Factory) { RunModels(t, f, ChatModel, EmbedModel) }
+
+// RunModels is Run with the installed chat and embedding model names given,
+// for a runtime whose models cannot be named ChatModel and EmbedModel.
+func RunModels(t *testing.T, f Factory, chatModel, embedModel string) {
+	chatReq := func(policy engine.OverflowPolicy, msgs ...engine.Message) engine.ChatRequest {
+		return chatReqFor(chatModel, policy, msgs...)
+	}
 	t.Run("ListModels", func(t *testing.T) {
 		ms, err := f(t).ListModels(ctxT(t))
 		if err != nil {
@@ -94,21 +106,21 @@ func Run(t *testing.T, f Factory) {
 		for _, m := range ms {
 			seen[m.Name] = true
 		}
-		if !seen[ChatModel] || !seen[EmbedModel] || seen[MissingModel] {
+		if !seen[chatModel] || !seen[embedModel] || seen[MissingModel] {
 			t.Fatalf("ListModels names = %v", seen)
 		}
 	})
 
 	t.Run("ModelInfo", func(t *testing.T) {
 		e := f(t)
-		info, err := e.ModelInfo(ctxT(t), ChatModel)
+		info, err := e.ModelInfo(ctxT(t), chatModel)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if info.ContextLength <= 0 {
 			t.Fatalf("ContextLength = %d, want > 0", info.ContextLength)
 		}
-		ei, err := e.ModelInfo(ctxT(t), EmbedModel)
+		ei, err := e.ModelInfo(ctxT(t), embedModel)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -202,7 +214,7 @@ func Run(t *testing.T, f Factory) {
 	})
 
 	t.Run("Embed", func(t *testing.T) {
-		res, err := f(t).Embed(ctxT(t), engine.EmbedRequest{Model: EmbedModel, Input: []string{"one two", "three"},
+		res, err := f(t).Embed(ctxT(t), engine.EmbedRequest{Model: embedModel, Input: []string{"one two", "three"},
 			NumCtx: smallCtx, KeepAlive: time.Minute})
 		if err != nil {
 			t.Fatal(err)
@@ -214,10 +226,10 @@ func Run(t *testing.T, f Factory) {
 
 	t.Run("EmbedInvalidAndMissing", func(t *testing.T) {
 		e := f(t)
-		if _, err := e.Embed(ctxT(t), engine.EmbedRequest{Model: EmbedModel, NumCtx: smallCtx}); !errors.Is(err, engine.ErrInvalidRequest) {
+		if _, err := e.Embed(ctxT(t), engine.EmbedRequest{Model: embedModel, NumCtx: smallCtx}); !errors.Is(err, engine.ErrInvalidRequest) {
 			t.Fatalf("empty input: err = %v, want invalid_request", err)
 		}
-		if _, err := e.Embed(ctxT(t), engine.EmbedRequest{Model: EmbedModel, Input: []string{"x"}}); !errors.Is(err, engine.ErrInvalidRequest) {
+		if _, err := e.Embed(ctxT(t), engine.EmbedRequest{Model: embedModel, Input: []string{"x"}}); !errors.Is(err, engine.ErrInvalidRequest) {
 			t.Fatalf("num_ctx 0: err = %v, want invalid_request", err)
 		}
 		if _, err := e.Embed(ctxT(t), engine.EmbedRequest{Model: MissingModel, Input: []string{"x"}, NumCtx: smallCtx}); !errors.Is(err, engine.ErrModelNotFound) {
@@ -226,7 +238,7 @@ func Run(t *testing.T, f Factory) {
 	})
 
 	t.Run("EmbedOverflow", func(t *testing.T) {
-		req := engine.EmbedRequest{Model: EmbedModel, Input: []string{longText(smallCtx * 8)}, NumCtx: smallCtx}
+		req := engine.EmbedRequest{Model: embedModel, Input: []string{longText(smallCtx * 8)}, NumCtx: smallCtx}
 		if _, err := f(t).Embed(ctxT(t), req); !errors.Is(err, engine.ErrContextTooLong) {
 			t.Fatalf("refuse: err = %v, want context_too_long", err)
 		}
@@ -245,7 +257,7 @@ func Run(t *testing.T, f Factory) {
 	t.Run("LoadUnloadLoaded", func(t *testing.T) {
 		e := f(t)
 		ctx := ctxT(t)
-		if err := e.Load(ctx, ChatModel, time.Minute); err != nil {
+		if err := e.Load(ctx, chatModel, time.Minute); err != nil {
 			t.Fatal(err)
 		}
 		ls, err := e.Loaded(ctx)
@@ -254,7 +266,7 @@ func Run(t *testing.T, f Factory) {
 		}
 		found := false
 		for _, m := range ls {
-			if m.Name == ChatModel {
+			if m.Name == chatModel {
 				found = true
 				if m.SizeBytes <= 0 {
 					t.Fatalf("loaded size = %d, want > 0", m.SizeBytes)
@@ -262,9 +274,9 @@ func Run(t *testing.T, f Factory) {
 			}
 		}
 		if !found {
-			t.Fatalf("Loaded = %+v, want %s", ls, ChatModel)
+			t.Fatalf("Loaded = %+v, want %s", ls, chatModel)
 		}
-		if err := e.Unload(ctx, ChatModel); err != nil {
+		if err := e.Unload(ctx, chatModel); err != nil {
 			t.Fatal(err)
 		}
 		ls, err = e.Loaded(ctx)
@@ -272,7 +284,7 @@ func Run(t *testing.T, f Factory) {
 			t.Fatal(err)
 		}
 		for _, m := range ls {
-			if m.Name == ChatModel {
+			if m.Name == chatModel {
 				t.Fatalf("model still loaded after Unload: %+v", ls)
 			}
 		}

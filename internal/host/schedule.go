@@ -35,6 +35,33 @@ func Defs() []settings.Def {
 	}
 }
 
+// RegisterValidators makes the settings store refuse a bad quiet-hours start, end or time zone
+// at write time instead of when LoadSchedule reads it. Register Defs first: a validator needs
+// its key to exist.
+func RegisterValidators(st *settings.Store) error {
+	clock := func(_ context.Context, v string) error {
+		if _, err := time.Parse("15:04", v); err != nil {
+			return errors.New("must be HH:MM")
+		}
+		return nil
+	}
+	if err := st.SetValidator(KeyQuietStart, clock); err != nil {
+		return err
+	}
+	if err := st.SetValidator(KeyQuietEnd, clock); err != nil {
+		return err
+	}
+	return st.SetValidator(KeyQuietTimeZone, func(_ context.Context, v string) error {
+		if v == "" {
+			return errors.New("must not be empty")
+		}
+		if _, err := time.LoadLocation(v); err != nil {
+			return errors.New("not a known time zone")
+		}
+		return nil
+	})
+}
+
 // Schedule is a daily quiet-hours window. The zero value is off.
 type Schedule struct {
 	Enabled bool
