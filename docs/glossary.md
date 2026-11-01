@@ -93,10 +93,11 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Term | Meaning | Users see | Source |
 |---|---|---|---|
 | Resource request | A consumer asking the host for more (another model, a higher quota, …). The host approves or rejects it, and both sides can comment. | Request | req_001 §2 glossary |
-| Host status | The health signal a client app checks with its access key: online, loaded models, queue depth, paused. | Host status | D-05 |
+| Host status | The health signal a client app checks with its access key: online; sharing, paused or quiet; whether the engine answers; the loaded models it may use; queue depth. | Host status | D-05 |
 | Usage ledger | The host's append-only, tamper-evident record of every metered request. | Usage history | D-16 |
 | Usage receipt | A record of one request's usage, signed by the host and returned with the response, so a consumer can check a bill independently. | Receipt | D-16 |
 | SLO target | A host-owned 95th-percentile time the gateway is held to: its own time per call, admission time and receipt-signing time (the gateway.slo_* settings). The SLO tests check them, and the gateway counts calls over the overhead target and slow unmetered-receipt signings in gateway_slo_breaches_total. | — | D-31, D-55 |
+| Stream timeout | One of three host-owned limits on a streamed chat call's engine call (the gateway.stream_* settings): *first-token*, from the request to the engine until its first chunk; *idle*, the longest wait for the next chunk; *total*, from the request until the last chunk. Each cancels the engine call. A first-token timeout answers with a 504; a later one ends the stream with an error event, the failed call's receipt and [DONE]. | — | D-39, D-54 |
 | Audit log | The record of admin actions: keys issued or revoked, grants changed, requests decided. | Activity log | D-07 |
 | Job | A background request submitted to `/v1/jobs`. It runs when the host admits it, and the result is fetched later. | Background job | D-26, D-38 |
 | Idempotency key | A client-chosen id on a job submission, so a retried submission never runs twice. | — | D-26 |

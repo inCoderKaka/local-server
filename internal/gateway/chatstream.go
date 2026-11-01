@@ -17,8 +17,9 @@ import (
 // streamChat is F1 steps 6 to 9 for stream: true (req_001 D-33, D-39): the engine call, the SSE
 // body (package stream) and the metering, which runs when the stream ends. The handler returns
 // once the engine produced its first chunk, so an engine error or a first-token timeout still
-// answers with a plain HTTP error. The ticket is released by the stream when the engine call
-// ends, and the usage is written then, not when this function returns.
+// answers with a plain HTTP error. The ticket is released by the stream once: when the engine call
+// ends or the total timeout expires, whichever comes first. The usage is written when the call
+// ends, not when this function returns.
 func (g *Gateway) streamChat(ctx context.Context, c call, in chatInput, p plan, tk *scheduler.Ticket, admission time.Duration) (api.CreateChatCompletionRes, error) {
 	startedAt := g.now()
 	t0 := time.Now()
@@ -29,7 +30,7 @@ func (g *Gateway) streamChat(ctx context.Context, c call, in chatInput, p plan, 
 		engineTime := time.Since(t0)
 		switch r.Outcome {
 		case ledger.OutcomeAborted: // the client went away; the receipt has nowhere to go
-			g.meterAborted(ctx, c, op, model, r.CompletionTokens, startedAt)
+			g.meterAborted(ctx, c, usageID, op, model, r.CompletionTokens, startedAt)
 			return "", nil
 		case ledger.OutcomeFailed:
 			m, err := g.meterPartial(ctx, c, usageID, op, model, ledger.OutcomeFailed, r.CompletionTokens, startedAt)
@@ -64,7 +65,7 @@ func (g *Gateway) streamChat(ctx context.Context, c call, in chatInput, p plan, 
 	})
 	if err != nil {
 		if ctx.Err() != nil { // the client went away before the first chunk (req_001 D-38 aborted)
-			g.meterAborted(ctx, c, op, model, 0, startedAt)
+			g.meterAborted(ctx, c, usageID, op, model, 0, startedAt)
 		}
 		return nil, err
 	}
@@ -72,8 +73,9 @@ func (g *Gateway) streamChat(ctx context.Context, c call, in chatInput, p plan, 
 }
 
 // streamErrorEvent returns the function that renders an error that ended a started stream as the
-// OpenAI error envelope, the same one an HTTP error carries. The text is fixed; the cause is
-// logged by type or code only.
+// OpenAI error envelope, the same one an HTTP error carries. The text is fixed. An internal failure is
+// logged with the modules' error text, which never holds content (req_001 D-31); a timeout by
+// its kind; an engine failure by its status and code.
 func (g *Gateway) streamErrorEvent(ctx context.Context) func(error) []byte {
 	return func(err error) []byte {
 		e, internal := classify(err, g.now())

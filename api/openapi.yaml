@@ -2600,7 +2600,10 @@ components:
           type: [boolean, 'null']
           description: Stream the response as server-sent events.
         stream_options:
-          $ref: '#/components/schemas/StreamOptions'
+          description: Streaming options; null is the same as leaving it out.
+          oneOf:
+            - $ref: '#/components/schemas/StreamOptions'
+            - type: 'null'
         temperature:
           type: [number, 'null']
           description: As in the OpenAI API.
@@ -3017,7 +3020,9 @@ components:
           items:
             $ref: '#/components/schemas/ChatCompletionChunkChoice'
         usage:
-          description: Only on the last chunk, when `stream_options.include_usage` is true.
+          description: >-
+            Present only when stream_options.include_usage is true: null on every chunk except
+            the last, which carries the whole call's usage (as in the OpenAI API).
           oneOf:
             - $ref: '#/components/schemas/CompletionUsage'
             - type: 'null'
@@ -3273,7 +3278,7 @@ components:
           enum: [available, unavailable]
         loaded_models:
           type: array
-          description: Models loaded in the engine now.
+          description: Models loaded in the engine now that the caller may use; others are not shown.
           items:
             type: string
         queue_depth:

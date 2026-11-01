@@ -181,9 +181,30 @@ type identityKey struct{}
 // cannot reach it otherwise) and when the gateway received it, on the real clock; used only to
 // measure overhead.
 type reqState struct {
-	r       *http.Request
-	started time.Time
+	r           *http.Request
+	started     time.Time
+	wroteHeader bool // the status line went out; set by headerWriter
 }
+
+// headerWriter records that the response has started, so a late failure does not append a JSON
+// error to a body that is already on the wire.
+type headerWriter struct {
+	http.ResponseWriter
+	st *reqState
+}
+
+func (h *headerWriter) WriteHeader(code int) {
+	h.st.wroteHeader = true
+	h.ResponseWriter.WriteHeader(code)
+}
+
+func (h *headerWriter) Write(p []byte) (int, error) {
+	h.st.wroteHeader = true
+	return h.ResponseWriter.Write(p)
+}
+
+// Unwrap lets http.ResponseController reach the inner writer to flush it.
+func (h *headerWriter) Unwrap() http.ResponseWriter { return h.ResponseWriter }
 
 func stateOf(ctx context.Context) *reqState {
 	st, _ := ctx.Value(stateKey{}).(*reqState)
@@ -205,18 +226,21 @@ func onConsumerPath(r *http.Request) bool {
 }
 
 func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
+	var st *reqState
 	defer func() {
 		if p := recover(); p != nil {
 			// A panic value can hold request bytes; log its type only.
 			g.log.ErrorContext(r.Context(), "gateway: handler panic", "panic_type", typeName(p))
-			writeError(w, internalError())
+			if st == nil || !st.wroteHeader {
+				writeError(w, internalError())
+			}
 		}
 	}()
 	if !onConsumerPath(r) {
 		writeError(w, newErr(http.StatusNotFound, typeInvalidRequest, "", "", "No such endpoint."))
 		return
 	}
-	st := &reqState{started: time.Now()}
+	st = &reqState{started: time.Now()}
 	r = r.WithContext(context.WithValue(r.Context(), stateKey{}, st))
 	st.r = r
 	if err := g.cfg.Limits.LimitBody(r.Context(), r); err != nil {
@@ -227,7 +251,7 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, e)
 		return
 	}
-	g.srv.ServeHTTP(stream.NewFlushWriter(w), r)
+	g.srv.ServeHTTP(stream.NewFlushWriter(&headerWriter{ResponseWriter: w, st: st}), r)
 }
 
 func (g *Gateway) notFound(w http.ResponseWriter, _ *http.Request) {
@@ -253,8 +277,14 @@ func (g *Gateway) errorHandler(ctx context.Context, w http.ResponseWriter, _ *ht
 		e = decodeError(err)
 		g.log.InfoContext(ctx, "gateway: request refused at decoding", "status", e.status, "code", e.code)
 	default:
-		// A response ogen could not encode or write. If the status line already went out,
-		// net/http ignores the second write.
+		// A response ogen could not encode or write. If the status line already went out, the
+		// body is on the wire: add nothing, and stay quiet when the client has left.
+		if st := stateOf(ctx); st != nil && st.wroteHeader {
+			if ctx.Err() == nil {
+				g.log.WarnContext(ctx, "gateway: response could not be written")
+			}
+			return
+		}
 		g.log.WarnContext(ctx, "gateway: response could not be written")
 		e = internalError()
 	}

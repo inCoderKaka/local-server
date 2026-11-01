@@ -1,8 +1,9 @@
 // Package gateway is the gateway module; see docs/modules/gateway.md. It serves the consumer
-// API (req_001 D-10, D-32, D-33): the OpenAI-compatible POST /v1/chat/completions and
-// POST /v1/embeddings (not streamed), and the ledger endpoints GET
-// /v1/keys, GET /v1/ledger/checkpoint and GET /v1/usage/{usage_id}/proof. Every other /v1
-// operation answers 501 until its ticket lands.
+// API (req_001 D-10, D-32, D-33): the OpenAI-compatible POST /v1/chat/completions (streamed with
+// stream: true), POST /v1/embeddings and GET /v1/models, the host status endpoints GET /v1/health
+// and GET /v1/capabilities (D-05), and the ledger endpoints GET /v1/keys, GET
+// /v1/ledger/checkpoint and GET /v1/usage/{usage_id}/proof. Every other /v1 operation answers 501
+// until its ticket lands.
 //
 // # Pipeline
 //

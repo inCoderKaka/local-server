@@ -257,6 +257,21 @@ func TestCapabilitiesUnrestrictedAndDefaults(t *testing.T) {
 	}
 }
 
+// The text "null" is not an array: policy refuses it as an invalid grant (I-113), so capabilities
+// must not report it as "unrestricted".
+func TestCapabilitiesRefusesNullAllowedPropertiesText(t *testing.T) {
+	e := newEnv(t, func(o *envOpts) {
+		o.version = func(models []grantsModel) grantsNewVersion {
+			props := `null`
+			return grantsNewVersion{Models: models, AllowedProperties: &props}
+		}
+	})
+	r := e.do(http.MethodGet, "/v1/capabilities", "")
+	if r.Code < 500 {
+		t.Fatalf("status = %d, want 5xx: %s", r.Code, r.Body.String())
+	}
+}
+
 func TestCapabilitiesRemainingQuota(t *testing.T) {
 	e := newEnv(t, func(o *envOpts) {
 		o.version = func(models []grantsModel) grantsNewVersion {

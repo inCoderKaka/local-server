@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/inCoderKaka/local-server/internal/engine"
@@ -35,7 +36,8 @@ type Options struct {
 	IncludeUsage bool
 	// FirstToken, Idle and Total are the three timeouts (gateway.stream_*); 0 means none.
 	FirstToken, Idle, Total time.Duration
-	// Release frees the scheduler slot. It runs once, when the engine call has ended.
+	// Release frees the scheduler slot. It runs once: when the engine call ends, or when the total
+	// timeout expires, whichever comes first, so a client that stops reading cannot hold the slot.
 	Release func()
 	// Finish meters the call and returns its signed receipt. It runs once, after the engine call
 	// ended. For an aborted call the receipt is dropped. An error means no receipt could be
@@ -72,6 +74,7 @@ type Stream struct {
 	err     error // returned by Read once buf is drained
 
 	ended, finalized, closed bool
+	release                  sync.Once
 }
 
 // Open starts the engine call with open, under a context that the timeouts and the client's
@@ -82,7 +85,10 @@ func Open(ctx context.Context, o Options, open func(context.Context) (engine.Cha
 	ectx, cancel := context.WithCancelCause(ctx)
 	s := &Stream{o: o, parent: ctx, ectx: ectx, cancel: cancel}
 	if o.Total > 0 {
-		s.total = time.AfterFunc(o.Total, func() { cancel(&TimeoutError{Kind: TimeoutTotal}) })
+		s.total = time.AfterFunc(o.Total, func() {
+			cancel(&TimeoutError{Kind: TimeoutTotal})
+			s.releaseSlot()
+		})
 	}
 	if o.Idle > 0 {
 		s.idle = time.AfterFunc(o.Idle, func() { cancel(&TimeoutError{Kind: TimeoutIdle}) })
@@ -101,8 +107,8 @@ func Open(ctx context.Context, o Options, open func(context.Context) (engine.Cha
 			err = engine.Errorf(engine.CodeEngineError, nil, "the stream ended without a final chunk")
 		}
 	}
-	if first != nil {
-		first.Stop()
+	if first != nil && !first.Stop() && err == nil {
+		err = &TimeoutError{Kind: TimeoutFirstToken} // fired as the first chunk arrived; ectx is already cancelled
 	}
 	if err != nil {
 		err = s.reason(err)
@@ -141,8 +147,13 @@ func (s *Stream) endEngine() {
 	if s.src != nil {
 		_ = s.src.Close()
 	}
+	s.releaseSlot()
+}
+
+// releaseSlot runs Options.Release, once. The total timer calls it too, from its own goroutine.
+func (s *Stream) releaseSlot() {
 	if s.o.Release != nil {
-		s.o.Release()
+		s.release.Do(s.o.Release)
 	}
 }
 
@@ -226,16 +237,21 @@ func (s *Stream) body() {
 	if ch.Done {
 		s.last = ch
 		s.endEngine()
-		reason := "stop"
-		if ch.DoneReason == "length" {
-			reason = "length"
-		}
+		reason := finishReason(ch.DoneReason)
 		s.buf = append(s.buf, s.chunk(&delta{}, &reason)...)
 		if s.o.IncludeUsage {
 			s.buf = append(s.buf, s.usageChunk(ch)...)
 		}
 		s.state = stFinish
 	}
+}
+
+// finishReason maps the engine's done reason to the OpenAI finish reason.
+func finishReason(done string) string {
+	if done == "length" {
+		return "length"
+	}
+	return "stop"
 }
 
 func (s *Stream) recv() (engine.ChatChunk, error) {
@@ -280,7 +296,7 @@ func (s *Stream) fail(err error) {
 func (s *Stream) conclude() {
 	s.finalized = true
 	rc, err := s.finish(Result{Outcome: ledger.OutcomeCompleted, PromptTokens: int64(s.last.PromptTokens),
-		CompletionTokens: int64(s.last.CompletionTokens), FinishReason: s.last.DoneReason})
+		CompletionTokens: int64(s.last.CompletionTokens), FinishReason: finishReason(s.last.DoneReason)})
 	if err != nil { // no receipt can be signed: no answer goes out without one (D-16, D-51)
 		s.buf = append(s.buf, sse(s.o.ErrorEvent(err))...)
 	} else {

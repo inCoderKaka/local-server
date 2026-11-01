@@ -1282,8 +1282,9 @@ type ChatCompletionRequest struct {
 	// Up to a few sequences where generation stops.
 	Stop OptChatCompletionRequestStop `json:"stop"`
 	// Stream the response as server-sent events.
-	Stream        OptNilBool       `json:"stream"`
-	StreamOptions OptStreamOptions `json:"stream_options"`
+	Stream OptNilBool `json:"stream"`
+	// Streaming options; null is the same as leaving it out.
+	StreamOptions OptNilStreamOptions `json:"stream_options"`
 	// As in the OpenAI API.
 	Temperature OptNilFloat64 `json:"temperature"`
 	// As in the OpenAI API.
@@ -1343,7 +1344,7 @@ func (s *ChatCompletionRequest) GetStream() OptNilBool {
 }
 
 // GetStreamOptions returns the value of StreamOptions.
-func (s *ChatCompletionRequest) GetStreamOptions() OptStreamOptions {
+func (s *ChatCompletionRequest) GetStreamOptions() OptNilStreamOptions {
 	return s.StreamOptions
 }
 
@@ -1413,7 +1414,7 @@ func (s *ChatCompletionRequest) SetStream(val OptNilBool) {
 }
 
 // SetStreamOptions sets the value of StreamOptions.
-func (s *ChatCompletionRequest) SetStreamOptions(val OptStreamOptions) {
+func (s *ChatCompletionRequest) SetStreamOptions(val OptNilStreamOptions) {
 	s.StreamOptions = val
 }
 
@@ -3206,7 +3207,7 @@ type HostHealth struct {
 	SharingResumesAt OptNilDateTime `json:"sharing_resumes_at"`
 	// Whether the engine answers.
 	EngineState HostHealthEngineState `json:"engine_state"`
-	// Models loaded in the engine now.
+	// Models loaded in the engine now that the caller may use; others are not shown.
 	LoadedModels []string `json:"loaded_models"`
 	// Requests waiting for admission.
 	QueueDepth HostHealthQueueDepth `json:"queue_depth"`
@@ -6531,6 +6532,74 @@ func (o OptNilRateLimit) Or(d RateLimit) RateLimit {
 	return d
 }
 
+// NewOptNilStreamOptions returns new OptNilStreamOptions with value set to v.
+func NewOptNilStreamOptions(v StreamOptions) OptNilStreamOptions {
+	return OptNilStreamOptions{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNilStreamOptions is optional nullable StreamOptions.
+type OptNilStreamOptions struct {
+	Value StreamOptions
+	Set   bool
+	Null  bool
+}
+
+// IsSet returns true if OptNilStreamOptions was set.
+func (o OptNilStreamOptions) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNilStreamOptions) Reset() {
+	var v StreamOptions
+	o.Value = v
+	o.Set = false
+	o.Null = false
+}
+
+// SetTo sets value to v.
+func (o *OptNilStreamOptions) SetTo(v StreamOptions) {
+	o.Set = true
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o OptNilStreamOptions) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *OptNilStreamOptions) SetToNull() {
+	o.Set = true
+	o.Null = true
+	var v StreamOptions
+	o.Value = v
+}
+
+// IsEmpty returns true if the field was omitted from the payload (not Set and not Null).
+func (o OptNilStreamOptions) IsEmpty() bool {
+	return !o.Set && !o.Null
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNilStreamOptions) Get() (v StreamOptions, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNilStreamOptions) Or(d StreamOptions) StreamOptions {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptNilString returns new OptNilString with value set to v.
 func NewOptNilString(v string) OptNilString {
 	return OptNilString{
@@ -6913,52 +6982,6 @@ func (o OptResponseFormatJSONSchemaJSONSchemaSchema) Get() (v ResponseFormatJSON
 
 // Or returns value if set, or given parameter if does not.
 func (o OptResponseFormatJSONSchemaJSONSchemaSchema) Or(d ResponseFormatJSONSchemaJSONSchemaSchema) ResponseFormatJSONSchemaJSONSchemaSchema {
-	if v, ok := o.Get(); ok {
-		return v
-	}
-	return d
-}
-
-// NewOptStreamOptions returns new OptStreamOptions with value set to v.
-func NewOptStreamOptions(v StreamOptions) OptStreamOptions {
-	return OptStreamOptions{
-		Value: v,
-		Set:   true,
-	}
-}
-
-// OptStreamOptions is optional StreamOptions.
-type OptStreamOptions struct {
-	Value StreamOptions
-	Set   bool
-}
-
-// IsSet returns true if OptStreamOptions was set.
-func (o OptStreamOptions) IsSet() bool { return o.Set }
-
-// Reset unsets value.
-func (o *OptStreamOptions) Reset() {
-	var v StreamOptions
-	o.Value = v
-	o.Set = false
-}
-
-// SetTo sets value to v.
-func (o *OptStreamOptions) SetTo(v StreamOptions) {
-	o.Set = true
-	o.Value = v
-}
-
-// Get returns value and boolean that denotes whether value was set.
-func (o OptStreamOptions) Get() (v StreamOptions, ok bool) {
-	if !o.Set {
-		return v, false
-	}
-	return o.Value, true
-}
-
-// Or returns value if set, or given parameter if does not.
-func (o OptStreamOptions) Or(d StreamOptions) StreamOptions {
 	if v, ok := o.Get(); ok {
 		return v
 	}

@@ -281,18 +281,18 @@ func TestIdleTimeoutIsResetByEveryChunk(t *testing.T) {
 	noLeak(t)
 	h, sc := &harness{}, newScript()
 	o := h.opts()
-	o.Idle = 150 * time.Millisecond
+	o.Idle = 400 * time.Millisecond
 	sc.word("a")
 	st, err := stream.Open(context.Background(), o, sc.open)
 	if err != nil {
 		t.Fatal(err)
 	}
 	go func() {
-		for range 4 {
-			time.Sleep(60 * time.Millisecond)
+		for range 6 {
+			time.Sleep(100 * time.Millisecond)
 			sc.word("w")
 		}
-		sc.done(1, 5, "stop")
+		sc.done(1, 7, "stop")
 	}()
 	if body := readAll(t, st); !strings.Contains(body, ": ls-receipt JWS.completed") {
 		t.Fatalf("a slow but steady stream was cut: %s", body)
@@ -340,6 +340,33 @@ func TestTotalTimeoutEndsAStreamThatKeepsTalking(t *testing.T) {
 		t.Fatalf("results = %+v", res)
 	}
 	st.Close()
+}
+
+func TestTotalTimeoutReleasesTheSlotOfAClientThatStopsReading(t *testing.T) {
+	noLeak(t)
+	h, sc := &harness{}, newScript()
+	o := h.opts()
+	o.Total = 100 * time.Millisecond
+	sc.word("a")
+	st, err := stream.Open(context.Background(), o, sc.open)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if rel, _ := h.snapshot(); rel == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("slot not released after the total timeout although nothing was read")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	st.Close()
+	rel, res := h.snapshot()
+	if rel != 1 || len(res) != 1 || res[0].Outcome != ledger.OutcomeAborted {
+		t.Fatalf("released %d, results %+v; want 1, aborted", rel, res)
+	}
 }
 
 func TestEngineErrorMidStream(t *testing.T) {
@@ -397,6 +424,27 @@ func TestFinishFailureEndsWithAnErrorAndNoReceipt(t *testing.T) {
 	body := readAll(t, st)
 	if strings.Contains(body, "ls-receipt") || !strings.Contains(body, `"message":"failed"`) || !strings.HasSuffix(body, "data: [DONE]\n\n") {
 		t.Fatalf("body = %s", body)
+	}
+	st.Close()
+}
+
+func TestEngineErrorMidStreamWithAnUnsignableReceiptEndsWithNoReceipt(t *testing.T) {
+	noLeak(t)
+	h, sc := &harness{}, newScript()
+	h.finishFn = func(r stream.Result) (string, error) { return "", errors.New("cannot sign") }
+	sc.word("a")
+	st, err := stream.Open(context.Background(), h.opts(), sc.open)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc.in <- item{err: engine.Errorf(engine.CodeEngineError, nil, "broke")}
+	body := readAll(t, st)
+	if strings.Contains(body, "ls-receipt") || strings.Count(body, `"message":"failed"`) != 1 || !strings.HasSuffix(body, "data: [DONE]\n\n") {
+		t.Fatalf("body = %s", body)
+	}
+	rel, res := h.snapshot()
+	if rel != 1 || !slices.Equal(res, []stream.Result{{Outcome: ledger.OutcomeFailed, CompletionTokens: 1}}) {
+		t.Fatalf("released %d, results %+v", rel, res)
 	}
 	st.Close()
 }

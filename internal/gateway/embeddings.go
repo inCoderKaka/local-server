@@ -47,7 +47,7 @@ func (g *Gateway) CreateEmbedding(ctx context.Context, req *api.EmbeddingRequest
 	tk.Release()
 	if err != nil {
 		if ctx.Err() != nil { // the client went away while the engine ran (req_001 D-38 aborted)
-			g.meterAborted(ctx, c, ledger.OpEmbeddings, in.model, 0, startedAt)
+			g.meterAborted(ctx, c, ledger.NewUsageID(), ledger.OpEmbeddings, in.model, 0, startedAt)
 		}
 		var ee *engine.Error
 		if errors.As(err, &ee) && ee.Code == engine.CodeContextTooLong {

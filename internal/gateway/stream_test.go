@@ -276,6 +276,25 @@ func TestStreamedChatWithoutIncludeUsage(t *testing.T) {
 	}
 }
 
+// OpenAI publishes stream_options as nullable: null is the same as leaving it out.
+func TestNullStreamOptionsIsTheSameAsOmitted(t *testing.T) {
+	e := newEnv(t)
+	r := e.chat(`{"model":"` + chatModel + `","stream":false,"stream_options":null,"messages":[{"role":"user","content":"hi"}]}`)
+	statusIs(t, r, http.StatusOK)
+	if strings.HasPrefix(r.Body.String(), "data:") || r.json()["object"] != "chat.completion" {
+		t.Fatalf("not a plain completion: %s", r.Body.String())
+	}
+	r = e.chat(`{"model":"` + chatModel + `","stream":true,"stream_options":null,"messages":[{"role":"user","content":"hi"}]}`)
+	statusIs(t, r, http.StatusOK)
+	evs := sseEvents(t, r.Body.String())
+	if n := len(evs); n < 3 || evs[n-1] != "data: [DONE]" {
+		t.Fatalf("events = %q", evs)
+	}
+	if strings.Contains(r.Body.String(), `"usage"`) {
+		t.Fatalf("usage chunk without include_usage: %s", r.Body.String())
+	}
+}
+
 func TestStreamOptionsNeedStream(t *testing.T) {
 	e := newEnv(t)
 	for _, body := range []string{
@@ -416,7 +435,8 @@ func TestStreamClientDisconnectCancelsTheEngineAndMetersAborted(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	resp := postStream(t, ctx, srv.URL, e.key, streamChatBody)
 	br := bufio.NewReader(resp.Body)
-	for range 3 { // role and two words
+	role := readEvent(t, br)
+	for range 2 { // two words
 		readEvent(t, br)
 	}
 	cancel()
@@ -424,6 +444,13 @@ func TestStreamClientDisconnectCancelsTheEngineAndMetersAborted(t *testing.T) {
 	rows := e.waitRows(1)
 	if len(rows) != 1 || rows[0] != (useRow{ledger.OutcomeAborted, 0, 2}) {
 		t.Fatalf("rows = %+v, want one aborted row with 2 completion tokens", rows)
+	}
+	var rowID string
+	if err := e.db.Reader().QueryRow(context.Background(), `SELECT id FROM use_record`).Scan(&rowID); err != nil {
+		t.Fatal(err)
+	}
+	if id := chunkOf(t, role)["id"]; id != "chatcmpl-"+rowID {
+		t.Fatalf("chunk id = %v, want chatcmpl-%s (the aborted record's id)", id, rowID)
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for !e.eng.chatCtxDone() && time.Now().Before(deadline) {
@@ -436,6 +463,10 @@ func TestStreamClientDisconnectCancelsTheEngineAndMetersAborted(t *testing.T) {
 	e.eng.wrapChat = nil
 	if r := e.chat(okChat); r.Code != http.StatusOK {
 		t.Fatalf("after the disconnect: %d %s", r.Code, r.Body.String())
+	}
+	srv.Close() // waits for the handlers, so every log line of the disconnected request is in
+	if logs := e.tel.logText(); strings.Contains(logs, "response could not be written") {
+		t.Fatalf("a client disconnect was logged as a write failure: %s", logs)
 	}
 }
 

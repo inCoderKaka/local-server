@@ -137,9 +137,10 @@ func (g *Gateway) meter(ctx context.Context, c call, u ledger.Usage) (metered, e
 // meterAborted meters a call the client abandoned while the engine ran (req_001 D-38, D-39). The
 // prompt is not counted: the engine reports its exact count only on the final chunk, and an
 // estimate is never billed. Completion tokens are the content chunks received, one token each on
-// Ollama's stream. The receipt is dropped, because the client is gone.
-func (g *Gateway) meterAborted(ctx context.Context, c call, op, model string, completionTokens int64, startedAt time.Time) {
-	m, err := g.meterPartial(ctx, c, ledger.NewUsageID(), op, model, ledger.OutcomeAborted, completionTokens, startedAt)
+// Ollama's stream. The caller supplies the usage id (a streamed call keeps the id its chunks
+// carry). The receipt is dropped, because the client is gone.
+func (g *Gateway) meterAborted(ctx context.Context, c call, usageID, op, model string, completionTokens int64, startedAt time.Time) {
+	m, err := g.meterPartial(ctx, c, usageID, op, model, ledger.OutcomeAborted, completionTokens, startedAt)
 	if err != nil {
 		return // meter already logged, counted and emitted the failure
 	}

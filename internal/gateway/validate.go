@@ -40,7 +40,7 @@ func validateChat(req *api.ChatCompletionRequest) (chatInput, *apiError) {
 	}
 	in.model = req.Model
 	in.stream = req.Stream.IsSet() && !req.Stream.Null && req.Stream.Value
-	if req.StreamOptions.IsSet() {
+	if req.StreamOptions.IsSet() && !req.StreamOptions.Null {
 		if !in.stream {
 			return in, invalidParam("stream_options", "stream_options is only allowed with stream: true.")
 		}

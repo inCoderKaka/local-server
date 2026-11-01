@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/auth"
+	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/host"
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
@@ -113,6 +115,9 @@ func (g *Gateway) GetHealth(ctx context.Context) (*api.HostHealth, error) {
 	defer cancel()
 	loaded, lerr := g.cfg.Engine.Loaded(ectx)
 	if lerr != nil {
+		if ctx.Err() == nil {
+			g.log.WarnContext(ctx, "gateway: model engine did not answer the health check", "err", lerr)
+		}
 		out.EngineState = api.HostHealthEngineStateUnavailable
 		return out, nil
 	}
@@ -121,13 +126,26 @@ func (g *Gateway) GetHealth(ctx context.Context) (*api.HostHealth, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, l := range loaded {
-		if slices.ContainsFunc(ms, func(m grantedModel) bool { return m.name == l.Name }) {
-			out.LoadedModels = append(out.LoadedModels, l.Name)
+	for _, m := range ms {
+		if slices.ContainsFunc(loaded, func(l engine.LoadedModel) bool { return sameModel(m.name, l.Name) }) {
+			out.LoadedModels = append(out.LoadedModels, m.name)
 		}
 	}
 	return out, nil
 }
+
+// withTag returns a model name with its tag, adding Ollama's default tag when it has none. A colon
+// before the last slash is a registry port (host:5000/ns/model), not a tag.
+func withTag(n string) string {
+	if strings.LastIndex(n, ":") > strings.LastIndex(n, "/") {
+		return n
+	}
+	return n + ":latest"
+}
+
+// sameModel reports whether two names are the same model: the engine reports tagged names
+// (llama3.2:latest), the catalogue holds whatever the host entered.
+func sameModel(a, b string) bool { return withTag(a) == withTag(b) }
 
 // GetCapabilities implements GET /v1/capabilities: the caller's models, context and output
 // limits, concurrency, allowed request properties and remaining quota, after the key's
@@ -180,7 +198,7 @@ func (g *Gateway) GetCapabilities(ctx context.Context) (*api.Capabilities, error
 	out.Concurrency = clampInt(max(conc, 1))
 	if id.Limits.AllowedProperties != nil {
 		props := []string{}
-		if err := json.Unmarshal([]byte(*id.Limits.AllowedProperties), &props); err != nil {
+		if err := json.Unmarshal([]byte(*id.Limits.AllowedProperties), &props); err != nil || props == nil {
 			return nil, fmt.Errorf("gateway: allowed properties of grant version %s are not a JSON array", id.GrantVersionID)
 		}
 		out.AllowedRequestProperties = props
