@@ -28,6 +28,14 @@
 // the file) and ops_migration_run. A changed or missing applied file, or a new file that
 // is older than an applied one, stops startup.
 //
+// # Read-only access
+//
+// OpenReadOnly opens an existing database for tools that must not change it (doctor): no
+// migration, no catalog sync, no writer goroutine, and a missing file is an error, never
+// created. It refuses a database whose recorded migrations differ from the modules it is
+// given (a *SchemaMismatchError). Reader works; Write returns ErrReadOnly. SQLite may leave
+// empty -wal and -shm index files next to a WAL database it read.
+//
 // # Catalog
 //
 // Migration files carry the plain-language comment, classification and billable flag of

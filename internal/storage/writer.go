@@ -94,6 +94,9 @@ type job struct {
 // it joined has committed. If fn returns an error or panics, everything it wrote through
 // the Tx is rolled back and Write returns that error. See the package comment for rules.
 func (db *DB) Write(ctx context.Context, fn func(*Tx) error) error {
+	if db.readOnly {
+		return ErrReadOnly
+	}
 	j := &job{ctx: ctx, fn: fn, done: make(chan error, 1)}
 	select {
 	case <-db.quit:

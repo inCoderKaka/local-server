@@ -100,15 +100,17 @@ func DefaultConfig(path string, modules ...Module) Config {
 
 // DB is the open database: one writer, a read pool.
 type DB struct {
-	cfg    Config
-	write  *sql.DB
-	conn   *sql.Conn // the only write connection, owned by the writer goroutine
-	read   *sql.DB
-	mods   []Module
-	jobs   chan *job
-	quit   chan struct{}
-	exited chan struct{}
-	once   sync.Once
+	cfg   Config
+	write *sql.DB
+	conn  *sql.Conn // the only write connection, owned by the writer goroutine
+	read  *sql.DB
+	mods  []Module
+	// readOnly marks a database from OpenReadOnly: only read is set.
+	readOnly bool
+	jobs     chan *job
+	quit     chan struct{}
+	exited   chan struct{}
+	once     sync.Once
 }
 
 func dsn(path string, busy time.Duration, readOnly bool, mode string) string {
@@ -127,6 +129,15 @@ func dsn(path string, busy time.Duration, readOnly bool, mode string) string {
 // uriPathEscaper escapes what would otherwise change the path: modernc splits the DSN at the
 // first "?", and SQLite decodes %HH and stops the path at "#".
 var uriPathEscaper = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23")
+
+// withOwn returns the storage module's own migrations followed by modules.
+func withOwn(modules []Module) ([]Module, error) {
+	sub, err := fs.Sub(ownMigrations, "migrations")
+	if err != nil {
+		return nil, err
+	}
+	return append([]Module{{Name: "storage", Prefixes: []string{"ops_", "syn_"}, Migrations: sub}}, modules...), nil
+}
 
 // Open opens the database, applies the migrations, rebuilds the data catalog and starts
 // the writer goroutine. Call Close when done.
@@ -157,11 +168,10 @@ func Open(ctx context.Context, cfg Config) (*DB, error) {
 	} else if !errors.Is(err, fs.ErrExist) {
 		return nil, fmt.Errorf("storage: create %s: %w", cfg.Path, err)
 	}
-	sub, err := fs.Sub(ownMigrations, "migrations")
+	mods, err := withOwn(cfg.Modules)
 	if err != nil {
 		return nil, err
 	}
-	mods := append([]Module{{Name: "storage", Prefixes: []string{"ops_", "syn_"}, Migrations: sub}}, cfg.Modules...)
 
 	w, err := sql.Open("sqlite", dsn(cfg.Path, cfg.BusyTimeout, false, cfg.Synchronous))
 	if err != nil {
@@ -204,6 +214,10 @@ func Open(ctx context.Context, cfg Config) (*DB, error) {
 func (db *DB) Close() error {
 	var err error
 	db.once.Do(func() {
+		if db.readOnly {
+			err = db.read.Close()
+			return
+		}
 		close(db.quit)
 		<-db.exited
 		err = errors.Join(db.conn.Close(), db.write.Close(), db.read.Close())

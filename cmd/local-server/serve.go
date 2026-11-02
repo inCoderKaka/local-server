@@ -1,0 +1,250 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/inCoderKaka/local-server/internal/engine"
+	"github.com/inCoderKaka/local-server/internal/engine/fake"
+	"github.com/inCoderKaka/local-server/internal/engine/ollama"
+	"github.com/inCoderKaka/local-server/internal/hostkeys"
+	"github.com/inCoderKaka/local-server/internal/settings"
+	"github.com/inCoderKaka/local-server/internal/telemetry/slogprom"
+)
+
+// Engine kinds of serve --engine.
+const (
+	engineOllama = "ollama"
+	engineFake   = "fake"
+)
+
+// errFirstRunNeedsTerminal is why a first run with no terminal stops (req_001 D-101).
+var errFirstRunNeedsTerminal = errors.New("this is the first run, and it must show the one-time recovery code on a terminal, but stderr is not one; " +
+	"run `local-server serve` once in a terminal (nothing was created: no host, no key); after that it can run under a service manager")
+
+func (a *app) serve(ctx context.Context, args []string) int {
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.SetOutput(a.stderr)
+	dataDirFlag := fs.String("data-dir", "", "data directory (default: $LS_DATA_DIR, else local-server in the user configuration directory)")
+	engineKind := fs.String("engine", engineOllama, "engine to share: ollama, or fake for local runs and demos")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() > 0 || (*engineKind != engineOllama && *engineKind != engineFake) {
+		fmt.Fprintln(a.stderr, "local-server serve: --engine must be ollama or fake, and no arguments are accepted")
+		return 2
+	}
+	dir, err := a.dataDir(*dataDirFlag)
+	if err != nil {
+		fmt.Fprintf(a.stderr, "local-server: %v\n", err)
+		return 1
+	}
+	if err := a.runServe(ctx, dir, *engineKind); err != nil {
+		fmt.Fprintf(a.stderr, "local-server: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// runServe is the startup order of req_001 D-39 F9: data directory, database and migrations,
+// settings, keys, checks, listeners, workers; and the reverse on shutdown.
+func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err error) {
+	// Before the database opens, there are no log settings: plain stderr.
+	boot := slog.New(slog.NewTextHandler(a.stderr, nil))
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return fmt.Errorf("create the data directory: %w", err)
+	}
+	boot.Info("opening the database", "data_dir", dataDir)
+	d, err := openDatabase(ctx, filepath.Join(dataDir, dbFileName))
+	if err != nil {
+		return fmt.Errorf("open the database: %w", err)
+	}
+	defer d.db.Close() // last: workers and servers are done with it by then
+
+	cfg, err := loadStartup(ctx, d.st)
+	if err != nil {
+		return err
+	}
+	// From here logs go to the rotating file, with the level and rotation from the settings.
+	tel, err := slogprom.New(slogprom.Config{
+		Level: cfg.LogLevel,
+		File: slogprom.FileConfig{Path: filepath.Join(dataDir, filepath.FromSlash(logFileName)),
+			MaxSizeMB: cfg.LogMaxSizeMB, MaxAgeDays: cfg.LogMaxAgeDays},
+		SinkErrorInterval: sinkErrorInterval(d),
+		Stderr:            a.stderr,
+	})
+	if err != nil {
+		return err
+	}
+	defer tel.Close()
+	log := tel.Logger()
+
+	keys, err := a.openKeys(ctx, d, cfg, dataDir)
+	if err != nil {
+		return err
+	}
+
+	var eng engine.Engine
+	switch engineKind {
+	case engineFake:
+		eng = fake.New()
+	default:
+		ad := ollama.New(ollama.Config{BaseURL: cfg.OllamaURL})
+		defer ad.Close()
+		if err := a.checkOllama(ctx, ad, cfg, log); err != nil {
+			return err
+		}
+		eng = ad
+	}
+
+	sv, err := wire(d, keys, eng, tel)
+	if err != nil {
+		return fmt.Errorf("wire modules: %w", err)
+	}
+
+	consumerLn, err := net.Listen("tcp", cfg.ConsumerListen)
+	if err != nil {
+		return fmt.Errorf("listen on %s (setting %s): %w", cfg.ConsumerListen, keyConsumerListen, err)
+	}
+	metricsLn, err := net.Listen("tcp", cfg.MetricsListen)
+	if err != nil {
+		consumerLn.Close()
+		return fmt.Errorf("listen on %s (setting %s): %w", cfg.MetricsListen, keyMetricsListen, err)
+	}
+	httpLog := slog.NewLogLogger(log.Handler(), slog.LevelWarn)
+	consumer := &http.Server{Handler: sv.consumer, ReadHeaderTimeout: cfg.ReadHeaderTimeout, ErrorLog: httpLog}
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", tel.MetricsHandler())
+	metrics := &http.Server{Handler: mux, ReadHeaderTimeout: cfg.ReadHeaderTimeout, ErrorLog: httpLog}
+
+	serveErr := make(chan error, 2)
+	for _, s := range []struct {
+		srv *http.Server
+		ln  net.Listener
+	}{{consumer, consumerLn}, {metrics, metricsLn}} {
+		go func() {
+			if err := s.srv.Serve(s.ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				serveErr <- err
+			}
+		}()
+	}
+	fmt.Fprintf(a.stderr, "local-server %s: consumer API on http://%s, metrics on http://%s/metrics; press Ctrl-C to stop\n",
+		version, consumerLn.Addr(), metricsLn.Addr())
+	log.Info("listening", "consumer", consumerLn.Addr().String(), "metrics", metricsLn.Addr().String(), "engine", engineKind)
+	if a.onListening != nil {
+		a.onListening(listening{Consumer: consumerLn.Addr().String(), Metrics: metricsLn.Addr().String()})
+	}
+
+	// Workers outlive the servers: they stop only after the requests in flight have finished.
+	workersCtx, stopWorkers := context.WithCancel(context.WithoutCancel(ctx))
+	sup := newSupervisor(tel, func() time.Duration { return cfg.RestartBackoff })
+	sv.startWorkers(workersCtx, sup, log)
+
+	select {
+	case <-ctx.Done():
+		log.Info("shutting down")
+	case err = <-serveErr:
+		log.Error("listener failed; shutting down", "error", err)
+		err = fmt.Errorf("listener failed: %w", err)
+	}
+	// Graceful: stop accepting, let requests in flight finish for the setting-owned time, then
+	// close what is left; then the workers; the deferred calls close telemetry and the database.
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
+	defer cancel()
+	for _, s := range []*http.Server{consumer, metrics} {
+		if serr := s.Shutdown(sctx); serr != nil {
+			s.Close()
+			log.Warn("shutdown timed out; connections closed", "error", serr)
+		}
+	}
+	stopWorkers()
+	sup.Wait()
+	return err
+}
+
+// sinkErrorInterval reads telemetry.log_sink_error_interval through the settings store, so a
+// change applies from the next stderr line (req_001 D-82). It falls back to slogprom's default
+// when the read fails. It must not log (slogprom holds its handler lock while calling it).
+func sinkErrorInterval(d *database) func() time.Duration {
+	return func() time.Duration {
+		v, err := d.st.Duration(context.Background(), settings.KeyLogSinkErrorInterval, "")
+		if err != nil || v <= 0 {
+			return slogprom.DefaultSinkErrorInterval
+		}
+		return v
+	}
+}
+
+// openKeys loads the master key and opens key custody. A first run is judged from the host rows
+// in the database, never from a missing key file (req_001 D-102). On a first run the recovery
+// code is printed once, straight to stderr and never through the logger, and only when stderr is
+// a terminal; with no terminal the first run stops before the master key or any host row exists
+// (req_001 D-101).
+func (a *app) openKeys(ctx context.Context, d *database, cfg startupConfig, dataDir string) (*hostkeys.Keys, error) {
+	done, err := hostkeys.Bootstrapped(ctx, d.db)
+	if err != nil {
+		return nil, fmt.Errorf("read host state: %w", err)
+	}
+	first := !done
+	if first && !a.stderrIsTerminal() {
+		return nil, errFirstRunNeedsTerminal
+	}
+	master, _, err := hostkeys.LoadMasterKey(hostkeys.MasterKeyConfig{
+		FallbackPath: filepath.Join(dataDir, masterKeyFileName),
+		Create:       first,
+		Timeout:      cfg.KeychainTimeout,
+		Keychain:     a.keychain,
+	})
+	if err != nil {
+		return nil, err
+	}
+	keys, code, err := hostkeys.Open(ctx, d.db, d.st, master)
+	if err != nil {
+		return nil, fmt.Errorf("open host keys: %w", err)
+	}
+	if code != "" {
+		if _, err := fmt.Fprintf(a.stderr, recoveryCodeNotice, code); err != nil {
+			return nil, fmt.Errorf("show the recovery code: %w", err)
+		}
+	}
+	return keys, nil
+}
+
+const recoveryCodeNotice = `
+local-server: first run. This is your recovery code:
+
+    %s
+
+It is the key to this host's data: with it you can restore a backup on another machine, and
+without it a lost machine cannot be restored. Write it down and keep it somewhere safe. It is
+not written to any log or file.
+
+`
+
+// checkOllama is the engine check of F9 step 4. An Ollama that cannot be reached is not fatal:
+// the gateway answers engine_unavailable until it is up (req_001 D-39 F1 step 9). One that is
+// older than the minimum version is, because the context-overflow guarantee of req_001 D-48
+// depends on it.
+func (a *app) checkOllama(ctx context.Context, ad *ollama.Adapter, cfg startupConfig, log *slog.Logger) error {
+	err := ad.CheckVersion(ctx)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, engine.ErrUnsupportedVersion):
+		return fmt.Errorf("%w; upgrade Ollama (setting %s is %s)", err, keyOllamaBaseURL, cfg.OllamaURL)
+	}
+	fmt.Fprintf(a.stderr, "local-server: warning: cannot reach Ollama at %s (setting %s): %v; requests get engine_unavailable until it is running\n", cfg.OllamaURL, keyOllamaBaseURL, err)
+	log.Warn("ollama not reachable at startup", "url", cfg.OllamaURL, "error", err.Error())
+	return nil
+}
