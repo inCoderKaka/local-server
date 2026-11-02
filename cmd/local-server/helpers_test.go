@@ -81,15 +81,17 @@ type testApp struct {
 	out, err *syncBuffer
 	kc       *fakeKeychain
 	dir      string
+	logDir   string // the user log folder, outside the data directory
 }
 
 func newTestApp(t *testing.T, terminal bool) *testApp {
 	t.Helper()
-	ta := &testApp{out: &syncBuffer{}, err: &syncBuffer{}, kc: &fakeKeychain{}, dir: t.TempDir()}
+	ta := &testApp{out: &syncBuffer{}, err: &syncBuffer{}, kc: &fakeKeychain{}, dir: t.TempDir(), logDir: t.TempDir()}
 	ta.app = &app{
 		stdout: ta.out, stderr: ta.err,
 		getenv:           func(string) string { return "" },
 		userConfigDir:    func() (string, error) { return filepath.Join(ta.dir, "config"), nil },
+		userLogDir:       func() (string, error) { return ta.logDir, nil },
 		stderrIsTerminal: func() bool { return terminal },
 		keychain:         ta.kc,
 	}

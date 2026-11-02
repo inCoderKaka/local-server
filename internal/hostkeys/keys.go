@@ -93,7 +93,8 @@ type Keys struct {
 // settings.Module(). masterKey is from LoadMasterKey. On the first run it creates the host
 // identity, the first receipt and checkpoint keys and the host data key, and returns the
 // recovery code; the code is shown to the host once and is not stored, so on every later
-// run the returned code is "".
+// run the returned code is "". If the host was created but loading it then fails, the code is
+// still returned with the error, because the host now exists and the code is not offered again.
 func Open(ctx context.Context, db *storage.DB, st *settings.Store, masterKey []byte) (*Keys, string, error) {
 	return open(ctx, db, st, masterKey, time.Now)
 }
@@ -117,7 +118,7 @@ func open(ctx context.Context, db *storage.DB, st *settings.Store, masterKey []b
 		return nil, "", err
 	}
 	if err := k.load(ctx); err != nil {
-		return nil, "", err
+		return nil, code, err
 	}
 	return k, code, nil
 }

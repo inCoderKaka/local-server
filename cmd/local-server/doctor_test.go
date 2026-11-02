@@ -45,13 +45,12 @@ func deadURL() string {
 	return u
 }
 
-// With no database file and no Ollama, doctor still reports (failed and warn states, no crash)
-// and creates nothing; the exit code is 1 because Ollama is unreachable.
+// With no database file, doctor still reports (warn and fail states, no crash) and creates
+// nothing. Whether Ollama answers at the default address depends on the machine, so the exit code
+// is checked only against the report's ok flag.
 func TestDoctorWithNoDatabaseAndNoOllama(t *testing.T) {
 	ta := newTestApp(t, false)
 	ta.dir = filepath.Join(ta.dir, "fresh") // does not exist
-	// With no database the Ollama address is the default one, and a developer's machine may
-	// really have Ollama there, so this test asserts only what does not depend on it.
 	code, rep := runDoctorJSON(t, ta)
 	if len(rep.Checks) == 0 {
 		t.Fatal("no checks")
@@ -134,6 +133,28 @@ func TestDoctorKeychain(t *testing.T) {
 			t.Errorf("keychain = %+v; want a warn naming %s", c, hostkeys.KeyKeychainTimeout)
 		}
 	})
+	// An existing install cannot start while the keychain is stuck (serve never falls back to the
+	// key file after a timeout), so doctor fails rather than warns.
+	t.Run("an existing install with a stuck keychain fails", func(t *testing.T) {
+		ta := newTestApp(t, true)
+		seed(t, ta.dir, merge(loopbackAny, map[string]string{keyOllamaBaseURL: ollamaStub(t, "0.12.6").URL, hostkeys.KeyKeychainTimeout: "30ms"}))
+		if code := startServe(t, ta, "--engine", "fake").stop(); code != 0 {
+			t.Fatalf("first run exit = %d; stderr:\n%s", code, ta.err.String())
+		}
+		block := make(chan struct{})
+		defer close(block)
+		ta.kc.mu.Lock()
+		ta.kc.block = block
+		ta.kc.mu.Unlock()
+		code, rep := runDoctorJSON(t, ta)
+		c := rep.byName(t, "keychain")
+		if c.Status != statusFail || !strings.Contains(c.Advice, hostkeys.KeyKeychainTimeout) {
+			t.Errorf("keychain = %+v; want a fail naming %s", c, hostkeys.KeyKeychainTimeout)
+		}
+		if code != 1 {
+			t.Errorf("exit = %d, want 1", code)
+		}
+	})
 }
 
 func TestDoctorPorts(t *testing.T) {
@@ -144,13 +165,13 @@ func TestDoctorPorts(t *testing.T) {
 	defer busy.Close()
 	ta := newTestApp(t, false)
 	seed(t, ta.dir, map[string]string{keyOllamaBaseURL: ollamaStub(t, "0.12.6").URL,
-		keyConsumerListen: busy.Addr().String(), keyMetricsListen: "127.0.0.1:0"})
+		keyConsumerListen: busy.Addr().String(), keyAdminListen: "127.0.0.1:0"})
 	_, rep := runDoctorJSON(t, ta)
 	if c := rep.byName(t, "consumer_port"); c.Status != statusWarn || !strings.Contains(c.Advice, keyConsumerListen) {
 		t.Errorf("consumer_port = %+v; want a warn naming the setting", c)
 	}
-	if c := rep.byName(t, "metrics_port"); c.Status != statusOK {
-		t.Errorf("metrics_port = %+v", c)
+	if c := rep.byName(t, "admin_port"); c.Status != statusOK {
+		t.Errorf("admin_port = %+v", c)
 	}
 }
 
@@ -180,6 +201,42 @@ func TestDoctorSchemaMismatchFails(t *testing.T) {
 	}
 	if code != 1 || rep.OK {
 		t.Errorf("exit %d ok=%v; want exit 1", code, rep.OK)
+	}
+	// An older database is migrated by serve.
+	contains(t, "advice", c.Advice, "local-server serve", "migrate it")
+}
+
+// A database that records a higher version than this build embeds cannot be migrated by this
+// build, so doctor must not tell the host to run serve.
+func TestDoctorNewerDatabaseAdvice(t *testing.T) {
+	ta := newTestApp(t, false)
+	seed(t, ta.dir, nil)
+	d, err := openDatabase(context.Background(), filepath.Join(ta.dir, dbFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = d.db.Write(context.Background(), func(tx *storage.Tx) error {
+		_, err := tx.Exec(`INSERT INTO ops_schema_migrations (module, version, name, checksum, applied_at, duration_ms) VALUES ('storage', 9999, 'from_the_future', 'x', 0, 0)`)
+		return err
+	})
+	d.db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, rep := runDoctorJSON(t, ta)
+	c := rep.byName(t, "database")
+	if c.Status != statusFail || !strings.Contains(c.Detail, "schema differs") {
+		t.Fatalf("database = %+v; want a schema failure", c)
+	}
+	contains(t, "advice", c.Advice, "the local-server build that created this database", "cannot migrate")
+	if strings.Contains(c.Advice, "local-server serve") {
+		t.Errorf("advice %q tells the host to run serve against a newer database", c.Advice)
+	}
+	if strings.Contains(c.Detail, "to migrate") {
+		t.Errorf("detail %q tells the host to migrate a newer database", c.Detail)
+	}
+	if code != 1 {
+		t.Errorf("exit = %d, want 1", code)
 	}
 }
 

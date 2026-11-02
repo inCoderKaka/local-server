@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/inCoderKaka/local-server/internal/engine"
@@ -28,7 +30,7 @@ const (
 
 // errFirstRunNeedsTerminal is why a first run with no terminal stops (req_001 D-101).
 var errFirstRunNeedsTerminal = errors.New("this is the first run, and it must show the one-time recovery code on a terminal, but stderr is not one; " +
-	"run `local-server serve` once in a terminal (nothing was created: no host, no key); after that it can run under a service manager")
+	"run `local-server serve` once in a terminal (no host and no key were created); after that it can run under a service manager")
 
 func (a *app) serve(ctx context.Context, args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
@@ -76,10 +78,21 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 	if err != nil {
 		return err
 	}
-	// From here logs go to the rotating file, with the level and rotation from the settings.
+	// From here logs go to the rotating file in the user log folder (the data directory's logs
+	// folder when there is none), with the level and rotation from the settings (req_001 D-40).
+	logDir, logDirErr := a.userLogDir()
+	if logDirErr != nil {
+		boot.Warn("cannot find the user log folder; logging inside the data directory", "error", logDirErr)
+		logDir = filepath.Join(dataDir, fallbackLogDir)
+	}
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		return fmt.Errorf("create the log folder: %w", err)
+	}
+	logPath := filepath.Join(logDir, logFileName)
+	boot.Info("log file", "path", logPath)
 	tel, err := slogprom.New(slogprom.Config{
 		Level: cfg.LogLevel,
-		File: slogprom.FileConfig{Path: filepath.Join(dataDir, filepath.FromSlash(logFileName)),
+		File: slogprom.FileConfig{Path: logPath,
 			MaxSizeMB: cfg.LogMaxSizeMB, MaxAgeDays: cfg.LogMaxAgeDays},
 		SinkErrorInterval: sinkErrorInterval(d),
 		Stderr:            a.stderr,
@@ -100,7 +113,7 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 	case engineFake:
 		eng = fake.New()
 	default:
-		ad := ollama.New(ollama.Config{BaseURL: cfg.OllamaURL})
+		ad := ollama.New(ollamaConfig(cfg))
 		defer ad.Close()
 		if err := a.checkOllama(ctx, ad, cfg, log); err != nil {
 			return err
@@ -117,36 +130,38 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 	if err != nil {
 		return fmt.Errorf("listen on %s (setting %s): %w", cfg.ConsumerListen, keyConsumerListen, err)
 	}
-	metricsLn, err := net.Listen("tcp", cfg.MetricsListen)
+	adminLn, err := net.Listen("tcp", cfg.AdminListen)
 	if err != nil {
 		consumerLn.Close()
-		return fmt.Errorf("listen on %s (setting %s): %w", cfg.MetricsListen, keyMetricsListen, err)
+		return fmt.Errorf("listen on %s (setting %s): %w", cfg.AdminListen, keyAdminListen, err)
 	}
 	httpLog := slog.NewLogLogger(log.Handler(), slog.LevelWarn)
-	consumer := &http.Server{Handler: sv.consumer, ReadHeaderTimeout: cfg.ReadHeaderTimeout, ErrorLog: httpLog}
+	tracker := newInflight()
+	consumer := &http.Server{Handler: tracker.wrap(sv.consumer), ReadHeaderTimeout: cfg.ReadHeaderTimeout, IdleTimeout: cfg.IdleTimeout, ErrorLog: httpLog}
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", tel.MetricsHandler())
-	metrics := &http.Server{Handler: mux, ReadHeaderTimeout: cfg.ReadHeaderTimeout, ErrorLog: httpLog}
+	admin := &http.Server{Handler: loopbackHostOnly(mux), ReadHeaderTimeout: cfg.ReadHeaderTimeout, IdleTimeout: cfg.IdleTimeout, ErrorLog: httpLog}
 
 	serveErr := make(chan error, 2)
 	for _, s := range []struct {
 		srv *http.Server
 		ln  net.Listener
-	}{{consumer, consumerLn}, {metrics, metricsLn}} {
+	}{{consumer, consumerLn}, {admin, adminLn}} {
 		go func() {
 			if err := s.srv.Serve(s.ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				serveErr <- err
 			}
 		}()
 	}
-	fmt.Fprintf(a.stderr, "local-server %s: consumer API on http://%s, metrics on http://%s/metrics; press Ctrl-C to stop\n",
-		version, consumerLn.Addr(), metricsLn.Addr())
-	log.Info("listening", "consumer", consumerLn.Addr().String(), "metrics", metricsLn.Addr().String(), "engine", engineKind)
+	fmt.Fprintf(a.stderr, "local-server %s: consumer API on http://%s, admin listener on http://%s (metrics at /metrics); press Ctrl-C to stop\n",
+		version, consumerLn.Addr(), adminLn.Addr())
+	log.Info("listening", "consumer", consumerLn.Addr().String(), "admin", adminLn.Addr().String(), "engine", engineKind)
 	if a.onListening != nil {
-		a.onListening(listening{Consumer: consumerLn.Addr().String(), Metrics: metricsLn.Addr().String()})
+		a.onListening(listening{Consumer: consumerLn.Addr().String(), Admin: adminLn.Addr().String()})
 	}
 
-	// Workers outlive the servers: they stop only after the requests in flight have finished.
+	// Workers outlive the servers: they stop only after the requests in flight have finished, or
+	// the wait for the force-closed ones has run out.
 	workersCtx, stopWorkers := context.WithCancel(context.WithoutCancel(ctx))
 	sup := newSupervisor(tel, func() time.Duration { return cfg.RestartBackoff })
 	sv.startWorkers(workersCtx, sup, log)
@@ -159,18 +174,58 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 		err = fmt.Errorf("listener failed: %w", err)
 	}
 	// Graceful: stop accepting, let requests in flight finish for the setting-owned time, then
-	// close what is left; then the workers; the deferred calls close telemetry and the database.
+	// close what is left; closing does not stop their handlers, so wait for them to record their
+	// usage for up to the same time again; then the workers; the deferred calls close telemetry
+	// and the database.
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
 	defer cancel()
-	for _, s := range []*http.Server{consumer, metrics} {
-		if serr := s.Shutdown(sctx); serr != nil {
-			s.Close()
-			log.Warn("shutdown timed out; connections closed", "error", serr)
-		}
+	var wg sync.WaitGroup
+	for _, s := range []*http.Server{consumer, admin} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if serr := s.Shutdown(sctx); serr != nil {
+				s.Close()
+				log.Warn("shutdown timed out; connections closed", "error", serr)
+			}
+		}()
+	}
+	wg.Wait()
+	if drained, remaining := tracker.wait(cfg.ShutdownTimeout); !drained {
+		log.Warn("requests still running after shutdown; stopping anyway", "remaining", remaining)
 	}
 	stopWorkers()
 	sup.Wait()
 	return err
+}
+
+// loopbackHostOnly answers 403 to a request whose Host header is not localhost or a loopback IP
+// address. The admin listener is bound to loopback, but a web page on another site can rebind its
+// own host name to 127.0.0.1 and reach it from the user's browser; such a request still carries
+// the other site's name in Host. PLT-F-024's shared guard replaces this one.
+func loopbackHostOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isLoopbackHost(r.Host) {
+			http.Error(w, "forbidden: this listener answers only to localhost or a loopback address", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isLoopbackHost reports whether a Host header value, with or without a port, names localhost or
+// a loopback IP address.
+func isLoopbackHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // sinkErrorInterval reads telemetry.log_sink_error_interval through the settings store, so a
@@ -200,7 +255,7 @@ func (a *app) openKeys(ctx context.Context, d *database, cfg startupConfig, data
 	if first && !a.stderrIsTerminal() {
 		return nil, errFirstRunNeedsTerminal
 	}
-	master, _, err := hostkeys.LoadMasterKey(hostkeys.MasterKeyConfig{
+	master, src, err := hostkeys.LoadMasterKey(hostkeys.MasterKeyConfig{
 		FallbackPath: filepath.Join(dataDir, masterKeyFileName),
 		Create:       first,
 		Timeout:      cfg.KeychainTimeout,
@@ -209,14 +264,19 @@ func (a *app) openKeys(ctx context.Context, d *database, cfg startupConfig, data
 	if err != nil {
 		return nil, err
 	}
-	keys, code, err := hostkeys.Open(ctx, d.db, d.st, master)
-	if err != nil {
-		return nil, fmt.Errorf("open host keys: %w", err)
+	if first && src == hostkeys.SourceFile {
+		fmt.Fprintf(a.stderr, "local-server: the OS keychain could not be used, so the host master key is kept in the file %s, readable only by you\n", filepath.Join(dataDir, masterKeyFileName))
 	}
+	keys, code, openErr := hostkeys.Open(ctx, d.db, d.st, master)
+	// A code comes back only once the host rows are committed, so it is shown even when loading
+	// them then failed: it is not offered again.
 	if code != "" {
 		if _, err := fmt.Fprintf(a.stderr, recoveryCodeNotice, code); err != nil {
 			return nil, fmt.Errorf("show the recovery code: %w", err)
 		}
+	}
+	if openErr != nil {
+		return nil, fmt.Errorf("open host keys: %w", openErr)
 	}
 	return keys, nil
 }
@@ -242,9 +302,9 @@ func (a *app) checkOllama(ctx context.Context, ad *ollama.Adapter, cfg startupCo
 	case err == nil:
 		return nil
 	case errors.Is(err, engine.ErrUnsupportedVersion):
-		return fmt.Errorf("%w; upgrade Ollama (setting %s is %s)", err, keyOllamaBaseURL, cfg.OllamaURL)
+		return fmt.Errorf("%w; upgrade Ollama (setting %s is %s)", err, keyOllamaBaseURL, redactURL(cfg.OllamaURL))
 	}
-	fmt.Fprintf(a.stderr, "local-server: warning: cannot reach Ollama at %s (setting %s): %v; requests get engine_unavailable until it is running\n", cfg.OllamaURL, keyOllamaBaseURL, err)
-	log.Warn("ollama not reachable at startup", "url", cfg.OllamaURL, "error", err.Error())
+	fmt.Fprintf(a.stderr, "local-server: warning: cannot reach Ollama at %s (setting %s): %v; requests get engine_unavailable until it is running\n", redactURL(cfg.OllamaURL), keyOllamaBaseURL, err)
+	log.Warn("ollama not reachable at startup", "url", redactURL(cfg.OllamaURL), "error", err.Error())
 	return nil
 }

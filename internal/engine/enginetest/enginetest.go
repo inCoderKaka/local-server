@@ -375,12 +375,14 @@ func RunChatTimeouts(t *testing.T, f TimeoutFactory) {
 	t.Run("FirstTokenLongerThanFallbackIsHonored", func(t *testing.T) {
 		req := chatReq("", user("say hello please"))
 		req.FirstTokenTimeout = long
+		req.IdleTimeout = long
 		if err := run(t, f(t, stall, 0, short), req); err != nil {
 			t.Fatalf("a first-token wait inside the call's limit failed: %v", err)
 		}
 	})
 	t.Run("IdleLongerThanFallbackIsHonored", func(t *testing.T) {
 		req := chatReq("", user("say hello please"))
+		req.FirstTokenTimeout = long
 		req.IdleTimeout = long
 		if err := run(t, f(t, 0, stall, short), req); err != nil {
 			t.Fatalf("an idle gap inside the call's limit failed: %v", err)

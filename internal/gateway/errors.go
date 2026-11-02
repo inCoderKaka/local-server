@@ -184,6 +184,18 @@ func classify(err error, now time.Time) (e *apiError, internal bool) {
 	return internalError(), true
 }
 
+// engineDeadline reports gateway.engine_timeout expiring as an engine timeout. An engine
+// adapter returns the context's own error when the caller's deadline ends the call; while the
+// client is still there that deadline is engine_timeout, so the call is an engine timeout
+// (504, logged at Warn), not the host failing (req_001 D-38, D-54). An *engine.Error is kept.
+func engineDeadline(ctx context.Context, err error) error {
+	var ee *engine.Error
+	if err == nil || ctx.Err() != nil || errors.As(err, &ee) || !errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return engine.Errorf(engine.CodeTimeout, err, "the engine did not finish within %s", KeyEngineTimeout)
+}
+
 func schedulerError(e *scheduler.Error) *apiError {
 	switch e.Code {
 	case scheduler.CodeQueueFull:

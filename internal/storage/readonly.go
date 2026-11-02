@@ -5,10 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -44,7 +42,7 @@ func (e *SchemaMismatchError) Error() string {
 			parts[i] += " (" + d.Detail + ")"
 		}
 	}
-	return fmt.Sprintf("storage: %s: schema differs from this build: %s; start local-server to migrate it, or use the build that created it", e.Path, strings.Join(parts, "; "))
+	return fmt.Sprintf("storage: %s: schema differs from this build: %s", e.Path, strings.Join(parts, "; "))
 }
 
 // Is makes errors.Is(err, ErrSchemaMismatch) true.
@@ -76,12 +74,7 @@ func OpenReadOnly(ctx context.Context, path string, modules ...Module) (*DB, err
 		return nil, err
 	}
 	busy := DefaultBusyTimeout
-	q := url.Values{}
-	q.Add("mode", "ro")
-	q.Add("_pragma", "foreign_keys(1)")
-	q.Add("_pragma", "busy_timeout("+strconv.FormatInt(busy.Milliseconds(), 10)+")")
-	q.Add("_pragma", "query_only(1)")
-	r, err := sql.Open("sqlite", "file:"+uriPathEscaper.Replace(path)+"?"+q.Encode())
+	r, err := sql.Open("sqlite", dsn(path, busy, true, "")+"&mode=ro")
 	if err != nil {
 		return nil, err
 	}
@@ -100,9 +93,8 @@ func OpenReadOnly(ctx context.Context, path string, modules ...Module) (*DB, err
 // checkSchema compares ops_schema_migrations with the embedded migrations of mods.
 func checkSchema(ctx context.Context, r *sql.DB, path string, mods []Module) error {
 	type rec struct {
-		sums     map[int]string
-		maxVer   int
-		hasTable bool
+		sums   map[int]string
+		maxVer int
 	}
 	recorded := map[string]*rec{}
 	var hasTable int

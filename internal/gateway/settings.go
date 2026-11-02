@@ -58,7 +58,7 @@ func Defs() []settings.Def {
 		{Key: KeyMaxEmbeddingInputs, Kind: settings.Int, Default: "128", Owner: h,
 			Description: "Most texts one embeddings request may carry."},
 		{Key: KeyEngineTimeout, Kind: settings.Duration, Default: "5m", Owner: h,
-			Description: "Longest a non-streamed engine call may take in total, from the request to the engine until its last chunk. A model load the scheduler runs during admission is not included; the engine adapter's load timeout bounds it."},
+			Description: "Longest a non-streamed engine call may take in total, from the request to the engine until its last chunk. A model load the scheduler runs during admission is not included; the engine adapter's load timeout bounds it. An embeddings call is also bounded by the engine adapter's own embed timeout (engine.ollama_embed_timeout for Ollama); the shorter of the two ends it."},
 		{Key: KeyStreamFirstToken, Kind: settings.Duration, Default: "60s", Owner: h,
 			Description: "Longest a streamed chat call may take from the request to the engine until the engine's first chunk (the model's reading of the prompt). When it expires the engine call is cancelled and the request fails with a 504. A model load the scheduler runs during admission is not included."},
 		{Key: KeyStreamIdle, Kind: settings.Duration, Default: "30s", Owner: h,

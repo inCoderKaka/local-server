@@ -98,7 +98,7 @@ func (a *app) runDoctor(ctx context.Context, dir string) report {
 	add(checkDataDir(dir))
 
 	// Settings: the stored values when the database can be read, else the defaults.
-	st, vals, dbCheck, closeDB := doctorSettings(ctx, filepath.Join(dir, dbFileName))
+	st, vals, existing, dbCheck, closeDB := doctorSettings(ctx, filepath.Join(dir, dbFileName))
 	defer closeDB()
 	add(dbCheck)
 	cfg, err := loadStartup(ctx, vals)
@@ -109,9 +109,9 @@ func (a *app) runDoctor(ctx context.Context, dir string) report {
 	}
 
 	add(checkOllama(ctx, cfg))
-	add(a.checkKeychain(cfg))
+	add(a.checkKeychain(cfg, existing, filepath.Join(dir, masterKeyFileName)))
 	add(checkPort("consumer_port", cfg.ConsumerListen, keyConsumerListen))
-	add(checkPort("metrics_port", cfg.MetricsListen, keyMetricsListen))
+	add(checkPort("admin_port", cfg.AdminListen, keyAdminListen))
 	add(checkParallel(ctx, vals))
 
 	rep.OK = true
@@ -134,8 +134,9 @@ func newStore(db *storage.DB) (*settings.Store, error) {
 }
 
 // doctorSettings opens the database read-only and returns the store over it, or the defaults
-// when it is missing or unreadable, with the database check and a function that closes it.
-func doctorSettings(ctx context.Context, path string) (*settings.Store, values, check, func()) {
+// when it is missing or unreadable, with whether this is an existing install (the host rows
+// exist, as serve judges it), the database check and a function that closes it.
+func doctorSettings(ctx context.Context, path string) (*settings.Store, values, bool, check, func()) {
 	c := check{Name: "database"}
 	defaults, err := newStore(nil)
 	if err != nil {
@@ -147,23 +148,44 @@ func doctorSettings(ctx context.Context, path string) (*settings.Store, values, 
 	case errors.Is(err, fs.ErrNotExist):
 		c.Status, c.Detail = statusWarn, "no database yet at "+path+"; settings show their defaults"
 		c.Advice = "run `local-server serve` once in a terminal to set up this host"
-		return defaults, fallback, c, func() {}
+		return defaults, fallback, false, c, func() {}
 	case errors.Is(err, storage.ErrSchemaMismatch):
 		c.Status, c.Detail = statusFail, err.Error()
-		c.Advice = "run the local-server build that created this database, or `local-server serve` with this build to migrate it"
-		return defaults, fallback, c, func() {}
+		c.Advice = schemaMismatchAdvice(err)
+		return defaults, fallback, false, c, func() {}
 	case err != nil:
 		c.Status, c.Detail = statusFail, err.Error()
-		return defaults, fallback, c, func() {}
+		return defaults, fallback, false, c, func() {}
 	}
 	st, err := newStore(ro)
 	if err != nil {
 		ro.Close()
 		c.Status, c.Detail = statusFail, err.Error()
-		return defaults, fallback, c, func() {}
+		return defaults, fallback, false, c, func() {}
 	}
 	c.Status, c.Detail = statusOK, "schema matches this build ("+path+")"
-	return st, st, c, func() { ro.Close() }
+	done, berr := hostkeys.Bootstrapped(ctx, ro)
+	return st, st, berr == nil && done, c, func() { ro.Close() }
+}
+
+// schemaMismatchAdvice depends on the direction of the mismatch. A database that is older than
+// this build, with nothing else different, is migrated by `serve`. A newer one, or one whose
+// checksum or versions differ, cannot be migrated by this build.
+func schemaMismatchAdvice(err error) string {
+	var sm *storage.SchemaMismatchError
+	if errors.As(err, &sm) && len(sm.Diffs) > 0 {
+		older := true
+		for _, d := range sm.Diffs {
+			if d.Recorded >= d.Embedded || d.Detail != "" {
+				older = false
+				break
+			}
+		}
+		if older {
+			return "run `local-server serve` with this build to migrate it"
+		}
+	}
+	return "run the local-server build that created this database; this build cannot migrate a newer or different schema"
 }
 
 func checkDataDir(dir string) check {
@@ -207,40 +229,53 @@ func checkDataDir(dir string) check {
 
 func checkOllama(ctx context.Context, cfg startupConfig) check {
 	c := check{Name: "ollama"}
-	ad := ollama.New(ollama.Config{BaseURL: cfg.OllamaURL})
+	ad := ollama.New(ollamaConfig(cfg))
 	defer ad.Close()
 	got, err := ad.Version(ctx)
 	if err != nil {
-		c.Status, c.Detail = statusFail, fmt.Sprintf("cannot reach Ollama at %s: %v", cfg.OllamaURL, err)
+		c.Status, c.Detail = statusFail, fmt.Sprintf("cannot reach Ollama at %s: %v", redactURL(cfg.OllamaURL), err)
 		c.Advice = "start Ollama, or set " + keyOllamaBaseURL + " to its address"
 		return c
 	}
 	if err := ad.CheckVersion(ctx); err != nil {
 		if errors.Is(err, engine.ErrUnsupportedVersion) {
-			c.Status, c.Detail = statusFail, fmt.Sprintf("Ollama %s at %s is older than the minimum %s", got, cfg.OllamaURL, ollama.DefaultMinVersion)
+			c.Status, c.Detail = statusFail, fmt.Sprintf("Ollama %s at %s is older than the minimum %s", got, redactURL(cfg.OllamaURL), ollama.DefaultMinVersion)
 			c.Advice = "upgrade Ollama"
 			return c
 		}
 		c.Status, c.Detail = statusFail, err.Error()
 		return c
 	}
-	c.Status, c.Detail = statusOK, fmt.Sprintf("Ollama %s at %s (minimum %s)", got, cfg.OllamaURL, ollama.DefaultMinVersion)
+	c.Status, c.Detail = statusOK, fmt.Sprintf("Ollama %s at %s (minimum %s)", got, redactURL(cfg.OllamaURL), ollama.DefaultMinVersion)
 	return c
 }
 
 // checkKeychain only reads the keychain, bounded by hostkeys.keychain_timeout. It never creates
-// or writes a key (req_001 D-81, D-102).
-func (a *app) checkKeychain(cfg startupConfig) check {
+// or writes a key (req_001 D-81, D-102). It mirrors hostkeys.LoadMasterKey with Create false for
+// an existing install, so it fails exactly when serve would refuse to start. keyFile is where a
+// first run keeps the master key when the keychain cannot be used.
+func (a *app) checkKeychain(cfg startupConfig, existing bool, keyFile string) check {
 	c := check{Name: "keychain"}
+	_, statErr := os.Stat(keyFile)
+	haveKeyFile := statErr == nil
 	st, err := hostkeys.CheckKeychain(a.keychain, cfg.KeychainTimeout)
 	switch {
 	case err == nil && st == hostkeys.KeychainHasKey:
 		c.Status, c.Detail = statusOK, "the OS keychain answered and holds the host master key"
+	case err == nil && existing && !haveKeyFile:
+		c.Status, c.Detail = statusFail, "the OS keychain holds no master key and there is no key file at "+keyFile+", but this host is already set up"
+		c.Advice = "serve cannot start without the master key: restore it to the OS keychain or to " + keyFile
 	case err == nil:
 		c.Status, c.Detail = statusOK, "the OS keychain answered and holds no master key (a first run creates one; otherwise the key is in the key file)"
+	case errors.Is(err, hostkeys.ErrKeychainTimeout) && existing:
+		c.Status, c.Detail = statusFail, err.Error()
+		c.Advice = "serve cannot start until the keychain answers (the key file is not used after a timeout): unlock the keychain, or raise " + hostkeys.KeyKeychainTimeout
 	case errors.Is(err, hostkeys.ErrKeychainTimeout):
 		c.Status, c.Detail = statusWarn, err.Error()
 		c.Advice = "unlock the keychain, or raise " + hostkeys.KeyKeychainTimeout + "; on a headless host a first run keeps the key in a protected file instead"
+	case existing && !haveKeyFile:
+		c.Status, c.Detail = statusFail, "the OS keychain is unavailable: "+err.Error()
+		c.Advice = "serve cannot start until the OS keychain is available and unlocked"
 	default:
 		c.Status, c.Detail = statusWarn, "the OS keychain is unavailable: "+err.Error()
 		c.Advice = "a first run keeps the master key in a protected file instead; an existing install that keeps its key in the keychain cannot start until it is unlocked"

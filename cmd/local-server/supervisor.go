@@ -18,8 +18,9 @@ import (
 type supervisor struct {
 	log      *slog.Logger
 	restarts telemetry.Counter
-	// backoff returns the wait before a restart. It is read at each restart, so a settings
-	// change applies to the next one. A result of zero or less means fallbackBackoff.
+	// backoff returns the wait before a restart; it is called at each restart. serve passes the
+	// value read at startup, so a change to workers.restart_backoff applies on the next start. A
+	// result of zero or less means defaultRestartBackoff.
 	backoff func() time.Duration
 	// sleep waits d or until ctx ends; it returns false if ctx ended first. Tests replace it.
 	sleep func(ctx context.Context, d time.Duration) bool

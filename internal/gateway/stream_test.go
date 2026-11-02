@@ -476,6 +476,26 @@ func TestNonStreamedChatEndsAtTheEngineTimeout(t *testing.T) {
 	statusIs(t, e.chat(okChat), http.StatusGatewayTimeout)
 }
 
+// ... and when the engine returns the context's own deadline error, that is an engine timeout
+// logged at Warn, not the host failing.
+func TestNonStreamedChatEngineDeadlineIsAnEngineTimeout(t *testing.T) {
+	e := newEnv(t)
+	e.set(gateway.KeyEngineTimeout, "80ms")
+	e.wrapWithCtx(func(s engine.ChatStream, ctx context.Context) engine.ChatStream {
+		return &stalledStream{ChatStream: s, after: 1, ctx: ctx}
+	})
+	r := e.chat(okChat)
+	statusIs(t, r, http.StatusGatewayTimeout)
+	if !strings.Contains(r.Body.String(), "The model engine did not answer in time.") {
+		t.Fatalf("body = %q, want the engine timeout message", r.Body.String())
+	}
+	logs := e.tel.logText()
+	if !strings.Contains(logs, "gateway: model engine call failed") || !strings.Contains(logs, "engine_timeout") ||
+		strings.Contains(logs, "gateway: request failed") {
+		t.Fatalf("logs = %q, want a Warn engine call failure and no request failure", logs)
+	}
+}
+
 // assertFailedStream checks a stream the gateway ended with a 504 error event, the receipt of
 // the failed call and [DONE], after `words` words.
 func (e *env) assertFailedStream(t *testing.T, body string, words int64) {

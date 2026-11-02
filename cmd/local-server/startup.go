@@ -22,23 +22,32 @@ import (
 // startup itself owns; every other package registers its own.
 const (
 	keyOllamaBaseURL        = "engine.ollama_base_url"
+	keyOllamaConnectTimeout = "engine.ollama_connect_timeout"
+	keyOllamaRequestTimeout = "engine.ollama_request_timeout"
+	keyOllamaEmbedTimeout   = "engine.ollama_embed_timeout"
+	keyOllamaLoadTimeout    = "engine.ollama_load_timeout"
+	keyOllamaLoadNumCtx     = "engine.ollama_load_num_ctx"
+	keyOllamaMaxResponse    = "engine.ollama_max_response_bytes"
+	keyOllamaMaxStreamLine  = "engine.ollama_max_stream_line_bytes"
 	keyConsumerListen       = "serve.consumer_listen"
-	keyMetricsListen        = "serve.metrics_listen"
+	keyAdminListen          = "serve.admin_listen"
 	keyShutdownTimeout      = "serve.shutdown_timeout"
 	keyReadHeaderTimeout    = "serve.read_header_timeout"
+	keyIdleTimeout          = "serve.idle_timeout"
 	keyLogLevel             = "log.level"
 	keyLogMaxAgeDays        = "log.max_age_days"
 	keyLogMaxSizeMB         = "log.max_size_mb"
 	keyWorkerRestartBackoff = "workers.restart_backoff"
 )
 
-// Documented defaults. The consumer and metrics ports are local-server's own choice: Ollama uses
+// Documented defaults. The consumer and admin ports are local-server's own choice: Ollama uses
 // 11434, so these sit apart from it.
 const (
 	defaultConsumerListen    = "127.0.0.1:8484"
-	defaultMetricsListen     = "127.0.0.1:8485"
+	defaultAdminListen       = "127.0.0.1:8485"
 	defaultShutdownTimeout   = 10 * time.Second
 	defaultReadHeaderTimeout = 10 * time.Second
+	defaultIdleTimeout       = 2 * time.Minute
 	defaultLogLevel          = "info"
 	defaultRestartBackoff    = 5 * time.Second
 )
@@ -47,15 +56,31 @@ func startupDefs() []settings.Def {
 	h := settings.Host
 	return []settings.Def{
 		{Key: keyOllamaBaseURL, Kind: settings.String, Default: ollama.DefaultBaseURL, Owner: h,
-			Description: "Address of the Ollama server local-server shares, for example http://127.0.0.1:11434. Applies on the next start."},
+			Description: "Address of the Ollama server local-server shares, on this machine (localhost or a loopback address), for example http://127.0.0.1:11434. Applies on the next start."},
+		{Key: keyOllamaConnectTimeout, Kind: settings.Duration, Default: ollama.DefaultConnectTimeout.String(), Owner: h,
+			Description: "Longest local-server waits to open a connection to Ollama. Applies on the next start."},
+		{Key: keyOllamaRequestTimeout, Kind: settings.Duration, Default: ollama.DefaultRequestTimeout.String(), Owner: h,
+			Description: "Longest one short Ollama request may take: listing models, reading a model's details, listing loaded models, unloading a model and reading the version. Applies on the next start."},
+		{Key: keyOllamaEmbedTimeout, Kind: settings.Duration, Default: ollama.DefaultEmbedTimeout.String(), Owner: h,
+			Description: "Longest one embedding request to Ollama may take, including loading the model. Applies on the next start."},
+		{Key: keyOllamaLoadTimeout, Kind: settings.Duration, Default: ollama.DefaultLoadTimeout.String(), Owner: h,
+			Description: "Longest local-server waits for Ollama to load a model into memory. Applies on the next start."},
+		{Key: keyOllamaLoadNumCtx, Kind: settings.Int, Default: strconv.Itoa(ollama.DefaultLoadNumCtx), Owner: h,
+			Description: "Context size, in tokens, local-server asks for when it preloads a model, so Ollama's own default is never relied on. Applies on the next start."},
+		{Key: keyOllamaMaxResponse, Kind: settings.Int, Default: strconv.FormatInt(ollama.DefaultMaxResponseBytes, 10), Owner: h,
+			Description: "Largest non-streaming response from Ollama, in bytes, that local-server reads; a larger one is an error. Applies on the next start."},
+		{Key: keyOllamaMaxStreamLine, Kind: settings.Int, Default: strconv.Itoa(ollama.DefaultMaxStreamLineBytes), Owner: h,
+			Description: "Largest single line of a streamed Ollama response, in bytes, that local-server reads; a larger one ends the stream with an error. Applies on the next start."},
 		{Key: keyConsumerListen, Kind: settings.String, Default: defaultConsumerListen, Owner: h,
-			Description: "host:port the consumer API (/v1) listens on. The default, 127.0.0.1:8484, accepts connections from this machine only until the tailnet listener exists. Applies on the next start."},
-		{Key: keyMetricsListen, Kind: settings.String, Default: defaultMetricsListen, Owner: h,
-			Description: "host:port that serves /metrics. It must be a loopback address (127.0.0.1, ::1 or localhost); the admin listener takes /metrics over later. Applies on the next start."},
+			Description: "host:port the consumer API (/v1) listens on. It must be a loopback address (127.0.0.1, ::1 or localhost): until the tailnet listener exists, the consumer API is reachable from this machine only (req_001 D-10). Applies on the next start."},
+		{Key: keyAdminListen, Kind: settings.String, Default: defaultAdminListen, Owner: h,
+			Description: "host:port of the admin listener, which serves /metrics (and the admin API once it is built). It must be a loopback address (127.0.0.1, ::1 or localhost); the optional tailnet admin listener is a separate setting (req_001 D-10). Applies on the next start."},
 		{Key: keyShutdownTimeout, Kind: settings.Duration, Default: defaultShutdownTimeout.String(), Owner: h,
-			Description: "Longest a stopping local-server waits for requests in flight to finish before it closes their connections. Applies on the next start."},
+			Description: "Longest a stopping local-server waits for requests in flight to finish before it closes their connections. After it closes them, it waits up to the same time again for those requests to record their usage. Applies on the next start."},
 		{Key: keyReadHeaderTimeout, Kind: settings.Duration, Default: defaultReadHeaderTimeout.String(), Owner: h,
-			Description: "Longest a client may take to send its request headers to a listener, so a stalled client cannot hold a connection forever. Applies on the next start."},
+			Description: "Longest a client may take to send its request headers to a listener before the connection is closed. Applies on the next start."},
+		{Key: keyIdleTimeout, Kind: settings.Duration, Default: defaultIdleTimeout.String(), Owner: h,
+			Description: "Longest an idle keep-alive connection to a listener stays open between requests before local-server closes it. Applies on the next start."},
 		{Key: keyLogLevel, Kind: settings.String, Default: defaultLogLevel, Owner: h,
 			Description: "Least severe log level written to the log file: debug, info, warn or error. Applies on the next start."},
 		{Key: keyLogMaxAgeDays, Kind: settings.Int, Default: strconv.Itoa(slogprom.DefaultMaxAgeDays), Owner: h,
@@ -93,10 +118,18 @@ func registerSettings(st *settings.Store) error {
 func registerStartupValidators(st *settings.Store) error {
 	for key, fn := range map[string]func(string) error{
 		keyOllamaBaseURL:            checkBaseURL,
-		keyConsumerListen:           checkListenAddr,
-		keyMetricsListen:            checkLoopbackAddr,
+		keyOllamaConnectTimeout:     checkPositiveDuration,
+		keyOllamaRequestTimeout:     checkPositiveDuration,
+		keyOllamaEmbedTimeout:       checkPositiveDuration,
+		keyOllamaLoadTimeout:        checkPositiveDuration,
+		keyOllamaLoadNumCtx:         checkPositiveInt,
+		keyOllamaMaxResponse:        checkPositiveInt,
+		keyOllamaMaxStreamLine:      checkPositiveInt,
+		keyConsumerListen:           checkLoopbackAddr,
+		keyAdminListen:              checkLoopbackAddr,
 		keyShutdownTimeout:          checkPositiveDuration,
 		keyReadHeaderTimeout:        checkPositiveDuration,
+		keyIdleTimeout:              checkPositiveDuration,
 		keyWorkerRestartBackoff:     checkPositiveDuration,
 		hostkeys.KeyKeychainTimeout: checkPositiveDuration,
 		keyLogLevel:                 func(v string) error { _, err := parseLevel(v); return err },
@@ -141,7 +174,21 @@ func checkBaseURL(v string) error {
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return fmt.Errorf("must be an http:// or https:// address with a host")
 	}
+	if !isLoopbackHost(u.Host) {
+		return fmt.Errorf("must be on this machine (localhost or a loopback address such as 127.0.0.1 or ::1), not %q", u.Hostname())
+	}
 	return nil
+}
+
+// redactURL is s with the password of any userinfo replaced by xxxxx, for stderr, logs and the
+// doctor report. The adapter still gets the full URL. A string that does not parse is returned
+// unchanged.
+func redactURL(s string) string {
+	u, err := url.Parse(s)
+	if err != nil {
+		return s
+	}
+	return u.Redacted()
 }
 
 func checkListenAddr(v string) error {
@@ -217,16 +264,40 @@ func (d defaultValues) Duration(_ context.Context, key, _ string) (time.Duration
 
 // startupConfig is what startup reads from the settings once the database is open.
 type startupConfig struct {
-	OllamaURL         string
-	ConsumerListen    string
-	MetricsListen     string
-	ShutdownTimeout   time.Duration
-	ReadHeaderTimeout time.Duration
-	LogLevel          slog.Level
-	LogMaxAgeDays     int
-	LogMaxSizeMB      int
-	RestartBackoff    time.Duration
-	KeychainTimeout   time.Duration
+	OllamaURL                string
+	OllamaConnectTimeout     time.Duration
+	OllamaRequestTimeout     time.Duration
+	OllamaEmbedTimeout       time.Duration
+	OllamaLoadTimeout        time.Duration
+	OllamaLoadNumCtx         int
+	OllamaMaxResponseBytes   int64
+	OllamaMaxStreamLineBytes int
+	ConsumerListen           string
+	AdminListen              string
+	ShutdownTimeout          time.Duration
+	ReadHeaderTimeout        time.Duration
+	IdleTimeout              time.Duration
+	LogLevel                 slog.Level
+	LogMaxAgeDays            int
+	LogMaxSizeMB             int
+	RestartBackoff           time.Duration
+	KeychainTimeout          time.Duration
+}
+
+// ollamaConfig is the Ollama adapter's configuration from the startup settings. MinVersion is
+// D-48's compatibility floor and stays the adapter's own; the keep-alive and the stream timeouts
+// are passed per call from the scheduler and gateway settings.
+func ollamaConfig(c startupConfig) ollama.Config {
+	return ollama.Config{
+		BaseURL:            c.OllamaURL,
+		ConnectTimeout:     c.OllamaConnectTimeout,
+		RequestTimeout:     c.OllamaRequestTimeout,
+		EmbedTimeout:       c.OllamaEmbedTimeout,
+		LoadTimeout:        c.OllamaLoadTimeout,
+		LoadNumCtx:         c.OllamaLoadNumCtx,
+		MaxResponseBytes:   c.OllamaMaxResponseBytes,
+		MaxStreamLineBytes: c.OllamaMaxStreamLineBytes,
+	}
 }
 
 // loadStartup reads and validates the startup settings. An invalid stored value stops startup
@@ -255,7 +326,7 @@ func loadStartup(ctx context.Context, v values) (startupConfig, error) {
 		}
 		return d
 	}
-	num := func(key string) int {
+	num64 := func(key string) int64 {
 		n, err := v.Int(ctx, key, "")
 		if err == nil && n <= 0 {
 			err = fmt.Errorf("must be greater than 0")
@@ -263,13 +334,22 @@ func loadStartup(ctx context.Context, v values) (startupConfig, error) {
 		if err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("setting %s: %w", key, err)
 		}
-		return int(n)
+		return n
 	}
+	num := func(key string) int { return int(num64(key)) }
 	c.OllamaURL = str(keyOllamaBaseURL, checkBaseURL)
-	c.ConsumerListen = str(keyConsumerListen, checkListenAddr)
-	c.MetricsListen = str(keyMetricsListen, checkLoopbackAddr)
+	c.OllamaConnectTimeout = dur(keyOllamaConnectTimeout)
+	c.OllamaRequestTimeout = dur(keyOllamaRequestTimeout)
+	c.OllamaEmbedTimeout = dur(keyOllamaEmbedTimeout)
+	c.OllamaLoadTimeout = dur(keyOllamaLoadTimeout)
+	c.OllamaLoadNumCtx = num(keyOllamaLoadNumCtx)
+	c.OllamaMaxResponseBytes = num64(keyOllamaMaxResponse)
+	c.OllamaMaxStreamLineBytes = num(keyOllamaMaxStreamLine)
+	c.ConsumerListen = str(keyConsumerListen, checkLoopbackAddr)
+	c.AdminListen = str(keyAdminListen, checkLoopbackAddr)
 	c.ShutdownTimeout = dur(keyShutdownTimeout)
 	c.ReadHeaderTimeout = dur(keyReadHeaderTimeout)
+	c.IdleTimeout = dur(keyIdleTimeout)
 	lvl := str(keyLogLevel, func(s string) error { _, err := parseLevel(s); return err })
 	if l, err := parseLevel(lvl); err == nil {
 		c.LogLevel = l

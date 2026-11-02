@@ -49,6 +49,7 @@ func (g *Gateway) CreateEmbedding(ctx context.Context, req *api.EmbeddingRequest
 		if ctx.Err() != nil { // the client went away while the engine ran (req_001 D-38 aborted)
 			g.meterAborted(ctx, c, ledger.NewUsageID(), ledger.OpEmbeddings, in.model, 0, startedAt)
 		}
+		err = engineDeadline(ctx, err)
 		var ee *engine.Error
 		if errors.As(err, &ee) && ee.Code == engine.CodeContextTooLong {
 			return nil, newErr(http.StatusBadRequest, typeInvalidRequest, codeContextTooLong, "input", "An input text is longer than the context limit.")

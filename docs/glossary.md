@@ -50,6 +50,10 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Preload | Loading a model at start and when the preload setting changes, and keeping it loaded until it leaves the setting; a preloaded model is never unloaded for idleness or to make room. | Preload | D-22 |
 | Keep-alive | How long an idle model stays loaded before local-server unloads it (idle unload). A negative value keeps it until it is unloaded by hand or to make room. | Keep alive | D-22 |
 | Reclaim | Unloading idle models that are not preloaded, least recently used first, to make room for a request that does not fit the memory budget. Different from idle unload after the keep-alive. | — | D-22, D-26 |
+| Data directory | The folder that holds the host's database and, when the keychain is not used, the master key file. It is `--data-dir`, else `LS_DATA_DIR`, else `local-server` in the user configuration directory, and it is the only thing configured outside the database. | Data directory | D-39, D-54 |
+| First run | A start of `local-server serve` on a database with no host row. It creates the host, its keys and the master key, and prints the recovery code once to a terminal. With no terminal it refuses. | first run | D-101, D-102 |
+| Worker supervisor | Runs each background worker of `serve`. It restarts a worker that panics, fails or returns early after `workers.restart_backoff`, and counts restarts in `supervisor_worker_restarts_total`. | — | D-39, D-54 |
+| Fake engine | The engine adapter that answers without Ollama, for tests, local runs and demos (`serve --engine fake`). | — | D-31 |
 
 ## Access and limits
 
@@ -73,7 +77,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Key set | The host's public keys, current and retired, published at `/v1/keys` as a JWK Set: the host identity key, the receipt-signing keys and the checkpoint-signing keys, each signing key with its key endorsement. Retired keys stay listed so old receipts and checkpoints still verify. | — | D-27, D-65, D-94 |
 | Key endorsement | The host identity key's signature over a signing key's certificate (host id, role, public key, creation time), published with the key in the key set (`ls_endorsement`) so anyone can check that the key belongs to the host. | — | D-96 |
 | Verifier key | The signed-note text form `<name>+<hash>+<key>` of a checkpoint-signing key, which signed-note tools use to check a checkpoint; published in the key set as `ls_note_verifier_key`. | — | D-65, D-97 |
-| Host master key | The key that seals every secret local-server keeps at rest (private keys, the host data key, credentials). It lives in the OS keychain, or in a user-only file where there is no keychain, and never in the database. | — | D-40 |
+| Host master key | The key that seals every secret local-server keeps at rest (private keys, the host data key, credentials). When the host is first set up it goes into the OS keychain or, if the keychain cannot be used or does not answer within `hostkeys.keychain_timeout`, into a user-only file in the data directory, where it then stays. It is never in the database. | — | D-40, D-81, D-102 |
 | Host data key | The key that encrypts queued job content, job results and backup snapshots. It is sealed with the host master key and shown once, at setup, as the recovery code. | — | D-40, D-41 |
 | Policy rule | A versioned, declarative rule the host edits through a form (request properties, time windows, priority class, caps). Set per grant or globally. | Rule | D-25 |
 | Priority class | *Interactive* (someone is waiting) or *background* (can wait). Interactive runs first, and background ages up so it is never starved. | Interactive / Background | D-26 |

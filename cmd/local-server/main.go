@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
@@ -35,11 +36,17 @@ import (
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-// File names inside the data directory.
+// File names inside the data directory, and the log file name.
 const (
 	dbFileName        = "local-server.db"
 	masterKeyFileName = "master.key"
-	logFileName       = "logs/local-server.log"
+)
+
+// The log file lives in the OS user log folder (req_001 D-40). A host with no such folder (no
+// home directory) logs to fallbackLogDir inside the data directory instead.
+const (
+	logFileName    = "local-server.log"
+	fallbackLogDir = "logs"
 )
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
@@ -59,6 +66,8 @@ type app struct {
 	getenv         func(string) string
 	// userConfigDir is os.UserConfigDir.
 	userConfigDir func() (string, error)
+	// userLogDir is the OS user log folder, osUserLogDir.
+	userLogDir func() (string, error)
 	// stderrIsTerminal says whether a person can see stderr. The recovery code is shown only
 	// then (req_001 D-101).
 	stderrIsTerminal func() bool
@@ -69,11 +78,39 @@ type app struct {
 }
 
 // listening are the addresses serve is bound to.
-type listening struct{ Consumer, Metrics string }
+type listening struct{ Consumer, Admin string }
 
 func newApp(stdout, stderr io.Writer) *app {
 	return &app{stdout: stdout, stderr: stderr, getenv: os.Getenv,
-		userConfigDir: os.UserConfigDir, stderrIsTerminal: stderrIsTerminal}
+		userConfigDir: os.UserConfigDir, userLogDir: osUserLogDir, stderrIsTerminal: stderrIsTerminal}
+}
+
+// osUserLogDir is the folder the OS keeps a user's application logs in: ~/Library/Logs/local-server
+// on macOS, %LocalAppData%\local-server\logs on Windows, and $XDG_STATE_HOME/local-server/logs
+// (else ~/.local/state/local-server/logs) elsewhere.
+func osUserLogDir() (string, error) {
+	switch runtime.GOOS {
+	case "darwin":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, "Library", "Logs", "local-server"), nil
+	case "windows":
+		base, err := os.UserCacheDir() // %LocalAppData%
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(base, "local-server", "logs"), nil
+	}
+	if state := os.Getenv("XDG_STATE_HOME"); state != "" {
+		return filepath.Join(state, "local-server", "logs"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "state", "local-server", "logs"), nil
 }
 
 const usageText = `usage:

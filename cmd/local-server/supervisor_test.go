@@ -98,6 +98,9 @@ func TestSupervisorRestartsWorker(t *testing.T) {
 			if got := tel.count(restartsMetric, "demo-worker"); got != 2 {
 				t.Errorf("restarts counted = %d, want 2", got)
 			}
+			if len(*waits) != 2 {
+				t.Errorf("backoff waits = %d (%v), want 2, one before each restart", len(*waits), *waits)
+			}
 			for _, w := range *waits {
 				if w != 7*time.Second {
 					t.Errorf("waited %v before a restart, want the injected backoff 7s", w)
@@ -133,7 +136,9 @@ func TestSupervisorBackoffWaitStopsOnCancel(t *testing.T) {
 	sup := newSupervisor(newRecTelemetry(), func() time.Duration { return time.Hour })
 	ctx, cancel := context.WithCancel(context.Background())
 	failed := make(chan struct{})
+	var runs atomic.Int32
 	sup.Go(ctx, "w", func(context.Context) error {
+		runs.Add(1)
 		select {
 		case <-failed:
 		default:
@@ -147,6 +152,9 @@ func TestSupervisorBackoffWaitStopsOnCancel(t *testing.T) {
 	go func() { sup.Wait(); close(done) }()
 	select {
 	case <-done:
+		if n := runs.Load(); n != 1 {
+			t.Errorf("the worker ran %d times; the hour-long backoff should have held the restart", n)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Wait did not return although the worker sat in an hour-long backoff")
 	}

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,7 +19,7 @@ import (
 )
 
 // loopbackAny makes both listeners take a free port.
-var loopbackAny = map[string]string{keyConsumerListen: "127.0.0.1:0", keyMetricsListen: "127.0.0.1:0"}
+var loopbackAny = map[string]string{keyConsumerListen: "127.0.0.1:0", keyAdminListen: "127.0.0.1:0"}
 
 func merge(maps ...map[string]string) map[string]string {
 	out := map[string]string{}
@@ -72,9 +74,12 @@ func (r *running) stop() int {
 	}
 }
 
+// testClient bounds every request a test makes to a local listener.
+var testClient = &http.Client{Timeout: 10 * time.Second}
+
 func get(t *testing.T, url string) (int, string) {
 	t.Helper()
-	resp, err := http.Get(url)
+	resp, err := testClient.Get(url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,6 +141,9 @@ func TestServeFirstRunShowsRecoveryCodeOnce(t *testing.T) {
 		t.Fatalf("no recovery code on stderr:\n%s", ta.err.String())
 	}
 	recovery := m[1]
+	if strings.Contains(ta.err.String(), "master key is kept in the file") {
+		t.Error("a working keychain still printed the key-file notice")
+	}
 	if n := strings.Count(ta.err.String(), recovery); n != 1 {
 		t.Errorf("the recovery code appears %d times on stderr, want once", n)
 	}
@@ -148,7 +156,7 @@ func TestServeFirstRunShowsRecoveryCodeOnce(t *testing.T) {
 	if status, body := get(t, "http://"+r.addrs.Consumer+"/v1/health"); status != http.StatusUnauthorized {
 		t.Errorf("GET /v1/health without a key = %d (%s), want 401 from the gateway", status, body)
 	}
-	status, body := get(t, "http://"+r.addrs.Metrics+"/metrics")
+	status, body := get(t, "http://"+r.addrs.Admin+"/metrics")
 	if status != 200 || !strings.Contains(body, "telemetry_log_write_errors_total") {
 		t.Errorf("GET /metrics = %d; want the slogprom registry", status)
 	}
@@ -156,7 +164,7 @@ func TestServeFirstRunShowsRecoveryCodeOnce(t *testing.T) {
 		t.Fatalf("exit = %d after shutdown; stderr:\n%s", code, ta.err.String())
 	}
 
-	logs, err := os.ReadFile(filepath.Join(ta.dir, filepath.FromSlash(logFileName)))
+	logs, err := os.ReadFile(filepath.Join(ta.logDir, logFileName))
 	if err != nil {
 		t.Fatalf("no log file: %v", err)
 	}
@@ -173,8 +181,51 @@ func TestServeFirstRunShowsRecoveryCodeOnce(t *testing.T) {
 	if strings.Contains(ta2.err.String(), "recovery code") {
 		t.Error("a later start printed a recovery code")
 	}
+	if status, body := get(t, "http://"+r2.addrs.Consumer+"/v1/health"); status != http.StatusUnauthorized {
+		t.Errorf("second start: GET /v1/health without a key = %d (%s), want 401 from the gateway", status, body)
+	}
+	status, body = get(t, "http://"+r2.addrs.Admin+"/metrics")
+	if status != 200 || !strings.Contains(body, "telemetry_log_write_errors_total") {
+		t.Errorf("second start: GET /metrics = %d; want the slogprom registry", status)
+	}
 	if code := r2.stop(); code != 0 {
 		t.Errorf("second start exit = %d; stderr:\n%s", code, ta2.err.String())
+	}
+}
+
+// The admin listener refuses a request whose Host header is not a loopback name, which stops a
+// DNS-rebinding page from reading /metrics.
+func TestAdminListenerRefusesForeignHost(t *testing.T) {
+	ta := newTestApp(t, true)
+	seed(t, ta.dir, loopbackAny)
+	r := startServe(t, ta, "--engine", "fake")
+	defer r.stop()
+	_, port, err := net.SplitHostPort(r.addrs.Admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		host string
+		want int
+	}{
+		{"evil.example", http.StatusForbidden},
+		{"evil.example:" + port, http.StatusForbidden},
+		{r.addrs.Admin, http.StatusOK},
+		{"localhost:" + port, http.StatusOK},
+	} {
+		req, err := http.NewRequest("GET", "http://"+r.addrs.Admin+"/metrics", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = tc.host
+		resp, err := testClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != tc.want {
+			t.Errorf("GET /metrics with Host %q = %d, want %d", tc.host, resp.StatusCode, tc.want)
+		}
 	}
 }
 
@@ -214,19 +265,45 @@ func TestServeExistingInstallKeychainTimeout(t *testing.T) {
 	}
 }
 
-// A first run whose keychain does not answer keeps the master key in the protected file.
+// A first run whose keychain does not answer keeps the master key in the protected file, says so
+// on stderr, and writes nothing to the keychain; a later start reads the file.
 func TestServeFirstRunKeychainTimeoutUsesKeyFile(t *testing.T) {
 	ta := newTestApp(t, true)
 	seed(t, ta.dir, merge(loopbackAny, map[string]string{hostkeys.KeyKeychainTimeout: "50ms"}))
 	block := make(chan struct{})
-	defer close(block)
+	ta.kc.mu.Lock()
 	ta.kc.block = block
+	ta.kc.mu.Unlock()
 	r := startServe(t, ta, "--engine", "fake")
 	if code := r.stop(); code != 0 {
 		t.Fatalf("exit = %d; stderr:\n%s", code, ta.err.String())
 	}
-	if !exists(filepath.Join(ta.dir, masterKeyFileName)) {
+	keyFile := filepath.Join(ta.dir, masterKeyFileName)
+	if !exists(keyFile) {
 		t.Error("no key file after a first run with a stuck keychain")
+	}
+	contains(t, "stderr", ta.err.String(), keyFile)
+	if _, sets := ta.kc.calls(); sets != 0 {
+		t.Errorf("keychain writes = %d, want 0 after a timeout", sets)
+	}
+
+	// Release the stuck call; the keychain now answers "not found", so the next start reads the
+	// key file.
+	close(block)
+	ta.kc.mu.Lock()
+	ta.kc.block = nil
+	ta.kc.mu.Unlock()
+	ta2 := newTestApp(t, false)
+	ta2.dir, ta2.kc, ta2.keychain = ta.dir, ta.kc, ta.kc
+	r2 := startServe(t, ta2, "--engine", "fake")
+	if code := r2.stop(); code != 0 {
+		t.Fatalf("second start exit = %d; stderr:\n%s", code, ta2.err.String())
+	}
+	if _, sets := ta.kc.calls(); sets != 0 {
+		t.Errorf("keychain writes = %d after the second start, want 0", sets)
+	}
+	if strings.Contains(ta2.err.String(), "recovery code") || strings.Contains(ta2.err.String(), "master key is kept in the file") {
+		t.Errorf("a later start printed a first-run notice:\n%s", ta2.err.String())
 	}
 }
 
@@ -262,12 +339,26 @@ func TestServeOllamaVersionCheck(t *testing.T) {
 	})
 }
 
+// With no user log folder, logs go inside the data directory and the start says so.
+func TestServeLogsInDataDirWithoutUserLogFolder(t *testing.T) {
+	ta := newTestApp(t, true)
+	ta.userLogDir = func() (string, error) { return "", errors.New("no log folder") }
+	seed(t, ta.dir, loopbackAny)
+	if code := startServe(t, ta, "--engine", "fake").stop(); code != 0 {
+		t.Fatalf("exit = %d; stderr:\n%s", code, ta.err.String())
+	}
+	if p := filepath.Join(ta.dir, fallbackLogDir, logFileName); !exists(p) {
+		t.Errorf("no log file at %s", p)
+	}
+	contains(t, "stderr", ta.err.String(), "cannot find the user log folder")
+}
+
 func TestServeListenFailureNamesTheSetting(t *testing.T) {
 	busy := httptest.NewServer(http.NotFoundHandler())
 	defer busy.Close()
 	addr := strings.TrimPrefix(busy.URL, "http://")
 	ta := newTestApp(t, true)
-	seed(t, ta.dir, map[string]string{keyConsumerListen: addr, keyMetricsListen: "127.0.0.1:0"})
+	seed(t, ta.dir, map[string]string{keyConsumerListen: addr, keyAdminListen: "127.0.0.1:0"})
 	code := ta.run(context.Background(), []string{"serve", "--engine", "fake", "--data-dir", ta.dir})
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1", code)

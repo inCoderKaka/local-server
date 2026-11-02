@@ -264,9 +264,24 @@ func createKeyFile(path string, k []byte) ([]byte, MasterKeySource, error) {
 		os.Remove(path)
 		return nil, "", err
 	}
+	// The host rows that depend on this key are committed (and synced by SQLite) after this
+	// returns, so the key must be on disk first, or a power loss could leave a host nobody can
+	// open. A crash between the create above and this write can still leave an empty file; that
+	// window is microseconds, it exists only on a first run, and readKeyFile names the file.
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(path)
+		return nil, "", err
+	}
 	if err := f.Close(); err != nil {
 		os.Remove(path)
 		return nil, "", err
+	}
+	if runtime.GOOS != "windows" { // best effort: make the new directory entry durable too
+		if dir, err := os.Open(filepath.Dir(path)); err == nil {
+			dir.Sync()
+			dir.Close()
+		}
 	}
 	return k, SourceFile, nil
 }

@@ -91,7 +91,7 @@ func (g *Gateway) runChat(ctx context.Context, c call, keepAlive time.Duration, 
 		NumPredict: p.numPredict, KeepAlive: keepAlive, OnContextOverflow: p.overflow,
 		FirstTokenTimeout: c.cfg.engineTimeout, IdleTimeout: c.cfg.engineTimeout})
 	if err != nil {
-		return "", engine.ChatChunk{}, 0, err
+		return "", engine.ChatChunk{}, 0, engineDeadline(ctx, err)
 	}
 	defer s.Close()
 	var sb strings.Builder
@@ -104,7 +104,7 @@ func (g *Gateway) runChat(ctx context.Context, c call, keepAlive time.Duration, 
 			break
 		}
 		if err != nil {
-			return "", engine.ChatChunk{}, chunks, err
+			return "", engine.ChatChunk{}, chunks, engineDeadline(ctx, err)
 		}
 		if ch.Content != "" {
 			chunks++
