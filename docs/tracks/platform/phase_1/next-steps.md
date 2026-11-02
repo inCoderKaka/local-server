@@ -18,7 +18,7 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 
 5. ~~S7 **PLT-F-006** Engine port with Ollama adapter, fake engine and adapter contract suite (deps: PLT-C-001)  ∥  S8 **PLT-F-007** Identity and grants data model (deps: PLT-F-002) **gate it**~~ built 2026-10-31, not shipped (`5cd11e2`; set C code gate ran, `fab7890`)
 6. ~~S9 **PLT-F-008** Audit log (deps: PLT-F-007)  ∥  S10 **PLT-F-009** Domain events core (deps: PLT-F-002, PLT-F-007) **gate it**~~ built 2026-10-31, not shipped (`939208f`, `fab7890`; set C code gate ran)
-7. ~~S11 **PLT-F-010** Access keys: issue, authenticate, expire, revoke (deps: PLT-F-007, PLT-F-008, PLT-F-009) **gate it**  ∥  S12 **PLT-F-011** Policy engine for request properties, background hours and priority class (deps: PLT-F-007) **gate it**  ∥  S13 **PLT-F-012** Host sharing state: pause switch and quiet hours (deps: PLT-F-004, PLT-F-005, PLT-F-008, PLT-F-009)~~ built 2026-10-31, not shipped (`8d9cf62`; set D code gate owed)
+7. ~~S11 **PLT-F-010** Access keys: issue, authenticate, expire, revoke (deps: PLT-F-007, PLT-F-008, PLT-F-009) **gate it**  ∥  S12 **PLT-F-011** Policy engine for request properties, background hours and priority class (deps: PLT-F-007) **gate it**  ∥  S13 **PLT-F-012** Host sharing state: pause switch and quiet hours (deps: PLT-F-004, PLT-F-005, PLT-F-008, PLT-F-009)~~ built 2026-10-31, not shipped (`8d9cf62`; set D code gate ran, `0640bf2`, `ac8a183`)
 8. ~~S14 **PLT-F-013** Host metrics: totals, share-budget slice and other apps (deps: PLT-F-002, PLT-F-004, PLT-F-003, PLT-F-006)~~ built 2026-10-31, not shipped (`9a2d64a`, `605c398`; set D code gate ran, `ac8a183`)
 
 ### B3 — Inference path
@@ -26,7 +26,7 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 9. ~~S15 **PLT-F-014** Scheduler, share budget and model lifecycle (deps: PLT-F-004, PLT-F-006, PLT-F-011, PLT-F-012)  ∥  S16 **PLT-F-015** Usage records, Merkle ledger leaves and signed receipts (deps: PLT-F-001, PLT-F-002, PLT-F-005) **gate it**~~ built 2026-10-31, not shipped (`e1089c9`, `5cf1311`; set E code gate ran, `551f356`)
 10. ~~S17 **PLT-F-016** Ledger checkpoints, proofs and key publication (deps: PLT-F-015) **gate it**  ∥  S18 **PLT-F-017** Quotas, rate limits, request-size limits and key lockout (deps: PLT-F-004, PLT-F-007, PLT-F-010, PLT-F-015, PLT-F-009) **gate it**~~ built 2026-10-31, not shipped (`e8378b4`, `957b5af`, `46e5d77`; set E code gate ran, `551f356`)
 11. ~~S19 **PLT-F-018** Gateway: OpenAI-compatible chat and embeddings (non-streaming) (deps: PLT-F-001, PLT-F-003, PLT-F-006, PLT-F-010, PLT-F-011, PLT-F-014, PLT-F-015, PLT-F-017) **gate it**~~ built 2026-11-01, not shipped (ab12bd8; set F gate ba604f9, fabd1d0)
-12. ~~S20 **PLT-F-019** Gateway streaming, timeouts and disconnect handling (deps: PLT-F-018)~~ built 2026-11-01 (289168a; set G gate done: 2a95927, 97e96f5)  ∥  S21 **PLT-F-020** Startup, first-run setup, module registry and doctor command (deps: PLT-F-004, PLT-F-003, PLT-F-005, PLT-F-006, PLT-F-018)  ∥  ~~S22 **PLT-F-021** Host status, capabilities and models endpoints (deps: PLT-F-018, PLT-F-017)~~ built 2026-11-01 (c767daa; set G gated)
+12. ~~S20 **PLT-F-019** Gateway streaming, timeouts and disconnect handling (deps: PLT-F-018)~~ built 2026-11-01 (289168a; set G gate done: 2a95927, 97e96f5)  ∥  S21 **PLT-F-020** Startup, first-run setup, module registry and doctor command (deps: PLT-F-004, PLT-F-003, PLT-F-005, PLT-F-006, PLT-F-016, PLT-F-018)  ∥  ~~S22 **PLT-F-021** Host status, capabilities and models endpoints (deps: PLT-F-018, PLT-F-017)~~ built 2026-11-01 (c767daa; set G gated)
 13. S23 **PLT-F-022** Async jobs API for background work (deps: PLT-F-018, PLT-F-009)  ∥  S24 **PLT-F-023** Usage rollups and usage endpoint (deps: PLT-F-004, PLT-F-010, PLT-F-015)
 
 ### B4 — Control plane and accounts
@@ -60,7 +60,7 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 
 ### B9 — Off-host data and sharing
 
-28. S47 **PLT-F-044** Backups to a local folder and the host's own bucket, and restore (deps: PLT-F-004, PLT-F-005, PLT-F-020)  ∥  S48 **PLT-F-045** Export and import of signed data bundles (deps: PLT-F-002, PLT-F-005) **gate it**  ∥  S49 **PLT-F-046** Opt-in platform sync with per-dataset keys (deps: PLT-F-002, PLT-F-004, PLT-F-005, PLT-F-020) **gate it**
+28. S47 **PLT-F-044** Backups to a local folder and the host's own bucket, and restore (deps: PLT-F-004, PLT-F-005, PLT-F-020)  ∥  S48 **PLT-F-045** Export and import of signed data bundles (deps: PLT-F-002, PLT-F-005) **gate it**  ∥  S49 **PLT-F-046** Opt-in platform sync with per-dataset keys (deps: PLT-F-002, PLT-F-004, PLT-F-005, PLT-F-020, PLT-F-029) **gate it**
 29. S50 **PLT-F-047** Sharing grants with the platform admin (backend and admin tool) (deps: PLT-F-046, PLT-F-029, PLT-F-007) **gate it**
 30. S51 **PLT-F-048** Admin UI: data-sharing approvals (deps: PLT-F-047, PLT-F-035)
 

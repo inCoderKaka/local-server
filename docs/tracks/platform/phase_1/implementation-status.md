@@ -1,16 +1,14 @@
 # platform / phase_1 — implementation status
 
-Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-workflow-skills/agents/implementation-status-reporter.md`). Requirement: `requirements/req_001.md` · log: `requirements/req_001.decisions.md` · ADR 0001, 0002, 0003, 0004, 0005. Last updated 2026-11-01.
+Instance of the `implementation-status.md` format (built by the `implementation-status-reporter` agent). Requirement: `requirements/req_001.md` · log: `requirements/req_001.decisions.md` · ADR 0001, 0002, 0003, 0004, 0005. Last updated 2026-11-02.
 
 ## Position + next action
-- **Position:** req_001 is the phase's only requirement; 126 ticket rows are tracked: 75 features (PLT-F-001..PLT-F-075), 11 chores and 40 bugs. Done: features PLT-F-001..PLT-F-019 and PLT-F-021 (20) and chores PLT-C-001, PLT-C-002, PLT-C-005, PLT-C-007 (4). B1 and B2 are complete except spin-off PLT-F-053. B3 has S15..S20 and S22 done: PLT-F-019 (`289168a`) and PLT-F-021 (`c767daa`) were gated by set G (`2a95927`, `97e96f5`), and PLT-B-004, PLT-B-036, PLT-B-037 are fixed. Remaining in B3: S21 PLT-F-020, S23 PLT-F-022, S24 PLT-F-023. 55 features are `idea` (PLT-F-020, PLT-F-022 onward and spin-offs; PLT-F-071, PLT-F-072, PLT-F-074, PLT-F-075 need a user ruling), 5 chores are `idea` and 2 `designed` (PLT-C-003, PLT-C-004). Bugs: 13 `fixed`, 12 `confirmed` (PLT-B-001, PLT-B-003 admin side only, PLT-B-008, PLT-B-009, PLT-B-012..PLT-B-016, PLT-B-019..PLT-B-021), 15 `reported` (PLT-B-006, PLT-B-017, PLT-B-026..PLT-B-035, PLT-B-038..PLT-B-040; PLT-B-026..PLT-B-033, PLT-B-035, PLT-B-038 and PLT-B-040 need a user ruling; PLT-B-028 and PLT-B-034 are P1). 75 commits are unpushed (`git log origin/main..HEAD`); 8 uncommitted paths, all docs. req_001 has no open question (Open and Deferred are empty in its log), so it is not blocked (D-17). PLT-C-001's CI has never run on GitHub (worklog). The D-55 SLO targets for PLT-F-018 have no D-NN approval row yet (worklog: "await user D-row").
-- **Next action:** commit the pending docs close-out, then build B3 S21 **PLT-F-020** (startup, first-run setup, module registry, doctor; dependencies PLT-F-004, PLT-F-003, PLT-F-005, PLT-F-006, PLT-F-016, PLT-F-018 all done); it should settle PLT-B-039 (adapter chat timers vs host stream settings) when it wires the Ollama adapter. Then `next-steps.md` item 13: S23 **PLT-F-022** with S24 **PLT-F-023**. User rulings that do not hold up these: PLT-B-026 (relates PLT-F-023), PLT-F-071 (before PLT-F-025, PLT-F-028), PLT-B-027..PLT-B-029, PLT-B-030..PLT-B-035, PLT-B-038, PLT-B-040, PLT-F-074, PLT-F-075; the D-55 SLO approval.
+- **Position:** req_001 is the phase's only requirement; 126 ticket rows are tracked: 75 features (PLT-F-001..PLT-F-075), 11 chores and 40 bugs. Done: 25 features (PLT-F-001..PLT-F-019, PLT-F-021, PLT-F-056, PLT-F-057, PLT-F-058, PLT-F-059, PLT-F-069) and 5 chores (PLT-C-001, PLT-C-002, PLT-C-005, PLT-C-007, PLT-C-010). B1 and B2 are complete except spin-off PLT-F-053. B3 has S15..S20 and S22 done (PLT-F-019 `289168a`, PLT-F-021 `c767daa`, both gated by set G, `2a95927`, `97e96f5`); remaining in B3: S21 PLT-F-020, S23 PLT-F-022, S24 PLT-F-023. Since the last build (2026-11-01, HEAD `97e96f5`): set H (`bf41d63`) gated PLT-B-012 and PLT-B-015 (built `a882599`, not live until PLT-F-020 wires them); set I (`e2fb3b4`) gated PLT-F-057 and PLT-B-021; re-plan set A (`8717268`) gated PLT-F-056, PLT-F-058, PLT-F-059 (engine side only) and PLT-F-069, and PLT-F-068 was not built; re-plan set B (`4f3c801`) and the follow-up gate (`f917267`, over `0516a62..d72cb65`) gated PLT-C-010, now done (`oas3-missing-example` 186 → 0), and PLT-F-065 was not built; PLT-B-016 and PLT-B-017 closed as already built. 50 features are pending, all `idea`: 28 designed, 22 not designed; 18 rich (17 in quadrant 2, PLT-F-070) and 32 quick wins. Chores: 4 `idea` (PLT-C-006, PLT-C-008, PLT-C-009, PLT-C-011), 2 `designed` (PLT-C-003, PLT-C-004). Bugs (40): 16 `fixed`, 8 `confirmed` (PLT-B-001, PLT-B-003 admin side only, PLT-B-008, PLT-B-009, PLT-B-013, PLT-B-014, PLT-B-019, PLT-B-020), 14 `reported` (PLT-B-006, PLT-B-026..PLT-B-035, PLT-B-038..PLT-B-040; PLT-B-026..PLT-B-033, PLT-B-035, PLT-B-038 and PLT-B-040 need a user ruling; PLT-B-028, PLT-B-031 and PLT-B-034 are P1), 2 `tracked` (PLT-B-012, PLT-B-015). Features waiting on a user ruling: PLT-F-052, PLT-F-065, PLT-F-068, PLT-F-071, PLT-F-072, PLT-F-074, PLT-F-075. 93 commits are unpushed (`git log origin/main..HEAD`); 3 uncommitted paths, all docs (the PLT-C-010 close-out). req_001 has no open question (Open and Deferred are empty in its log), so it is not blocked (D-17). PLT-C-001's CI has never run on GitHub (worklog). The D-55 SLO targets for PLT-F-018 have no D-NN approval row yet (worklog: "await user D-row").
+- **Next action:** build B3 S21 **PLT-F-020** (startup, first-run setup, module registry, doctor; dependencies PLT-F-004, PLT-F-003, PLT-F-005, PLT-F-006, PLT-F-016, PLT-F-018 all done). Its Notes carry the wiring owed by PLT-B-012 and PLT-B-015 (sink-error interval, `events.RegisterRetention`); PLT-B-039 (adapter chat timers vs host stream settings, feature-sized) is not in its Notes, so settle it when wiring the Ollama adapter. Then `next-steps.md` item 13: S23 **PLT-F-022** (it also replaces the placeholder key `jobs.result_ttl_seconds` in the `api/openapi.yaml` examples) together with S24 **PLT-F-023**. Ready now (every dependency done): PLT-F-020, PLT-F-022, PLT-F-023 and, as an early starter, PLT-F-045. User rulings that do not hold these up: PLT-B-026 (relates PLT-F-023), PLT-F-071 (before PLT-F-025, PLT-F-028), PLT-B-027..PLT-B-033, PLT-B-035, PLT-B-038, PLT-B-040, PLT-F-052, PLT-F-065, PLT-F-068, PLT-F-072, PLT-F-074, PLT-F-075; the D-55 SLO approval; `needs-ruling` I-184, I-203, I-225, I-240.
 
 ## Progress table
 | Batch | Slice | Ticket | Status | Owner | Model | Gate-covered |
 |---|---|---|---|---|---|---|
-| — | — | PLT-C-005 | done | Claude | Sonnet | yes (6520214, docs only) |
-| — | — | PLT-C-007 | done | Claude | — | yes (d986f37 and earlier docs gates) |
 | B1 | S1 | PLT-C-001 | done | Claude | Sonnet | yes (d588ee1, gate set A) |
 | B1 | S1 | PLT-B-001 | confirmed (decided D-88) | Claude | — | no |
 | B1 | S2 | PLT-F-001 | done | Claude | Opus | yes (2da4671, set B gate) |
@@ -33,25 +31,23 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | B3 | S17 | PLT-F-016 | done | Claude | Sonnet | yes (551f356, set E gate) |
 | B3 | S18 | PLT-F-017 | done | Claude | Sonnet | yes (551f356, set E gate) |
 | B3 | S19 | PLT-F-018 | done | Claude | Sonnet | yes (fabd1d0, set F gate) |
+| B3 | S19 | PLT-B-003 | confirmed (consumer side fixed by PLT-F-018, `ab12bd8`, `fabd1d0`; admin side open with PLT-F-024) | Claude | Sonnet | yes (fabd1d0, consumer side) |
 | B3 | S20 | PLT-F-019 | done | Claude | Sonnet | yes (2a95927, 97e96f5, set G gate; backlog Sec. Rev. still false) |
+| B3 | S20 | PLT-B-004 | fixed (PLT-F-019, `289168a`) | Claude | Sonnet | yes (2a95927, 97e96f5, set G gate) |
 | B3 | S21 | PLT-F-020 | idea (designed) | Claude | Sonnet | no |
 | B3 | S22 | PLT-F-021 | done | Claude | Sonnet | yes (2a95927, 97e96f5, set G gate; backlog Sec. Rev. still false) |
 | B3 | S23 | PLT-F-022 | idea (designed) | Claude | Sonnet | no |
 | B3 | S24 | PLT-F-023 | idea (designed) | Claude | Sonnet | no |
-| B3 | S19 | PLT-B-003 | confirmed (consumer side fixed by PLT-F-018, `ab12bd8`, `fabd1d0`; admin side open with PLT-F-024) | Claude | Sonnet | yes (fabd1d0, consumer side) |
-| B3 | S20 | PLT-B-004 | fixed (PLT-F-019, `289168a`) | Claude | Sonnet | yes (2a95927, 97e96f5, set G gate) |
-| B3 | S20 | PLT-B-036 | fixed (`2a95927`) | Claude | — | yes (2a95927, set G gate) |
-| B3 | S22 | PLT-B-037 | fixed (`c767daa`) | Claude | — | yes (97e96f5, set G gate) |
-| B3 | S20 | PLT-B-038, PLT-B-040 | reported (needs user ruling; set G deferred) | Claude | — | no |
-| B3 | S20 | PLT-B-039 | reported (feature-sized; before or with PLT-F-020) | Claude | — | no |
-| B3 | — | PLT-F-052 | idea | Claude | Sonnet | no |
+| B3 | — | PLT-F-052 | idea (needs user ruling; recommended close as not feasible with ogen 1.24) | Claude | Sonnet | no |
 | B4 | S25 | PLT-F-024 | idea (designed) | Claude | Sonnet | no |
-| B3 | S19 | PLT-B-005 | fixed (P1, `ab12bd8`, `fabd1d0`) | Claude | Sonnet | yes (fabd1d0, set F gate) |
+| B4 | S25 | PLT-B-005 | fixed (P1, PLT-F-018, `ab12bd8`, `fabd1d0`) | Claude | Sonnet | yes (fabd1d0, set F gate) |
 | B4 | S26 | PLT-F-025 | idea (designed) | Claude | Sonnet | no |
 | B4 | S27 | PLT-F-026 | idea (designed) | Claude | Sonnet | no |
 | B4 | S28 | PLT-C-002 | done | Claude | Opus | yes (d588ee1, gate set A) |
 | B4 | S29 | PLT-F-027 | idea (designed) | Claude | Sonnet | no |
 | B4 | S30 | PLT-F-028 | idea (designed) | Claude | Sonnet | no |
+| B4 | — | PLT-F-050 | idea | Claude | Haiku | no |
+| B4 | — | PLT-F-051 | idea (needs-scoping) | Claude | Sonnet | no |
 | B5 | S31 | PLT-F-029 | idea (designed) | Claude | Sonnet | no |
 | B5 | S32 | PLT-F-030 | idea (designed) | Claude | Sonnet | no |
 | B5 | S33 | PLT-F-031 | idea (designed) | Claude | Sonnet | no |
@@ -74,45 +70,51 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 | B9 | S50 | PLT-F-047 | idea (designed) | Claude | Sonnet | no |
 | B9 | S51 | PLT-F-048 | idea (designed) | Claude | Opus | no |
 | B10 | S52 | PLT-C-004 | designed | Claude | Sonnet | no |
-| B4 | — | PLT-F-050 | idea | Claude | Haiku | no |
-| B4 | — | PLT-F-051 | idea (needs-scoping) | Claude | Sonnet | no |
-| — | — | PLT-F-049 | idea | Claude | Sonnet | no |
+| — | — | PLT-C-005 | done | Claude | Sonnet | yes (6520214, docs only) |
+| — | — | PLT-C-007 | done | Claude | — | yes (d986f37 and earlier docs gates) |
+| — | — | PLT-C-010 | done (d72cb65, f917267; vacuum warnings 186 → 0) | Claude | — | yes (4f3c801 re-plan set B gate, f917267 gate over `0516a62..d72cb65`) |
 | — | — | PLT-C-006 | idea | — | — | no |
 | — | — | PLT-C-008 | idea | Claude | — | no |
-| — | — | PLT-B-006 | reported (upstream ogen, P3) | — | — | no |
 | — | — | PLT-C-009 | idea | Claude | — | no |
-| — | — | PLT-C-010 | idea | Claude | — | no |
+| — | — | PLT-C-011 | idea | Claude | Sonnet | no |
+| — | — | PLT-F-049, PLT-F-061, PLT-F-066, PLT-F-067 | idea (needs-scoping) | Claude | Sonnet | no |
 | — | — | PLT-F-054 | idea (decided D-90) | Claude | Sonnet | no |
 | — | — | PLT-F-055 | idea (decided D-89) | Claude | Sonnet | no |
-| — | — | PLT-F-056, PLT-F-057, PLT-F-058, PLT-F-059, PLT-F-060 | idea | Claude | Sonnet | no |
-| — | — | PLT-F-061, PLT-F-062, PLT-F-063 | idea | Claude | Sonnet | no |
-| — | — | PLT-F-064, PLT-F-065, PLT-F-066, PLT-F-067, PLT-F-068, PLT-F-069 | idea | Claude | Sonnet | no |
-| — | — | PLT-C-011 | idea | Claude | Sonnet | no |
+| — | — | PLT-F-056, PLT-F-058, PLT-F-069 | done | Claude | Sonnet | yes (8717268, re-plan set A gate; backlog Sec. Rev. still false) |
+| — | — | PLT-F-057 | done | Claude | Sonnet | yes (e2fb3b4, set I gate; backlog Sec. Rev. still false) |
+| — | — | PLT-F-059 | done (engine side only; gateway acceptance waits on PLT-B-031) | Claude | Sonnet | yes (8717268, re-plan set A gate; backlog Sec. Rev. still false) |
+| — | — | PLT-F-060, PLT-F-063, PLT-F-064, PLT-F-070, PLT-F-073 | idea | Claude | Sonnet | no |
+| — | — | PLT-F-062 | idea (overlaps the PLT-B-013 decision) | Claude | Sonnet | no |
+| — | — | PLT-F-065, PLT-F-071, PLT-F-072, PLT-F-074, PLT-F-075 | idea (needs user ruling) | Claude | Sonnet | no |
+| — | — | PLT-F-068 | idea (not built, waiting on user) | Claude | Sonnet | no |
+| — | — | PLT-B-006 | reported (upstream ogen, P3) | — | — | no |
 | — | — | PLT-B-007, PLT-B-010, PLT-B-011 | fixed (D-78, D-76, D-77; `5cf1311`) | Claude | — | yes (551f356, set E gate over `5cf1311`) |
-| — | — | PLT-B-008, PLT-B-009, PLT-B-012 | confirmed (decided D-86, D-85, D-82) | — | — | no |
-| — | — | PLT-B-013, PLT-B-014, PLT-B-015, PLT-B-016 | confirmed (decided D-80, D-81, D-83, D-84) | — | — | no |
-| — | — | PLT-B-017 | reported | Claude | Sonnet | no |
-| B3 | S19 | PLT-B-018 | fixed (D-79; `ab12bd8`, `fabd1d0`) | Claude | Sonnet | yes (fabd1d0, set F gate) |
-| — | — | PLT-B-019 | confirmed (decided D-87) | — | — | no |
-| — | — | PLT-B-020, PLT-B-021 | confirmed (D-73, D-74) | Claude | Sonnet | no |
+| — | — | PLT-B-008, PLT-B-009 | confirmed (decided D-86, D-85) | Claude | — | no |
+| — | — | PLT-B-012, PLT-B-015 | tracked (built `a882599`; live when PLT-F-020 wires them) | Claude | — | yes (bf41d63, set H gate) |
+| — | — | PLT-B-013, PLT-B-014, PLT-B-019 | confirmed (decided D-80, D-81, D-87) | Claude | — | no |
+| — | — | PLT-B-016 | fixed (D-84; already built in docs) | Claude | — | no |
+| — | — | PLT-B-017 | fixed (`ac8a183`, already built) | Claude | Sonnet | yes (ac8a183, set D gate host part) |
+| — | — | PLT-B-018 | fixed (D-79; `ab12bd8`, `fabd1d0`) | Claude | — | yes (fabd1d0, set F gate) |
+| — | — | PLT-B-020 | confirmed (D-73; disable write with PLT-F-026) | Claude | Sonnet | no |
+| — | — | PLT-B-021 | fixed (`cda6be6`) | Claude | Sonnet | yes (e2fb3b4, set I gate) |
 | — | — | PLT-B-022, PLT-B-023, PLT-B-024, PLT-B-025 | fixed (`46e5d77`) | Claude | Sonnet | yes (551f356, set E gate) |
-| — | — | PLT-B-026, PLT-B-027, PLT-B-028, PLT-B-029 | reported (needs user ruling) | Claude | Sonnet | no |
-| B3 | S19 | PLT-B-030, PLT-B-031, PLT-B-032, PLT-B-033, PLT-B-035 | reported (needs user ruling) | Claude | Sonnet | no |
-| B7 | S40, S41 | PLT-B-034 | reported (P1; build with PLT-F-038/PLT-F-039) | Claude | Sonnet | no |
-| — | — | PLT-F-070 | idea | Claude | Sonnet | no |
-| — | — | PLT-F-074, PLT-F-075 | idea (needs user ruling; set G deferred) | Claude | Sonnet | no |
-| — | — | PLT-F-071, PLT-F-072 | idea (needs user ruling) | Claude | Sonnet | no |
-| B3 | S19 | PLT-F-073 | idea | Claude | Sonnet | no |
+| — | — | PLT-B-026, PLT-B-027, PLT-B-028, PLT-B-029 | reported (needs user ruling; PLT-B-028 is P1) | Claude | Sonnet | no |
+| — | — | PLT-B-030, PLT-B-031, PLT-B-032, PLT-B-033, PLT-B-035 | reported (needs user ruling; PLT-B-031 is P1) | Claude | — | no |
+| — | — | PLT-B-034 | reported (P1; build with PLT-F-038/PLT-F-039) | Claude | — | no |
+| — | — | PLT-B-036 | fixed (`2a95927`) | Claude | — | yes (2a95927, set G gate) |
+| — | — | PLT-B-037 | fixed (`c767daa`) | Claude | — | yes (97e96f5, set G gate) |
+| — | — | PLT-B-038, PLT-B-040 | reported (needs user ruling; set G deferred) | Claude | — | no |
+| — | — | PLT-B-039 | reported (feature-sized; before or with PLT-F-020) | Claude | — | no |
 
 ## Gate ledger
-- Last completed review gate: set G, over PLT-F-019 and PLT-F-021 (`15b5403..c767daa`), fix commits `2a95927` (parts 1-2) and `97e96f5` (part 3), HEAD = `97e96f5`. Commits since `97e96f5`: 0 (`git rev-list --count 97e96f5..HEAD`); `git status --short` shows 8 uncommitted paths, all docs (`ROADMAP.md`, `docs/developer-guide.md`, `backlog.md`, `bugs.md`, `implementation-status.md`, `implicit-decisions.md`, `next-steps.md`, `worklog.md`). Earlier gate runs: set F `fabd1d0` (after part P1 `ba604f9`, PLT-F-018; closed out in `d9c670e`), `551f356` (set E, PLT-F-014..PLT-F-017, partial fixes `91a26d6`; closed out in `0da4ee8`), `ac8a183` (set D host part, PLT-F-012, PLT-F-013), `0640bf2` (set D auth and policy parts, PLT-F-010, PLT-F-011), `fab7890` (set C, PLT-F-004..PLT-F-009), `2da4671` (set B, PLT-F-001..PLT-F-003, PLT-B-002), `d588ee1` (set A, PLT-C-001/PLT-C-002), `d986f37`, `def3ea8`, `7bcd3c7` (docs fixes), `6520214` (design close-out and ticketization).
-- Shared contracts touched since the last gate (`git diff --name-only 97e96f5..HEAD` is empty; the uncommitted paths are docs only): none. (The set G fixes themselves touched `api/openapi.yaml`, `internal/api` and `internal/gateway/**`, and were gated.)
-- Next gate: not due — no commit since the set G gate `97e96f5`, so no `feat(`/`fix(` commit and no shared contract lacks a gate. The next gate falls due with the next feature build (PLT-F-020 touches startup wiring).
+- Last completed review gate: the gate over PLT-C-010's schema-level examples (`0516a62..d72cb65`), fix commit `f917267`, HEAD = `f917267`. Commits since `f917267`: 0 (`git rev-list --count f917267..HEAD`); `git status --short` shows 3 uncommitted paths, all docs (`backlog.md`, `implicit-decisions.md`, `worklog.md`: the PLT-C-010 close-out). Earlier gate runs: re-plan set B `4f3c801` (over `bac9d1e..53e21a5`, PLT-C-010 media-level examples), re-plan set A `8717268` (over `7d1b92f..7bce1b1`, PLT-F-056, PLT-F-058, PLT-F-059, PLT-F-069), set I `e2fb3b4` (over `bf41d63..cda6be6`, PLT-F-057, PLT-B-021), set H `bf41d63` (over `97e96f5..a882599`, PLT-B-012, PLT-B-015), set G `2a95927` (parts 1-2) and `97e96f5` (part 3) (over `15b5403..c767daa`, PLT-F-019, PLT-F-021), set F `fabd1d0` (after part P1 `ba604f9`, PLT-F-018; closed out in `d9c670e`), `551f356` (set E, PLT-F-014..PLT-F-017, partial fixes `91a26d6`; closed out in `0da4ee8`), `ac8a183` (set D host part, PLT-F-012, PLT-F-013), `0640bf2` (set D auth and policy parts, PLT-F-010, PLT-F-011), `fab7890` (set C, PLT-F-004..PLT-F-009), `2da4671` (set B, PLT-F-001..PLT-F-003, PLT-B-002), `d588ee1` (set A, PLT-C-001/PLT-C-002), `d986f37`, `def3ea8`, `7bcd3c7` (docs fixes), `6520214` (design close-out and ticketization).
+- Shared contracts touched since the last gate (`git diff --name-only f917267..HEAD` is empty; the uncommitted paths are docs only): none. (Since the previous status build, `97e96f5..f917267` touched `api/openapi.yaml`, `internal/storage/**`, `internal/telemetry/**`, `internal/engine/**`, `internal/api/examples_test.go` and `go.mod`; every one of those commits is covered by a gate listed above.)
+- Next gate: not due — HEAD is the gate fix commit `f917267`, so no `feat(`/`fix(` commit and no shared contract lacks a gate. The next gate falls due with the next feature build (PLT-F-020 touches startup wiring).
 
 ## Drift & bugs inbox
 - uncaptured — `design-status.md` still says req_001 stage 6 (`ticketize`) is "not started" and "Next: run `ticketize platform 1 1`", but 52 tickets exist (6e8f4eb); its stage 6 row and Position need updating. (now fixed: stage 6 is `done`, verified 2026-10-30)
 - uncaptured — PLT-F-006 Notes say "Can start as soon as T01 is done" and PLT-F-045 Notes say "Can start once T06 is done": T01/T06 are stale draft ticket numbers, not ids in this backlog (T01 presumably means PLT-C-001; T06 cannot be resolved, and PLT-F-045's Depends On is PLT-F-002 and PLT-F-005). (now fixed: the Notes name PLT-C-001 and PLT-F-005)
-- uncaptured — `design-status.md` predates 2e5e2bd: its stage 3 row lists D-38 as a live LLD row (D-54 supersedes it) and omits D-53..D-56; its Artifacts line omits ADR 0004 and `execetive_inputs/26-10-30_platform_req_001_pre-implementation.md` (design.md already carries D-53..D-56).
+- uncaptured — `design-status.md` predates 2e5e2bd: its stage 3 row lists D-38 as a live LLD row (D-54 supersedes it) and omits D-53..D-56; its Artifacts line omits ADR 0004 and `execetive_inputs/26-10-30_platform_req_001_pre-implementation.md` (design.md already carries D-53..D-56). (unchanged: `design-status.md` is still dated 2026-10-30)
 - uncaptured — PLT-F-016 Notes say which key signs ledger checkpoints is undecided (D-27 (4) covers receipts only) and a D-NN row is needed before building, but the log's Open section is empty, so the D-17 gate does not see it. (now fixed: D-65 decides the checkpoint key; PLT-F-016 Notes updated)
 - uncaptured — PLT-F-030 Notes say the default for consumer webhook endpoints targeting private (RFC 1918, ULA) or tailnet addresses must be confirmed by the user before the ticket builds; no log row records the question. (now fixed: D-66 sets the default to deny; PLT-F-030 updated)
 - uncaptured — `worklog.md` has one row (PLT-C-005, Ref up to 6e8f4eb): the review-gate fixes (6520214), D-51/D-52 (fdea028), the verbatim session record (f7da149) and D-53..D-56 with ADR 0004 (2e5e2bd) are not logged, and the PLT-C-005 row does not name the gate that ran over it. (now fixed: the worklog has backfilled rows for 6520214..2e5e2bd and for PLT-C-007)
@@ -124,38 +126,37 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 - PLT-C-008 — spin-off (Source `build`, idea 2026-10-31, P3): fuzz-failure issue opener; depends on PLT-C-001 (done) but has no plan position and is not in `next-steps.md`.
 - uncaptured — `implicit-decisions.md` is untracked and holds 15 `unreviewed` AI choices (I-001..I-015) awaiting owner review; PLT-C-002's drafts carry about 10 open legal points that the owner must settle before PLT-F-027 (`next-steps.md`). (now tracked and modified: it holds I-001..I-040, with I-016..I-040 added by PLT-F-001..003; the added ones are also awaiting owner review)
 - uncaptured — PLT-C-001's CI workflows (`ci.yml`, `fuzz.yml`) have never run on GitHub (worklog row); the 3-OS matrix, race job and govulncheck are verified only locally.
-- `bugs.md` holds twelve rows: PLT-B-002 `fixed`, the other eleven (PLT-B-001, PLT-B-003..PLT-B-012) `reported`. `ops/bin/ticket-drift` does not exist in this repo, so no automated drift check ran. (superseded: `bugs.md` now holds twenty-nine rows, see the count bullet below)
+- `bugs.md` holds twelve rows: PLT-B-002 `fixed`, the other eleven (PLT-B-001, PLT-B-003..PLT-B-012) `reported`. `ops/bin/ticket-drift` does not exist in this repo, so no automated drift check ran. (superseded: `bugs.md` now holds twenty-nine rows, see the count bullet below) (superseded again: `bugs.md` holds forty rows, see the last count bullet)
 - PLT-B-002 — fixed `2da4671` (P2, build): archcheck does not guard the telemetry adapter (`internal/telemetry/slogprom`, `prometheus/client_golang`); found in PLT-F-003. (now fixed)
 - PLT-B-003 — reported (P2, build): ogen's default error handler does not write the OpenAI error envelope and decode errors can quote request bytes; PLT-F-018 and PLT-F-024 must install the handlers. (now confirmed: consumer side fixed by PLT-F-018, `ab12bd8`, `fabd1d0`; the admin side is still open with PLT-F-024)
 - PLT-B-004 — reported (P2, build): the generated SSE response path does not flush; PLT-F-019 needs a flushing writer. (now fixed: PLT-F-019, `289168a`)
 - PLT-B-005 — reported (P1, build): one ogen `Server` carries both `/v1` and `/admin/v1`; each listener must mount only its own prefix (PLT-F-024). (now fixed: PLT-F-018, `ab12bd8`, `fabd1d0`)
 - PLT-B-006 — reported (P3, build): upstream ogen v1.24.0 panics on any `x-ogen-type` extension; the spec avoids it.
-- PLT-F-052, PLT-F-053, PLT-C-009, PLT-C-010 — spin-offs (Source `build`, idea 2026-10-31, P3) from PLT-F-001..003. PLT-F-053 carries plan position P1/B1/S4 and PLT-F-052 P1/B3 (no slice); none is listed in `next-steps.md`. Not named as a next action.
-- uncaptured — set B code gate over PLT-F-001, PLT-F-002, PLT-F-003 is owed (backlog Notes and worklog); the three rows are in `## Done but not shipped` with Code Rev. and Sec. Rev. `false`. (now stale: the gate ran, `2da4671`; the three backlog rows still say "code gate owed (set B)" with Code Rev. and Sec. Rev. `false`, and `next-steps.md` item 2 still says "set B code gate owed"; the status table counts them gate-covered from the worklog)
-- uncaptured — `next-steps.md` item 2 is marked done for S2..S4 but the three tickets are `done`, not `shipped`, and their Sec. Rev. is still `false`; PLT-F-001 and PLT-F-002 are tagged "gate it" in `next-steps.md`.
+- PLT-F-052, PLT-F-053, PLT-C-009, PLT-C-010 — spin-offs (Source `build`, idea 2026-10-31, P3) from PLT-F-001..003. PLT-F-053 carries plan position P1/B1/S4 and PLT-F-052 P1/B3 (no slice); none is listed in `next-steps.md`. Not named as a next action. (now: PLT-C-010 is done, `d72cb65`, `f917267`, gated; PLT-F-052 needs a user ruling (2026-11-01), recommended close as not feasible with ogen 1.24; PLT-F-053 and PLT-C-009 are unbuilt)
+- uncaptured — set B code gate over PLT-F-001, PLT-F-002, PLT-F-003 is owed (backlog Notes and worklog); the three rows are in `## Done but not shipped` with Code Rev. and Sec. Rev. `false`. (now stale: the gate ran, `2da4671`; the three backlog rows still say "code gate owed (set B)" with Code Rev. and Sec. Rev. `false`, and `next-steps.md` item 2 still says "set B code gate owed"; the status table counts them gate-covered from the worklog) (now: the backlog rows say Code Rev. and Sec. Rev. `true` and "set B gate ran (`2da4671`)"; `next-steps.md` item 2 says "set B code gate ran")
+- uncaptured — `next-steps.md` item 2 is marked done for S2..S4 but the three tickets are `done`, not `shipped`, and their Sec. Rev. is still `false`; PLT-F-001 and PLT-F-002 are tagged "gate it" in `next-steps.md`. (now: the three backlog rows have Sec. Rev. `true`)
 - PLT-B-007 — reported (P2, review-gate): streamed chat completions require an `LS-Receipt` response header, contradicting D-39 F1 step 8 and D-27; needs-decision on the contract shape. (now fixed: D-78, `5cf1311`)
 - PLT-B-008 — reported (P2, review-gate): remote admin login over the tailnet cannot work (`Secure` session cookie on an `http` admin server); needs-decision (HTTPS with Tailscale certificates vs dropping `Secure`). (now confirmed: decided D-86; build pending)
 - PLT-B-009 — reported (P2, review-gate): `GET /v1/jobs/{job_id}/result` deletes on read, so a lost response loses the result (against D-26); needs-decision. (now confirmed: decided D-85; build pending)
 - PLT-B-010 — reported (P2, review-gate): storage sets `synchronous(NORMAL)` under WAL, so a power loss can drop committed batches after the receipt was issued; needs-decision (`FULL` vs `NORMAL`). (now fixed: D-76, `5cf1311`)
 - PLT-B-011 — reported (P3, review-gate): `Tx.Capture` always writes `syn_change`, though D-41 makes change-row sync opt-in and nothing prunes the rows; needs-decision. (now fixed: D-77, `5cf1311`)
-- PLT-B-012 — reported (P2, review-gate): a failing log sink drops every log line silently (weakens D-39 step 9); needs-decision on how the host admin is told. (now confirmed: decided D-82; build pending)
+- PLT-B-012 — reported (P2, review-gate): a failing log sink drops every log line silently (weakens D-39 step 9); needs-decision on how the host admin is told. (now confirmed: decided D-82; build pending) (now tracked: built `a882599`, gate set H `bf41d63`; live only when PLT-F-020 registers the setting and wires the sink)
 - PLT-F-054, PLT-F-055 — spin-offs (Source `review-gate`, idea 2026-10-31, P3, `needs-decision`): Idempotency-Key on resource-request creation; audit of failed admin logins. No plan position and not in `next-steps.md`. Not named as a next action. (now decided: D-90 for PLT-F-054, D-89 for PLT-F-055; still no plan position)
 - uncaptured — `next-steps.md` items 3 (PLT-F-004) and 5 (PLT-F-006, PLT-F-007) are not marked done though the tickets are `done` (`5cd11e2`, `d6538e3`); item 3 and the early-starter note still read as pending. (now fixed: next-steps marks items 3 to 6 done, `0f182c8`)
-- PLT-F-056, PLT-F-057, PLT-F-058, PLT-F-059, PLT-F-060, PLT-C-011 — spin-offs (Source `build`, idea 2026-10-31, from PLT-F-004, PLT-F-006, PLT-F-007): no plan position (`—` Ref cells) and none listed in `next-steps.md`. PLT-C-011 (P2) is the live Ollama contract run that confirms the `overflowMarkers` texts and the 0.12.6 minimum (D-48); PLT-F-059 is needs-scoping. Not named as a next action.
-- uncaptured — `implicit-decisions.md` now holds I-041..I-072 added by PLT-F-004, PLT-F-006, PLT-F-007 (per `d6538e3`), awaiting owner review. (now: it also holds I-073..I-089 added by PLT-F-005, PLT-F-008, PLT-F-009 per `0f182c8`, and I-090..I-123 added by PLT-F-010..PLT-F-012 per `820cda3`; all awaiting owner review) (now: I-136..I-183 were added by PLT-F-014..PLT-F-017 and the set E gate; `implicit-decisions.md` holds I-001..I-183, all awaiting owner review)
 - uncaptured — PLT-B-007..PLT-B-012 and PLT-F-054/055 have no plan position and no Model in their rows, and `next-steps.md` does not list them.
-- PLT-B-013, PLT-B-014, PLT-B-015, PLT-B-016 — reported (P2, P2, P2, P3; review-gate set C `5cd11e2..939208f`), each needs-decision: recovery code is shown once and cannot be re-shown (PLT-B-013); a locked Linux Secret Service prompt blocks startup forever (PLT-B-014); `ntf_event` has no retention rule (PLT-B-015); the `Notifier` name is claimed by both `internal/notifier/events` and the LLD's channel-adapter port (PLT-B-016). No plan position, no Model, not in `next-steps.md`. (now confirmed: decided D-80, D-81, D-83, D-84 for PLT-B-013..PLT-B-016 respectively)
-- PLT-F-061, PLT-F-062, PLT-F-063 — spin-offs (Source `build`, idea 2026-10-31, P3, from PLT-F-009, PLT-F-005, PLT-F-008): no plan position and not in `next-steps.md`; PLT-F-061 is needs-scoping and PLT-F-062 overlaps the PLT-B-013 decision. Not named as a next action.
+- PLT-B-013, PLT-B-014, PLT-B-015, PLT-B-016 — reported (P2, P2, P2, P3; review-gate set C `5cd11e2..939208f`), each needs-decision: recovery code is shown once and cannot be re-shown (PLT-B-013); a locked Linux Secret Service prompt blocks startup forever (PLT-B-014); `ntf_event` has no retention rule (PLT-B-015); the `Notifier` name is claimed by both `internal/notifier/events` and the LLD's channel-adapter port (PLT-B-016). No plan position, no Model, not in `next-steps.md`. (now confirmed: decided D-80, D-81, D-83, D-84 for PLT-B-013..PLT-B-016 respectively) (now: PLT-B-015 tracked, built `a882599`, gated set H `bf41d63`, live when PLT-F-020 calls `events.RegisterRetention`; PLT-B-016 fixed, already built; PLT-B-013 and PLT-B-014 still confirmed and unbuilt)
+- PLT-F-056, PLT-F-057, PLT-F-058, PLT-F-059, PLT-F-060, PLT-C-011 — spin-offs (Source `build`, idea 2026-10-31, from PLT-F-004, PLT-F-006, PLT-F-007): no plan position (`—` Ref cells) and none listed in `next-steps.md`. PLT-C-011 (P2) is the live Ollama contract run that confirms the `overflowMarkers` texts and the 0.12.6 minimum (D-48); PLT-F-059 is needs-scoping. Not named as a next action. (now: PLT-F-056, PLT-F-057, PLT-F-058, PLT-F-059 are done and gated (`372ba75`, `fa4878c`, `7bce1b1`, `8717268`, `e2fb3b4`); PLT-F-058 has not run against a real Ollama (PLT-C-011); PLT-F-059 is engine side only; PLT-F-060 and PLT-C-011 are still `idea`)
 - uncaptured — `next-steps.md` "Early starters" still lists PLT-F-006, which is `done`. (now fixed: the line lists only PLT-F-045 and notes PLT-F-006 done)
 - `bugs.md` now holds nineteen rows: PLT-B-002 `fixed`, the other eighteen (PLT-B-001, PLT-B-003..PLT-B-019) `reported`. The earlier bullets counting twelve and sixteen are superseded. `ops/bin/ticket-drift` does not exist in this repo, so no automated drift check ran. (superseded: `bugs.md` now holds twenty-nine rows, 8 `fixed`, 9 `reported`, 12 `confirmed`)
-- PLT-B-017, PLT-B-018, PLT-B-019 — reported (P2, build, from PLT-F-011): no `time/tzdata` import so IANA zones fail on a Windows host without Go (PLT-B-017); policy refusals have no API error code or status, needs-decision before PLT-F-018 (PLT-B-018); policy rule versions disagree between the OpenAPI `PolicyRule` and `grt_policy_rule`, needs-decision before PLT-F-026 (PLT-B-019). No Model on B-018/B-019. (now confirmed: PLT-B-018 decided D-79, PLT-B-019 decided D-87; both pre-build conditions are met) (now PLT-B-018 fixed: PLT-F-018, `ab12bd8`, `fabd1d0`; PLT-B-019 still unbuilt, before PLT-F-026)
-- PLT-F-064, PLT-F-065, PLT-F-066, PLT-F-067, PLT-F-068, PLT-F-069 — spin-offs (Source `build`, idea 2026-10-31, P3, from PLT-F-011 and PLT-F-012): no plan position and not in `next-steps.md`; PLT-F-066 and PLT-F-067 are needs-scoping. Not named as a next action.
+- PLT-B-017, PLT-B-018, PLT-B-019 — reported (P2, build, from PLT-F-011): no `time/tzdata` import so IANA zones fail on a Windows host without Go (PLT-B-017); policy refusals have no API error code or status, needs-decision before PLT-F-018 (PLT-B-018); policy rule versions disagree between the OpenAPI `PolicyRule` and `grt_policy_rule`, needs-decision before PLT-F-026 (PLT-B-019). No Model on B-018/B-019. (now confirmed: PLT-B-018 decided D-79, PLT-B-019 decided D-87; both pre-build conditions are met) (now PLT-B-018 fixed: PLT-F-018, `ab12bd8`, `fabd1d0`; PLT-B-019 still unbuilt, before PLT-F-026) (now PLT-B-017 fixed: `import _ "time/tzdata"` at `cmd/local-server/main.go:13`, `ac8a183`)
+- PLT-F-061, PLT-F-062, PLT-F-063 — spin-offs (Source `build`, idea 2026-10-31, P3, from PLT-F-009, PLT-F-005, PLT-F-008): no plan position and not in `next-steps.md`; PLT-F-061 is needs-scoping and PLT-F-062 overlaps the PLT-B-013 decision. Not named as a next action.
+- PLT-F-064, PLT-F-065, PLT-F-066, PLT-F-067, PLT-F-068, PLT-F-069 — spin-offs (Source `build`, idea 2026-10-31, P3, from PLT-F-011 and PLT-F-012): no plan position and not in `next-steps.md`; PLT-F-066 and PLT-F-067 are needs-scoping. Not named as a next action. (now: PLT-F-069 done and gated (`372ba75`, `8717268`); PLT-F-068 not built (passive STOP, waiting on user: it needs a transition detector and a D-row); PLT-F-065 needs a user ruling (ogen refuses external refs); PLT-F-064, PLT-F-066, PLT-F-067 unchanged)
 - uncaptured — PLT-F-010, PLT-F-011, PLT-F-012 are in `## Done but not shipped` with Code Rev. and Sec. Rev. `false` and Notes "built, set D gate owed"; consistent, but the set D gate is the due gate in the Gate ledger. (now stale for PLT-F-010 and PLT-F-011: `0640bf2` applied gate fixes to the auth and policy parts, yet their Notes, Code Rev. and Sec. Rev. and the worklog still say gate owed; PLT-F-012's host part is still owed) (now: the set D gate is complete, `0640bf2` auth and policy, `ac8a183` host; the backlog Notes for PLT-F-010, PLT-F-011, PLT-F-012 still say "set D gate owed" and Code Rev./Sec. Rev. are still `false`, see the bullet below)
 - uncaptured — `docs/modules/events.md` has an uncommitted modification in the working tree (the only dirty path), not recorded in the worklog. (now committed: the working tree is clean at `0640bf2`)
 - uncaptured — PLT-F-013 is built (`9a2d64a`, `feat(`: `internal/hostmetrics/**`, `internal/host/migrations/0003_host_metric_minute.sql`, gopsutil added) but its backlog row is still in `## Pending` (Code Rev. and Sec. Rev. `false`, Notes "designed"), the worklog has no PLT-F-013 row, `next-steps.md` item 8 is not marked done, and `implicit-decisions.md` was not touched by the commit; docs close-out (`/track-work`, `/sync-docs`) not run. (now fixed: PLT-F-013 is in `## Done but not shipped`, worklog row exists, next-steps item 8 is done, `884679f`)
 - uncaptured — set D gate is partial: `0640bf2` says the host part (PLT-F-012, and now PLT-F-013) did not run because of a rate limit and "is re-run separately"; no worklog row or ticket records that, and `0640bf2` has no worklog row at all. (now fixed: the host part ran, `ac8a183`; worklog has the row)
 - PLT-B-020 — confirmed (P2, review-gate set D): a broken policy rule fails every request it applies to, silently; D-73 decided; lands with PLT-F-018 (event, counter) and PLT-F-026 (disable write). No plan position in its Ref cell. (now: the event and failure counter are done by PLT-F-018, `ab12bd8`; the disable write remains with PLT-F-026)
-- PLT-B-021 — confirmed (P3, user 2026-10-31): the telemetry port cannot delete a metric series, so a stale label value stays on `/metrics` (D-74). No plan position.
+- PLT-B-021 — confirmed (P3, user 2026-10-31): the telemetry port cannot delete a metric series, so a stale label value stays on `/metrics` (D-74). No plan position. (now fixed: `cda6be6`, gate set I `e2fb3b4`)
 - PLT-B-026 — reported (P2, review-gate set E): an aborted streamed call is metered but its receipt goes only in the final SSE event the client never receives; needs a user ruling (recommended: serve stored receipts from the usage endpoint, PLT-F-023). Relates PLT-F-019, PLT-F-023.
 - PLT-B-027 — reported (P2, review-gate set E): restoring an older snapshot (PLT-F-044) rewinds `ldg_leaf`/`ldg_checkpoint` below published checkpoints; needs a user ruling (recommended: `local-server restore` reports and warns, no new mechanism in phase 1).
 - PLT-B-028 — reported (P1, security, review-gate set E): a key-prefix lockout refuses even the correct secret, so a known prefix lets anyone lock a consumer out; needs a user ruling (recommended: prefix lock applies only to failed attempts, D-row amending D-99). Relates PLT-F-017.
@@ -165,9 +166,9 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 - PLT-F-070 — spin-off (Source user 2026-10-31, P3, from PLT-F-013, D-75): opt-in macOS GPU helper; Quadrant 4, no plan position, not in `next-steps.md`. Not named as a next action.
 - uncaptured — backlog rows PLT-F-010, PLT-F-011, PLT-F-012 are in `## Done but not shipped` with Code Rev./Sec. Rev. `false` and Notes "built, set D gate owed", and PLT-F-013 has Code Rev./Sec. Rev. `false`, though the set D gate ran over them (`0640bf2` auth and policy, `ac8a183` host and metrics); `next-steps.md` item 7 still says "set D code gate owed".
 - uncaptured — `worklog.md` row for PLT-B-022 ("reported", ledger retries around it) is superseded by the later row that records PLT-B-022..PLT-B-025 fixed (`46e5d77`); no ticket is wrong, the earlier row is history.
-- uncaptured — the working tree is clean and 64 commits are unpushed (`git log origin/main..HEAD`); PLT-C-001's CI has still never run on GitHub, so the set E gate's `go test -race`, 3-OS matrix and spec lint are verified locally only. (now: 69 commits unpushed; the set F gate is likewise verified locally only) (now: 73 commits unpushed and 17 uncommitted paths from the partial set G gate; CI still never ran on GitHub) (now: 75 commits unpushed and 8 uncommitted paths, all docs (`ROADMAP.md`, `docs/developer-guide.md`, the phase tracking files); CI still never ran on GitHub)
+- uncaptured — the working tree is clean and 64 commits are unpushed (`git log origin/main..HEAD`); PLT-C-001's CI has still never run on GitHub, so the set E gate's `go test -race`, 3-OS matrix and spec lint are verified locally only. (now: 69 commits unpushed; the set F gate is likewise verified locally only) (now: 73 commits unpushed and 17 uncommitted paths from the partial set G gate; CI still never ran on GitHub) (now: 75 commits unpushed and 8 uncommitted paths, all docs (`ROADMAP.md`, `docs/developer-guide.md`, the phase tracking files); CI still never ran on GitHub) (now: 93 commits unpushed and 3 uncommitted paths, all docs (`backlog.md`, `implicit-decisions.md`, `worklog.md`: the PLT-C-010 close-out); CI still never ran on GitHub, so gates H, I, re-plan A and B ran locally only)
 - uncaptured — PLT-F-018's pre-build notes still say it needs the SLO targets approved as a D-NN row before its gate (D-55); no such row exists yet. Its other pre-build conditions are met (PLT-B-018 decided D-79; D-100 request counter is built with it). (now: PLT-F-018 is built and its set F gate ran (`fabd1d0`), but no D-NN row approves the SLO targets and the log has none beyond D-55; the backlog Notes for PLT-F-018 still say the approval comes before the review gate)
-- PLT-B-030, PLT-B-031, PLT-B-032, PLT-B-033, PLT-B-035 — reported (P2, P1, P2, P3, P2; review-gate set F `02b0798..ab12bd8`), each needs a user ruling: request counter lost on restart (PLT-B-030), OpenAI `temperature` rejected with 400 (PLT-B-031, P1; PLT-F-059), request quota overshoot by queue depth (PLT-B-032), suspended-consumer 401 message (PLT-B-033), interactive failure/abort billing decided only in code (PLT-B-035). No plan position in the Ref cell beyond PLT-F-018; not in `next-steps.md`.
+- PLT-B-030, PLT-B-031, PLT-B-032, PLT-B-033, PLT-B-035 — reported (P2, P1, P2, P3, P2; review-gate set F `02b0798..ab12bd8`), each needs a user ruling: request counter lost on restart (PLT-B-030), OpenAI `temperature` rejected with 400 (PLT-B-031, P1; PLT-F-059), request quota overshoot by queue depth (PLT-B-032), suspended-consumer 401 message (PLT-B-033), interactive failure/abort billing decided only in code (PLT-B-035). No plan position in the Ref cell beyond PLT-F-018; not in `next-steps.md`. (now: PLT-F-059 is built on the engine side only, `7bce1b1`; the gateway still refuses `temperature` until PLT-B-031 is ruled)
 - PLT-B-034 — reported (P1, review-gate set F): address-level lockout keyed on `RemoteAddr` locks out every consumer behind a local Funnel proxy; build with PLT-F-038/PLT-F-039. Not in `next-steps.md`.
 - PLT-F-073 — spin-off (Source `build`, idea 2026-11-01, P3, from PLT-F-018): split `limits.Check` into rate, freshness and quota checks. Its Ref cell has no `P1/B/S` plan position and it is not in `next-steps.md`. Not named as a next action.
 - uncaptured — PLT-F-018's backlog Notes still carry the pre-build wording ("get the user's approval as a D-NN row before the review gate") though the gate ran; backlog rows PLT-F-010..PLT-F-013 still show Code Rev./Sec. Rev. `false` (see the earlier bullet).
@@ -176,20 +177,27 @@ Instance of the `implementation-status.md` format (built by `docs/tools/sdlc-wor
 - PLT-B-036 — reported (P2, build, from PLT-F-019): late error write on a disconnected or already-streaming connection by ogen's `errorHandler`; not fixed in the committed code. Part of the uncommitted set G fixes may touch `internal/gateway/gateway.go`; unverified. (now fixed: `2a95927`, set G gate part 2)
 - uncaptured — set G gate over PLT-F-019 and PLT-F-021 is partial: parts 1-2 fixed in the working tree (17 paths, uncommitted), part 3's verifier died on a rate limit; no worklog row records this. PLT-F-019's backlog Notes still say "set G code gate owed, runs after PLT-F-021"; `internal/gateway/status_internal_test.go` is untracked. (now fixed: the gate finished, fixer output committed in `2a95927` and `97e96f5`; the worklog has the rows; `status_internal_test.go` is tracked)
 - uncaptured — PLT-F-019's `## Done but not shipped` row has Code Rev. and Sec. Rev. `false`, correct until the set G gate completes. (now stale: the set G gate is complete, yet Sec. Rev. is still `false` for PLT-F-019 and PLT-F-021, Code Rev. `true`)
-
 - PLT-B-038, PLT-B-039, PLT-B-040, PLT-F-074, PLT-F-075 — spin-offs (Source `review-gate`, set G `15b5403..c767daa`, 2026-11-01): a stalled reader holds the engine slot (PLT-B-038, P2, needs ruling), Ollama adapter chat timers will cut a stream before a higher host setting (PLT-B-039, P2, feature-sized, relates PLT-F-020), status reads spend the per-key rate allowance (PLT-B-040, P2, needs ruling), stream metrics (PLT-F-074, P3, needs ruling), `Retry-After` on quiet-hours `host_paused` (PLT-F-075, P3, needs ruling and a D-row). No plan position, not in `next-steps.md`. Not named as a next action.
-- uncaptured — PLT-F-010, PLT-F-011, PLT-F-012 backlog Notes still say "built, set D gate owed" and PLT-F-013 shows Code Rev./Sec. Rev. `false` (rows exist since earlier bullets; the gates ran, `0640bf2`, `ac8a183`); PLT-F-018 Notes still carry the pre-build D-55 wording. Unchanged since the last status build.
+- uncaptured — PLT-F-010, PLT-F-011, PLT-F-012 backlog Notes still say "built, set D gate owed" and PLT-F-013 shows Code Rev./Sec. Rev. `false` (rows exist since earlier bullets; the gates ran, `0640bf2`, `ac8a183`); PLT-F-018 Notes still carry the pre-build D-55 wording. Unchanged since the last status build, and still unchanged in the working tree.
+- `bugs.md` now holds forty rows: 16 `fixed`, 8 `confirmed`, 14 `reported`, 2 `tracked`; the earlier count bullets are superseded. `ops/bin/ticket-drift` does not exist in this repo (there is no `ops/` folder), so no automated drift check ran.
+- uncaptured — PLT-B-012 and PLT-B-015 carry the status `tracked` in `bugs.md`, which is not in the bug vocabulary (`docs/tracks/README.md`: `reported → confirmed → fixed → shipped`, or `dropped`), while their worklog rows say `in-progress`. Built and gated (`a882599`, `bf41d63`); they become `fixed` when PLT-F-020 wires them.
+- uncaptured — PLT-B-039 says it is feature-sized and relates PLT-F-020, but neither PLT-F-020's Notes nor `next-steps.md` mention it, so the builder of PLT-F-020 will not see it unless the ticket is read with the bug list.
+- uncaptured — `## Done but not shipped` rows PLT-F-056, PLT-F-057, PLT-F-058, PLT-F-059 and PLT-F-069 show Code Rev. `true` and Sec. Rev. `false` though their gates ran (`e2fb3b4`, `8717268`); the same open Sec. Rev. cell as PLT-F-019 and PLT-F-021. These five also have no `P1/B/S` plan position and no `next-steps.md` entry.
+- uncaptured — `implicit-decisions.md` holds I-001..I-241: I-184, I-203, I-225 and I-240 are `needs-ruling`, 1 is `accepted`, 2 are `reverted` and the rest are `unreviewed`; I-232..I-241 were added by re-plan sets A and B and the PLT-C-010 follow-up. The owner has not reviewed them.
 
 ## Token ledger
-Counts, not dollars. Script run over all 126 phase ticket ids; input is `input_tokens` as reported (deduped by message id). Spans naming two or more tickets and subagents whose spawn prompt names none or several are `n/a`. Subagent attribution is mechanical (a spawn prompt that merely names a ticket counts); OpenCode usage is not in the transcripts and no row has Owner OpenCode.
+Counts, not dollars. Script run over all 126 phase ticket ids; input is `input_tokens` as reported (deduped by message id). Spans naming two or more tickets and subagents whose spawn prompt names none or several are `n/a`; the multi-ticket rows include this status build's own session. Subagent attribution is mechanical (a spawn prompt that merely names a ticket counts, so a ticket named in a planning or review prompt shows usage without being built); OpenCode usage is not in the transcripts and no row has Owner OpenCode.
 
 | Ticket | Model | Input | Output | Cache (write / read) | Attribution |
 |---|---|---|---|---|---|
 | PLT-B-002 | claude-sonnet-5-5 | 30 | 13,830 | 53,793 / 546,606 | subagent (spawn prompt names ticket) |
 | PLT-B-003 | claude-opus-5-5 | 64 | 34,539 | 96,496 / 2,115,230 | subagent (spawn prompt names ticket) |
+| PLT-B-021 | claude-sonnet-5-5 | 42 | 17,832 | 76,333 / 589,256 | subagent (spawn prompt names ticket) |
 | PLT-B-037 | claude-opus-5-5 | 26 | 3,783 | 158,827 / 785,618 | main session (span mentions ticket) |
 | PLT-C-001 | claude-sonnet-5-5 | 38 | 33,026 | 81,038 / 591,909 | subagent (spawn prompt names ticket) |
 | PLT-C-005 | claude-sonnet-5-5 | 28 | 19,022 | 111,056 / 1,014,482 | subagent (spawn prompt names ticket) |
+| PLT-C-010 | claude-haiku-5-5 | 180 | 147,782 | 306,843 / 11,289,261 | subagent (spawn prompt names ticket) |
+| PLT-C-010 | claude-sonnet-5-5 | 102 | 47,343 | 217,632 / 2,897,294 | subagent (spawn prompt names ticket) |
 | PLT-F-004 | claude-haiku-5-5 | 62 | 64,668 | 146,974 / 1,231,980 | subagent (spawn prompt names ticket) |
 | PLT-F-005 | claude-haiku-5-5 | 32 | 30,385 | 121,346 / 321,847 | subagent (spawn prompt names ticket) |
 | PLT-F-013 | claude-sonnet-5-5 | 20 | 8,727 | 41,168 / 366,889 | subagent (spawn prompt names ticket) |
@@ -197,11 +205,14 @@ Counts, not dollars. Script run over all 126 phase ticket ids; input is `input_t
 | PLT-F-020 | claude-sonnet-5-5 | 16 | 6,375 | 33,068 / 179,320 | subagent (spawn prompt names ticket) |
 | PLT-F-025 | claude-sonnet-5-5 | 16 | 10,667 | 49,128 / 252,072 | subagent (spawn prompt names ticket) |
 | PLT-F-039 | claude-sonnet-5-5 | 34 | 13,599 | 62,855 / 708,711 | subagent (spawn prompt names ticket) |
+| PLT-F-059 | claude-sonnet-5-5 | 10 | 4,492 | 17,684 / 64,428 | subagent (spawn prompt names ticket) |
+| PLT-F-065 | claude-sonnet-5-5 | 14 | 2,879 | 19,390 / 86,380 | subagent (spawn prompt names ticket) |
 | PLT-F-068 | claude-sonnet-5-5 | 16 | 4,880 | 24,879 / 146,901 | subagent (spawn prompt names ticket) |
-| — | claude-haiku-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (1,641 replies) |
-| — | claude-opus-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (1,069 replies) |
-| — | claude-sonnet-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (1,124 replies) |
-| — | claude-opus-5-5 | n/a | n/a | n/a | n/a — multi-ticket span (539 replies) |
+| — | claude-haiku-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (1,835 replies) |
+| — | claude-opus-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (1,213 replies) |
+| — | claude-sonnet-5-5 | n/a | n/a | n/a | n/a — unattributed subagent (1,304 replies) |
+| — | claude-opus-5-5 | n/a | n/a | n/a | n/a — multi-ticket span (596 replies) |
+| — | claude-sonnet-5-5 | n/a | n/a | n/a | n/a — multi-ticket span (22 replies) |
 
 ## Requirement coverage
 
@@ -252,7 +263,7 @@ Counts, not dollars. Script run over all 126 phase ticket ids; input is `input_t
 | Security › consumers can only run inference, never arbitrary code | PLT-F-018 (D-25) |
 | Not in Phase 1 › general compute sharing; public marketplace — ME: recommendation good | no ticket, decision only (D-02) |
 | ME: build so a future public marketplace can find any host | no ticket, decision only (D-02) |
-| Phase 1 = private network where the host invites known people | PLT-F-027, PLT-F-038 (D-13, D-23, D-25) |
+| Phase 1 = private network where the host invites known people | PLT-F-027, PLT-F-038, PLT-F-039 (D-13, D-23, D-25) |
 | A1: Phase 1 shares only inference (chat/completions + embeddings) — accepted | PLT-F-018 (D-02) |
 | A2 (corrected): host invites in Phase 1; build for public discovery and a central server in future | no ticket, decision only (D-02) |
 | A3 (corrected): build for Apple and Windows in Phase 1 | PLT-F-041, PLT-C-003, PLT-F-043 (D-30) |

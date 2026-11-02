@@ -6,7 +6,7 @@ The consumer API: OpenAI-compatible endpoints and the request pipeline. Built (P
 
 ## Owns
 
-- Packages: `internal/gateway/` (built by PLT-F-018, PLT-F-019).
+- Packages: `internal/gateway/` (built by PLT-F-018, PLT-F-019, PLT-F-021).
 - Tables: none.
 - Metrics and events: emits `metering.failed` and `policy.rule_invalid` (internal, D-73); exposes `Gateway.RuleFailures` / `ClearRuleFailures` for PLT-F-026.
 - Port: none defined here. `NewRuleSource(db, repos)` is the `policy.RuleSource` over stored rules.

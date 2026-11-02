@@ -6,7 +6,7 @@ The admin UI's API handlers. Writes go through the owning modules.
 
 ## Owns
 
-- Packages: `internal/admin/` (built by PLT-F-024..F-026).
+- Packages: `internal/admin/` (designed: PLT-F-024..F-026; not built).
 - Tables: none.
 - Port: none defined here.
 

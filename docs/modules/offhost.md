@@ -6,7 +6,7 @@ Backups and opt-in platform sync with per-dataset keys.
 
 ## Owns
 
-- Packages: `internal/offhost/` (built by PLT-F-044..F-046).
+- Packages: `internal/offhost/` (designed: PLT-F-044..F-046; not built).
 - Tables: `syn_*`, migrations in `internal/offhost/migrations/`.
 - Port: `OffHostSync`.
 

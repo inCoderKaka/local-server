@@ -6,7 +6,7 @@ Export and import bundles.
 
 ## Owns
 
-- Packages: `internal/bundle/` (built by PLT-F-045).
+- Packages: `internal/bundle/` (designed: PLT-F-045; not built).
 - Tables: none.
 - Port: none defined here.
 

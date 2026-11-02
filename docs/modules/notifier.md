@@ -6,7 +6,7 @@ Notifications, preferences, webhook endpoints and the outbox, with desktop and w
 
 ## Owns
 
-- Packages: `internal/notifier/` (built by PLT-F-029..F-031).
+- Packages: `internal/notifier/` (`events` built by PLT-F-009; the in-app, webhook and desktop channels are designed: PLT-F-029..F-031; not built).
 - Tables: `ntf_*`, migrations in `internal/notifier/migrations/`.
 - Port: `Notifier`.
 

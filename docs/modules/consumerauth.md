@@ -6,7 +6,7 @@ Consumer accounts: invites, login, sessions and consent.
 
 ## Owns
 
-- Packages: `internal/consumerauth/` (built by PLT-F-027).
+- Packages: `internal/consumerauth/` (designed: PLT-F-027; not built).
 - Tables: none.
 - Port: `auth adapter`.
 

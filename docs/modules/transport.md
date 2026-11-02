@@ -6,7 +6,7 @@ How consumers reach the host: system Tailscale, Funnel, embedded tsnet.
 
 ## Owns
 
-- Packages: `internal/transport/` (built by PLT-F-038..F-040).
+- Packages: `internal/transport/` (designed: PLT-F-038..F-040; not built).
 - Tables: none.
 - Port: `transport`.
 

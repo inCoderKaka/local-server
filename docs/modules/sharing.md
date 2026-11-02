@@ -6,7 +6,7 @@ Platform admin and sharing grants between parties.
 
 ## Owns
 
-- Packages: `internal/sharing/` (built by PLT-F-047).
+- Packages: `internal/sharing/` (designed: PLT-F-047; not built).
 - Tables: `plt_*`, migrations in `internal/sharing/migrations/`.
 - Port: none defined here.
 

@@ -24,7 +24,7 @@
 //     and total timeouts (gateway.stream_*) cancel the engine call; a client that disconnects
 //     cancels it too and its tokens so far are metered as aborted;
 //   - steps 8 and 9, metering: one metering transaction (ledger.Record: usage_record, ledger leaf,
-//     sync_change) and the signed receipt in the LS-Receipt header. If metering keeps failing the
+//     syn_change) and the signed receipt in the LS-Receipt header. If metering keeps failing the
 //     answer is still returned with the signed unmetered receipt, the failure is logged and
 //     counted, and a metering.failed event is emitted (D-39 step 9, D-51). A call the client
 //     abandons while the engine runs is metered as aborted with the tokens received so far.

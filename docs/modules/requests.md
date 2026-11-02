@@ -6,7 +6,7 @@ Resource requests from consumers to the host and their comments.
 
 ## Owns
 
-- Packages: `internal/requests/` (built by PLT-F-028).
+- Packages: `internal/requests/` (designed: PLT-F-028; not built).
 - Tables: `req_*`, migrations in `internal/requests/migrations/`.
 - Port: none defined here.
 

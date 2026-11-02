@@ -6,7 +6,7 @@ The sleep lock while sharing is on.
 
 ## Owns
 
-- Packages: `internal/power/` (built by PLT-F-041).
+- Packages: `internal/power/` (designed: PLT-F-042; not built).
 - Tables: none.
 - Port: `Power`.
 

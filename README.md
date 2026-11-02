@@ -4,7 +4,7 @@
 
 local-server is a single Go binary. A **host** installs it next to [Ollama](https://ollama.com), decides how much of the machine to share, and invites **consumers**. Consumers call it with any OpenAI SDK over an encrypted [Tailscale](https://tailscale.com) network. Every call is admitted fairly, metered, and returned with a **signed usage receipt** backed by a tamper-evident Merkle-tree ledger.
 
-> **Status:** Phase 1 design is complete and implementation is starting, so everything described below is planned. See the [roadmap](ROADMAP.md) for what exists. Licence: [Apache-2.0](LICENSE).
+> **Status:** Phase 1 is under construction. Parts of what is described below exist and parts are planned; the [roadmap](ROADMAP.md) says which. Licence: [Apache-2.0](LICENSE).
 
 ```mermaid
 flowchart LR

@@ -6,7 +6,7 @@ Running in the background as a user or system service.
 
 ## Owns
 
-- Packages: `internal/service/` (built by PLT-F-042).
+- Packages: `internal/service/` (designed: PLT-F-041; not built).
 - Tables: none.
 - Port: `service`.
 
