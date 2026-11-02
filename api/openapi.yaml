@@ -2769,6 +2769,7 @@ components:
       description: Only requests in this state.
       schema:
         $ref: '#/components/schemas/ResourceRequestStatus'
+        example: open
     JobId:
       name: job_id
       in: path
@@ -4060,6 +4061,11 @@ components:
       properties:
         error:
           $ref: '#/components/schemas/ErrorDetail'
+          example:
+            message: The token quota for this window is used up.
+            type: insufficient_quota
+            param: null
+            code: quota_exceeded
       example:
         error:
           message: The token quota for this window is used up.
@@ -4095,6 +4101,7 @@ components:
           description: On `policy_denied`, the request properties the refusal is about (D-79). Names only, never values.
           items:
             type: string
+          example: [background]
 
     # -------------------------------------------------------------- OpenAI chat
     ChatCompletionRequest:
@@ -4430,6 +4437,7 @@ components:
         id:
           type: string
           description: The completion's id.
+          example: chatcmpl-example
         object:
           type: string
           description: Always `chat.completion`.
@@ -4438,16 +4446,28 @@ components:
           type: integer
           description: Unix seconds.
           format: int64
+          example: 1768471200
         model:
           type: string
           description: The model that answered.
+          example: example-model
         choices:
           type: array
           description: The single choice (`n` is not supported).
           items:
             $ref: '#/components/schemas/ChatCompletionChoice'
+          example:
+          - index: 0
+            message:
+              role: assistant
+              content: Placeholder reply.
+            finish_reason: stop
         usage:
           $ref: '#/components/schemas/CompletionUsage'
+          example:
+            prompt_tokens: 10
+            completion_tokens: 5
+            total_tokens: 15
     JobResult:
       type: object
       description: |
@@ -4460,6 +4480,7 @@ components:
         id:
           type: string
           description: The completion's id.
+          example: chatcmpl-example
         object:
           type: string
           description: Always `chat.completion`.
@@ -4468,16 +4489,28 @@ components:
           type: integer
           description: Unix seconds.
           format: int64
+          example: 1768471200
         model:
           type: string
           description: The model that answered.
+          example: example-model
         choices:
           type: array
           description: The single choice (`n` is not supported).
           items:
             $ref: '#/components/schemas/ChatCompletionChoice'
+          example:
+          - index: 0
+            message:
+              role: assistant
+              content: Placeholder reply.
+            finish_reason: stop
         usage:
           $ref: '#/components/schemas/CompletionUsage'
+          example:
+            prompt_tokens: 10
+            completion_tokens: 5
+            total_tokens: 15
     ChatCompletionChoice:
       type: object
       description: One choice.
@@ -4646,11 +4679,19 @@ components:
           description: One embedding per input, in input order.
           items:
             $ref: '#/components/schemas/Embedding'
+          example:
+            - object: embedding
+              index: 0
+              embedding: [0.1, -0.2, 0.3]
         model:
           type: string
           description: The model that answered.
+          example: example-model
         usage:
           $ref: '#/components/schemas/EmbeddingUsage'
+          example:
+            prompt_tokens: 3
+            total_tokens: 3
     Embedding:
       type: object
       description: One embedding.
@@ -4698,6 +4739,11 @@ components:
           description: The models.
           items:
             $ref: '#/components/schemas/Model'
+          example:
+            - id: example-model
+              object: model
+              created: 1768471200
+              owned_by: example
     Model:
       type: object
       description: One model, as in the OpenAI API.
@@ -4850,19 +4896,24 @@ components:
       properties:
         sharing_state:
           $ref: '#/components/schemas/SharingState'
+          example: sharing
         sharing_resumes_at:
           type: [string, 'null']
           description: When quiet hours end, if the host is quiet; null otherwise.
           format: date-time
+          example: 
         engine_state:
           type: string
           description: Whether the engine answers.
           enum: [available, unavailable]
+          example: available
         loaded_models:
           type: array
           description: Models loaded in the engine now that the caller may use; others are not shown.
           items:
             type: string
+          example:
+          - example-model
         queue_depth:
           type: object
           description: Requests waiting for admission.
@@ -4874,10 +4925,14 @@ components:
             background:
               type: integer
               description: Waiting background requests and queued jobs.
+          example:
+            interactive: 0
+            background: 0
         checked_at:
           type: string
           description: When this status was taken.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
     Capabilities:
       type: object
       description: The caller's effective limits, after the key's narrowing, and remaining quota.
@@ -4887,48 +4942,82 @@ components:
           type: string
           description: The consumer.
           format: uuid
+          example: '0192e5a0-0001-7000-8000-000000000001'
         access_key_id:
           type: [string, 'null']
           description: The key the caller used; null for a session.
           format: uuid
+          example: '0192e5a0-0002-7000-8000-000000000002'
         grant_version_id:
           type: string
           description: The grant version in force.
           format: uuid
+          example: '0192e5a0-0003-7000-8000-000000000003'
         models:
           type: array
           description: The models the caller may use, with their limits.
           items:
             $ref: '#/components/schemas/GrantModelLimit'
+          example:
+          - model: example-model
+            context_limit: 4096
+            max_output_tokens: 1024
         concurrency:
           type: integer
           description: Most requests the caller may run at once.
           minimum: 1
+          example: 2
         on_context_overflow:
           $ref: '#/components/schemas/ContextOverflow'
+          example: refuse
         allowed_request_properties:
           type: [array, 'null']
           description: Request property names the caller may send; an empty list allows none, and null means the grant does not restrict them.
           items:
             type: string
+          example:
+          - background
         quotas:
           type: array
           description: Every quota that applies, with what is left.
           items:
             $ref: '#/components/schemas/QuotaStatus'
+            example:
+              scope: grant
+              window_seconds: 86400
+              tokens: 100000
+              used_tokens: 2500
+              remaining_tokens: 97500
+              requests: 500
+              resets_at: '2026-01-16T10:00:00Z'
+          example:
+          - scope: grant
+            window_seconds: 86400
+            tokens: 100000
+            used_tokens: 2500
+            remaining_tokens: 97500
+            requests: 500
+            used_requests: 12
+            remaining_requests: 488
+            resets_at: '2026-01-16T10:00:00Z'
         rate_limit:
           description: The request rate limit, when one applies.
           oneOf:
             - $ref: '#/components/schemas/RateLimit'
             - type: 'null'
+          example:
+            requests: 10
+            window_seconds: 60
         expires_at:
           type: [string, 'null']
           description: When the grant or the key expires, whichever is first.
           format: date-time
+          example: 
         benchmark:
           type: [object, 'null']
           description: Reserved for host benchmark fields (D-45); always null in this version.
           additionalProperties: true
+          example: 
     GrantModelLimit:
       type: object
       description: One model a grant allows, with its limits.
@@ -5009,6 +5098,13 @@ components:
           type: string
           description: When the current window ends.
           format: date-time
+      example:
+        scope: grant
+        window_seconds: 86400
+        tokens: 100000
+        used_tokens: 2500
+        remaining_tokens: 97500
+        resets_at: '2026-01-16T10:00:00Z'
     RateLimit:
       type: object
       description: 'A per-access-key request allowance that refills over time: up to `requests` calls in a burst, refilled completely in `window_seconds` (the host settings `limits.rate_capacity` and `limits.rate_window`).'
@@ -5033,42 +5129,53 @@ components:
           type: string
           description: The job's id.
           format: uuid
+          example: '0192e5a0-0005-7000-8000-000000000005'
         status:
           type: string
           description: The job's state. `succeeded`, `failed`, `cancelled` and `expired` are terminal.
           enum: [queued, running, succeeded, failed, cancelled, expired]
+          example: succeeded
         failure_reason:
           type: [string, 'null']
           description: Why a job `failed`, for example `host_restart` or `payload_minimized` (resubmit with the same Idempotency-Key to try again), or an error code such as `engine_unavailable`.
+          example: 
         model:
           type: string
           description: The model requested.
+          example: example-model
         idempotency_key:
           type: string
           description: The Idempotency-Key it was submitted with.
+          example: '0192e5a0-0063-7000-8000-000000000063'
         created_at:
           type: string
           description: When it was queued.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         started_at:
           type: [string, 'null']
           description: When it started running.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         finished_at:
           type: [string, 'null']
           description: When it reached a terminal state.
           format: date-time
+          example: '2026-01-15T10:05:00Z'
         deadline_at:
           type: [string, 'null']
           description: A queued job expires at this time (the consumer's job deadline setting).
           format: date-time
+          example: '2026-01-16T10:00:00Z'
         result_available:
           type: boolean
           description: Whether `/v1/jobs/{job_id}/result` has a result to fetch.
+          example: true
         result_expires_at:
           type: [string, 'null']
           description: When an unfetched result is deleted (the consumer's job-result TTL setting).
           format: date-time
+          example: '2026-01-16T10:05:00Z'
 
     # -------------------------------------------------------------- resource requests
     ResourceRequestStatus:
@@ -5115,8 +5222,13 @@ components:
           type: string
           description: What the consumer needs and why.
           minLength: 1
+          example: Placeholder request message.
         ask:
           $ref: '#/components/schemas/ResourceRequestAsk'
+          example:
+            models:
+            - example-model
+            context_limit: 8192
     ResourceRequest:
       type: object
       description: A consumer asking the host for more.
@@ -5126,38 +5238,58 @@ components:
           type: string
           description: The request's id.
           format: uuid
+          example: '0192e5a0-0006-7000-8000-000000000006'
         consumer_id:
           type: string
           description: The consumer who asked.
           format: uuid
+          example: '0192e5a0-0001-7000-8000-000000000001'
         status:
           $ref: '#/components/schemas/ResourceRequestStatus'
+          example: open
         message:
           type: string
           description: What the consumer needs and why.
+          example: Placeholder request message.
         ask:
           $ref: '#/components/schemas/ResourceRequestAsk'
+          example:
+            models:
+            - example-model
+            context_limit: 8192
         created_at:
           type: string
           description: When it was opened.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         expires_at:
           type: [string, 'null']
           description: When an open request expires (the host's request TTL setting).
           format: date-time
+          example: '2026-01-16T10:00:00Z'
         decided_at:
           type: [string, 'null']
           description: When it reached a terminal state.
           format: date-time
+          example: 
         resulting_grant_version_id:
           type: [string, 'null']
           description: The grant version an approval created.
           format: uuid
+          example: 
         comments:
           type: array
           description: Comments, oldest first. Only on single-request responses.
           items:
             $ref: '#/components/schemas/Comment'
+          example:
+          - id: '0192e5a0-0007-7000-8000-000000000007'
+            author:
+              principal_id: '0192e5a0-0001-7000-8000-000000000001'
+              kind: consumer
+              display_name: Example Consumer
+            body: Placeholder comment.
+            created_at: '2026-01-15T10:05:00Z'
     ResourceRequestList:
       type: object
       description: A page of resource requests.
@@ -5168,8 +5300,21 @@ components:
           description: The requests.
           items:
             $ref: '#/components/schemas/ResourceRequest'
+          example:
+            - id: '0192e5a0-0006-7000-8000-000000000006'
+              consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+              status: open
+              message: Placeholder request message.
+              ask:
+                models: [example-model]
+                context_limit: 8192
+              created_at: '2026-01-15T10:00:00Z'
+              expires_at: '2026-01-16T10:00:00Z'
+              decided_at: null
+              resulting_grant_version_id: null
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
+          example: 
     Comment:
       type: object
       description: A comment on a resource request. Rendered as text, never as HTML.
@@ -5197,6 +5342,7 @@ components:
           type: string
           description: The comment.
           minLength: 1
+          example: Placeholder comment.
     ResourceRequestApproval:
       type: object
       description: The host's approval, with the limits of the new grant version.
@@ -5204,9 +5350,23 @@ components:
       properties:
         limits:
           $ref: '#/components/schemas/GrantLimits'
+          example:
+            models:
+              - model: example-model
+                context_limit: 4096
+                max_output_tokens: 1024
+            quotas:
+              - window_seconds: 86400
+                tokens: 100000
+                requests: 500
+            concurrency: 2
+            on_context_overflow: refuse
+            allowed_request_properties: [background]
+            expires_at: null
         comment:
           type: string
           description: An optional comment for the consumer.
+          example: Placeholder comment.
     ResourceRequestRejection:
       type: object
       description: The host's rejection.
@@ -5214,6 +5374,7 @@ components:
         comment:
           type: string
           description: An optional comment for the consumer.
+          example: Placeholder comment.
     PrincipalRef:
       type: object
       description: Who did something.
@@ -5284,8 +5445,19 @@ components:
           description: The rollups.
           items:
             $ref: '#/components/schemas/UsageRollup'
+          example:
+            - bucket_start: '2026-01-15T10:00:00Z'
+              granularity: hour
+              consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+              access_key_id: '0192e5a0-0002-7000-8000-000000000002'
+              model: example-model
+              requests: 12
+              prompt_tokens: 1200
+              completion_tokens: 600
+              total_tokens: 1800
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
+          example: 
     UsageProof:
       type: object
       description: Proof that a usage record's leaf is in the ledger (RFC 6962 inclusion proof).
@@ -5295,29 +5467,42 @@ components:
           type: string
           description: The usage record.
           format: uuid
+          example: '0192e5a0-0008-7000-8000-000000000008'
         leaf_index:
           type: integer
           description: The record's leaf.
           format: int64
           minimum: 0
+          example: 2
         leaf_hash:
           type: string
           description: The leaf's RFC 6962 hash, base64.
           contentEncoding: base64
+          example: ZXhhbXBsZS1sZWFmLWhhc2gtcGxhY2Vob2xkZXItMDA=
         tree_size:
           type: integer
           description: The covering checkpoint's tree size.
           format: int64
           minimum: 1
+          example: 3
         checkpoint:
           type: string
           description: The first checkpoint that covers the leaf, a C2SP tlog-checkpoint signed note, verbatim.
+          example: |
+            example.invalid/ledger
+            3
+            ZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=
+          
+            — example.invalid ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=
         inclusion_proof:
           type: array
           description: The proof hashes, base64, from the leaf up to the checkpoint's root.
           items:
             type: string
             contentEncoding: base64
+          example:
+          - ZXhhbXBsZS1wcm9vZi1oYXNoLXBsYWNlaG9sZGVyMA==
+          - ZXhhbXBsZS1wcm9vZi1oYXNoLXBsYWNlaG9sZGVyMQ==
     LedgerCheckpoint:
       type: object
       description: The latest ledger checkpoint, and optionally a consistency proof from an earlier one.
@@ -5326,25 +5511,30 @@ components:
         checkpoint:
           type: string
           description: A C2SP tlog-checkpoint signed note, verbatim, signed by the checkpoint-signing key.
+          example: "example.invalid/ledger\n3\nZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=\n\n— example.invalid ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=\n"
         tree_size:
           type: integer
           description: The checkpoint's tree size.
           format: int64
           minimum: 0
+          example: 3
         root_hash:
           type: string
           description: The checkpoint's root hash, base64.
           contentEncoding: base64
+          example: ZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=
         from_tree_size:
           type: [integer, 'null']
           description: The earlier tree size the consistency proof starts from, when asked for.
           format: int64
+          example: 
         consistency_proof:
           type: [array, 'null']
           description: RFC 6962 consistency proof hashes, base64, from `from_tree_size` to `tree_size`, when asked for.
           items:
             type: string
             contentEncoding: base64
+          example: 
     HostKeySet:
       type: object
       description: The host's public keys as a JWK Set (RFC 7517).
@@ -5355,6 +5545,19 @@ components:
           description: Every key, current and retired.
           items:
             $ref: '#/components/schemas/HostPublicKey'
+          example:
+            - kty: OKP
+              crv: Ed25519
+              x: ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5
+              kid: ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5
+              alg: Ed25519
+              use: sig
+              ls_role: identity
+              ls_parent_kid: null
+              ls_endorsement: null
+              ls_note_verifier_key: null
+              ls_created_at: '2026-01-01T00:00:00.000Z'
+              ls_retired_at: null
     HostKeyEndorsement:
       type: object
       description: |
@@ -5460,6 +5663,13 @@ components:
           description: One preference per event type.
           items:
             $ref: '#/components/schemas/NotificationPreference'
+          example:
+            - event_type: job.done
+              in_app: true
+              webhook: true
+            - event_type: quota.near_limit
+              in_app: true
+              webhook: false
     WebhookEndpoint:
       type: object
       description: A URL that receives Standard Webhooks deliveries.
@@ -5469,29 +5679,37 @@ components:
           type: string
           description: The endpoint's id.
           format: uuid
+          example: '0192e5a0-0009-7000-8000-000000000009'
         url:
           type: string
           description: An http(s) URL.
           format: uri
+          example: https://hooks.example.invalid/local-server
         description:
           type: [string, 'null']
           description: A note for the owner.
+          example: Placeholder endpoint.
         event_types:
           type: array
           description: The event types delivered; empty means all the owner may receive.
           items:
             type: string
+          example:
+          - job.done
         status:
           type: string
           description: '`disabled` after a `410` response or too many consecutive failures (a host setting).'
           enum: [active, disabled]
+          example: active
         disabled_reason:
           type: [string, 'null']
           description: Why it was disabled, for example `gone` or `consecutive_failures`.
+          example: 
         created_at:
           type: string
           description: When it was registered.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
     WebhookEndpointCreate:
       type: object
       description: A new webhook endpoint.
@@ -5501,14 +5719,18 @@ components:
           type: string
           description: An http(s) URL.
           format: uri
+          example: https://hooks.example.invalid/local-server
         description:
           type: string
           description: A note for the owner.
+          example: Placeholder endpoint.
         event_types:
           type: array
           description: The event types to deliver; empty or absent means all.
           items:
             type: string
+          example:
+          - job.done
     WebhookEndpointUpdate:
       type: object
       description: Changes to a webhook endpoint; absent fields stay as they are.
@@ -5517,18 +5739,24 @@ components:
           type: string
           description: An http(s) URL.
           format: uri
+          example: https://hooks.example.invalid/local-server
         description:
           type: [string, 'null']
           description: A note for the owner.
+          example: Placeholder note.
         event_types:
           type: array
           description: The event types to deliver; empty means all.
           items:
             type: string
+          example:
+          - job.done
+          - host.paused
         status:
           type: string
           description: '`active` re-enables a disabled endpoint.'
           enum: [active]
+          example: active
     WebhookEndpointCreated:
       type: object
       description: A new endpoint and its secret.
@@ -5536,9 +5764,18 @@ components:
       properties:
         endpoint:
           $ref: '#/components/schemas/WebhookEndpoint'
+          example:
+            id: '0192e5a0-0009-7000-8000-000000000009'
+            url: https://hooks.example.invalid/local-server
+            description: Placeholder endpoint.
+            event_types: [job.done]
+            status: active
+            disabled_reason: null
+            created_at: '2026-01-15T10:00:00Z'
         secret:
           type: string
           description: The Standard Webhooks signing secret (`whsec_<base64>`), shown once.
+          example: whsec_ZXhhbXBsZQ==
     WebhookEndpointList:
       type: object
       description: Webhook endpoints.
@@ -5549,6 +5786,22 @@ components:
           description: The endpoints.
           items:
             $ref: '#/components/schemas/WebhookEndpoint'
+            example:
+              id: '0192e5a0-0009-7000-8000-000000000009'
+              url: https://hooks.example.invalid/local-server
+              description: Placeholder endpoint.
+              event_types: [job.done]
+              status: active
+              disabled_reason: null
+              created_at: '2026-01-15T10:00:00Z'
+          example:
+            - id: '0192e5a0-0009-7000-8000-000000000009'
+              url: https://hooks.example.invalid/local-server
+              description: Placeholder endpoint.
+              event_types: [job.done]
+              status: active
+              disabled_reason: null
+              created_at: '2026-01-15T10:00:00Z'
     JobDoneEvent:
       type: object
       description: Standard Webhooks payload for `job.done`. No content.
@@ -5562,6 +5815,7 @@ components:
           type: string
           description: When the event happened.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         data:
           type: object
           description: The job.
@@ -5579,6 +5833,10 @@ components:
               type: [string, 'null']
               description: When the unfetched result is deleted.
               format: date-time
+          example:
+            job_id: '0192e5a0-0005-7000-8000-000000000005'
+            status: succeeded
+            result_expires_at: '2026-01-16T10:05:00Z'
     ResourceRequestCreatedEvent:
       type: object
       description: Standard Webhooks payload for `resource_request.created`. No content beyond ids.
@@ -5592,6 +5850,7 @@ components:
           type: string
           description: When the event happened.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         data:
           type: object
           description: The request.
@@ -5605,6 +5864,9 @@ components:
               type: string
               description: The consumer who asked.
               format: uuid
+          example:
+            resource_request_id: '0192e5a0-0006-7000-8000-000000000006'
+            consumer_id: '0192e5a0-0001-7000-8000-000000000001'
     ResourceRequestDecidedEvent:
       type: object
       description: Standard Webhooks payload for `resource_request.decided`.
@@ -5618,6 +5880,7 @@ components:
           type: string
           description: When the event happened.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         data:
           type: object
           description: The decision.
@@ -5635,6 +5898,10 @@ components:
               type: [string, 'null']
               description: The new grant version, when approved.
               format: uuid
+          example:
+            resource_request_id: '0192e5a0-0006-7000-8000-000000000006'
+            status: approved
+            resulting_grant_version_id: '0192e5a0-0003-7000-8000-000000000003'
     QuotaNearLimitEvent:
       type: object
       description: Standard Webhooks payload for `quota.near_limit`.
@@ -5648,6 +5915,7 @@ components:
           type: string
           description: When the event happened.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         data:
           $ref: '#/components/schemas/QuotaStatus'
     HostPausedEvent:
@@ -5663,6 +5931,7 @@ components:
           type: string
           description: When the event happened.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         data:
           type: object
           description: The new state.
@@ -5674,6 +5943,9 @@ components:
               type: [string, 'null']
               description: When quiet hours end, if known.
               format: date-time
+          example:
+            sharing_state: paused
+            sharing_resumes_at: 
     MeteringFailedEvent:
       type: object
       description: Standard Webhooks payload for `metering.failed`. No content.
@@ -5687,6 +5959,7 @@ components:
           type: string
           description: When the event happened.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         data:
           type: object
           description: The unmetered call.
@@ -5696,6 +5969,8 @@ components:
               type: string
               description: The `usage_id` on the `unmetered` receipt.
               format: uuid
+          example:
+            usage_id: '0192e5a0-0008-7000-8000-000000000008'
 
     # -------------------------------------------------------------- consumers and self-service
     ConsumerStatus:
@@ -5711,33 +5986,42 @@ components:
           type: string
           description: The consumer's id.
           format: uuid
+          example: '0192e5a0-0001-7000-8000-000000000001'
         kind:
           type: string
           description: '`individual` (a person) or `application` (an app acting on its own behalf).'
           enum: [individual, application]
+          example: individual
         status:
           $ref: '#/components/schemas/ConsumerStatus'
+          example: active
         display_name:
           type: [string, 'null']
           description: The name shown in the UIs.
+          example: Example Consumer
         username:
           type: [string, 'null']
           description: The login name for password login; null for key-only consumers.
+          example: example-user
         email:
           type: [string, 'null']
           description: Optional contact email.
           format: email
+          example: user@example.invalid
         has_login:
           type: boolean
           description: Whether the consumer has a password or passkey; false for a key-only consumer.
+          example: true
         created_at:
           type: string
           description: When the account was created.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         deleted_at:
           type: [string, 'null']
           description: When the account was deleted.
           format: date-time
+          example: 
     ConsumerList:
       type: object
       description: A page of consumers.
@@ -5748,8 +6032,19 @@ components:
           description: The consumers.
           items:
             $ref: '#/components/schemas/Consumer'
+          example:
+            - id: '0192e5a0-0001-7000-8000-000000000001'
+              kind: individual
+              status: active
+              display_name: Example Consumer
+              username: example-user
+              email: user@example.invalid
+              has_login: true
+              created_at: '2026-01-15T10:00:00Z'
+              deleted_at: null
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
+          example: 
     ConsumerCreate:
       type: object
       description: A new key-only consumer.
@@ -5759,14 +6054,17 @@ components:
           type: string
           description: '`individual` or `application`.'
           enum: [individual, application]
+          example: individual
         display_name:
           type: string
           description: The name shown in the UIs.
           minLength: 1
+          example: Example App
         email:
           type: string
           description: Optional contact email.
           format: email
+          example: user@example.invalid
     ConsumerUpdate:
       type: object
       description: Changes to a consumer; absent fields stay as they are.
@@ -5775,10 +6073,12 @@ components:
           type: string
           description: The name shown in the UIs.
           minLength: 1
+          example: Example Consumer
         email:
           type: [string, 'null']
           description: Contact email; null removes it.
           format: email
+          example: user@example.invalid
     ConsentAcceptance:
       type: object
       description: The policy versions the person accepted at sign-up (D-45). They must be the versions in force.
@@ -5799,24 +6099,32 @@ components:
           type: string
           description: The one-time token from the invite link.
           minLength: 1
+          example: ls_invite_example_placeholder
         display_name:
           type: string
           description: The name shown in the UIs.
           minLength: 1
+          example: Example Consumer
         username:
           type: string
           description: The login name.
           minLength: 1
+          example: example-user
         email:
           type: string
           description: Optional contact email.
           format: email
+          example: user@example.invalid
         password:
           type: string
           description: The password; the host's password policy settings apply.
           format: password
+          example: example-password-placeholder
         consent:
           $ref: '#/components/schemas/ConsentAcceptance'
+          example:
+            terms_version: terms-2026-10-v1
+            privacy_version: privacy-2026-10-v1
     InviteRedemptionPasskeyBegin:
       type: object
       description: Redeem an invite with a passkey; the account is created when the ceremony finishes.
@@ -5826,16 +6134,22 @@ components:
           type: string
           description: The one-time token from the invite link.
           minLength: 1
+          example: ls_invite_example_placeholder
         display_name:
           type: string
           description: The name shown in the UIs.
           minLength: 1
+          example: Example Consumer
         email:
           type: string
           description: Optional contact email.
           format: email
+          example: user@example.invalid
         consent:
           $ref: '#/components/schemas/ConsentAcceptance'
+          example:
+            terms_version: terms-2026-10-v1
+            privacy_version: privacy-2026-10-v1
     PasskeyCeremony:
       type: object
       description: A started WebAuthn ceremony. The ceremony expires after the host's ceremony TTL setting.
@@ -5844,10 +6158,15 @@ components:
         ceremony_id:
           type: string
           description: Send this back with the authenticator's response.
+          example: ceremony-example
         options:
           type: object
           description: The WebAuthn `PublicKeyCredentialCreationOptions` or `PublicKeyCredentialRequestOptions` as JSON (WebAuthn Level 3), to pass to `navigator.credentials.create()` or `.get()`.
           additionalProperties: true
+          example:
+            challenge: ZXhhbXBsZS1jaGFsbGVuZ2U
+            rpId: host.example.invalid
+            timeout: 60000
     PasskeyCeremonyFinish:
       type: object
       description: The authenticator's response to a ceremony.
@@ -5856,10 +6175,16 @@ components:
         ceremony_id:
           type: string
           description: From the ceremony's begin response.
+          example: ceremony-example
         credential:
           type: object
           description: The `PublicKeyCredential` as JSON (WebAuthn Level 3 `toJSON()`).
           additionalProperties: true
+          example:
+            id: ZXhhbXBsZS1jcmVkZW50aWFs
+            type: public-key
+            response:
+              clientDataJSON: ZXhhbXBsZQ
     PasswordLogin:
       type: object
       description: A password login.
@@ -5868,10 +6193,12 @@ components:
         username:
           type: string
           description: The login name.
+          example: example-user
         password:
           type: string
           description: The password.
           format: password
+          example: example-password-placeholder
     PasswordChange:
       type: object
       description: A new password.
@@ -5881,10 +6208,12 @@ components:
           type: string
           description: The current password, required when one exists.
           format: password
+          example: example-password-placeholder
         new_password:
           type: string
           description: The new password; the host's password policy settings apply.
           format: password
+          example: example-new-password-placeholder
     AccessKeyNarrowing:
       type: object
       description: Limits a key adds on top of its consumer's grant. They can only narrow the grant, never widen it.
@@ -5920,40 +6249,50 @@ components:
           type: string
           description: The key's id.
           format: uuid
+          example: '0192e5a0-0002-7000-8000-000000000002'
         consumer_id:
           type: string
           description: The consumer the key belongs to.
           format: uuid
+          example: '0192e5a0-0001-7000-8000-000000000001'
         prefix:
           type: string
           description: The visible prefix (`ls_<prefix>`), to recognise the key.
+          example: example
         name:
           type: [string, 'null']
           description: A label for the key.
+          example: Example key
         status:
           type: string
           description: '`active`, `expired` (its expiry passed) or `revoked`.'
           enum: [active, expired, revoked]
+          example: active
         narrowing:
           oneOf:
             - $ref: '#/components/schemas/AccessKeyNarrowing'
             - type: 'null'
           description: Limits the key adds to the grant, if any.
+          example: 
         bound_node:
           type: [string, 'null']
           description: The tailnet node the key is bound to (checked through Tailscale WhoIs), if any.
+          example: 
         created_at:
           type: string
           description: When it was issued.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         expires_at:
           type: [string, 'null']
           description: When it expires, if ever.
           format: date-time
+          example: 
         revoked_at:
           type: [string, 'null']
           description: When it was revoked.
           format: date-time
+          example: 
     AccessKeyList:
       type: object
       description: Access keys.
@@ -5964,6 +6303,17 @@ components:
           description: The keys.
           items:
             $ref: '#/components/schemas/AccessKey'
+          example:
+            - id: '0192e5a0-0002-7000-8000-000000000002'
+              consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+              prefix: example
+              name: Example key
+              status: active
+              narrowing: null
+              bound_node: null
+              created_at: '2026-01-15T10:00:00Z'
+              expires_at: null
+              revoked_at: null
     AccessKeyCreate:
       type: object
       description: A new access key.
@@ -5971,15 +6321,22 @@ components:
         name:
           type: string
           description: A label for the key.
+          example: Example key
         expires_at:
           type: [string, 'null']
           description: When it expires; null or absent means never.
           format: date-time
+          example: '2027-01-01T00:00:00Z'
         narrowing:
           $ref: '#/components/schemas/AccessKeyNarrowing'
+          example:
+            models:
+            - example-model
+            max_output_tokens: 512
         bound_node:
           type: [string, 'null']
           description: Bind the key to this tailnet node.
+          example: example-node
     AccessKeyUpdate:
       type: object
       description: Changes to an access key; absent fields stay as they are.
@@ -5987,18 +6344,24 @@ components:
         name:
           type: [string, 'null']
           description: A label for the key.
+          example: Renamed example key
         expires_at:
           type: [string, 'null']
           description: When it expires; null means never.
           format: date-time
+          example: '2026-02-15T10:00:00Z'
         narrowing:
           oneOf:
             - $ref: '#/components/schemas/AccessKeyNarrowing'
             - type: 'null'
           description: Limits the key adds; null removes them.
+          example:
+            models: [example-model]
+            max_output_tokens: 512
         bound_node:
           type: [string, 'null']
           description: Bind the key to this tailnet node; null unbinds it.
+          example: example-node
     AccessKeyIssued:
       type: object
       description: A new access key and its secret.
@@ -6006,9 +6369,21 @@ components:
       properties:
         access_key:
           $ref: '#/components/schemas/AccessKey'
+          example:
+            id: '0192e5a0-0002-7000-8000-000000000002'
+            consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+            prefix: example
+            name: Example key
+            status: active
+            narrowing: null
+            bound_node: null
+            created_at: '2026-01-15T10:00:00Z'
+            expires_at: null
+            revoked_at: null
         secret:
           type: string
           description: The whole key, `ls_<prefix>_<secret>`, shown once.
+          example: ls_example_placeholder_secret
     Setting:
       type: object
       description: One runtime setting with its default (D-54).
@@ -6038,6 +6413,12 @@ components:
           description: The settings.
           items:
             $ref: '#/components/schemas/Setting'
+          example:
+            - key: jobs.result_ttl_seconds
+              owner: consumer
+              value: 3600
+              default_value: 86400
+              description: Seconds an unfetched job result is kept.
     SettingsUpdate:
       type: object
       description: New values by setting key. A `null` value returns that setting to its default.
@@ -6060,26 +6441,39 @@ components:
           description: The models allowed, with their limits.
           items:
             $ref: '#/components/schemas/GrantModelLimit'
+          example:
+            - model: example-model
+              context_limit: 4096
+              max_output_tokens: 1024
         quotas:
           type: array
           description: Token and request quotas.
           items:
             $ref: '#/components/schemas/Quota'
+          example:
+          - window_seconds: 86400
+            tokens: 100000
+            requests: 500
         concurrency:
           type: integer
           description: Most requests at once.
           minimum: 1
+          example: 2
         on_context_overflow:
           $ref: '#/components/schemas/ContextOverflow'
+          example: refuse
         allowed_request_properties:
           type: array
           description: Request property names the consumer may send.
           items:
             type: string
+          example:
+          - background
         expires_at:
           type: [string, 'null']
           description: When the grant expires, if ever.
           format: date-time
+          example: 
     GrantVersion:
       type: object
       description: An immutable grant version.
@@ -6089,26 +6483,32 @@ components:
           type: string
           description: The grant version's id.
           format: uuid
+          example: '0192e5a0-0003-7000-8000-000000000003'
         grant_id:
           type: string
           description: The grant.
           format: uuid
+          example: '0192e5a0-0004-7000-8000-000000000004'
         consumer_id:
           type: string
           description: The consumer.
           format: uuid
+          example: '0192e5a0-0001-7000-8000-000000000001'
         version:
           type: integer
           description: 1 for the first version, then up by one.
           minimum: 1
+          example: 1
         created_at:
           type: string
           description: When it was created.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         resource_request_id:
           type: [string, 'null']
           description: The resource request whose approval created it, if any.
           format: uuid
+          example: 
         limits:
           $ref: '#/components/schemas/GrantLimits'
     GrantVersionList:
@@ -6121,8 +6521,29 @@ components:
           description: The versions.
           items:
             $ref: '#/components/schemas/GrantVersion'
+          example:
+            - id: '0192e5a0-0003-7000-8000-000000000003'
+              grant_id: '0192e5a0-0004-7000-8000-000000000004'
+              consumer_id: '0192e5a0-0001-7000-8000-000000000001'
+              version: 1
+              created_at: '2026-01-15T10:00:00Z'
+              resource_request_id: null
+              limits:
+                models:
+                  - model: example-model
+                    context_limit: 4096
+                    max_output_tokens: 1024
+                quotas:
+                  - window_seconds: 86400
+                    tokens: 100000
+                    requests: 500
+                concurrency: 2
+                on_context_overflow: refuse
+                allowed_request_properties: [background]
+                expires_at: null
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
+          example: 
     NextCursor:
       type: [string, 'null']
       description: Pass as `cursor` for the next page; null on the last page.
@@ -6136,6 +6557,7 @@ components:
         admin_exists:
           type: boolean
           description: Whether a host admin exists.
+          example: true
     AdminCredentials:
       type: object
       description: A host admin's login.
@@ -6145,10 +6567,12 @@ components:
           type: string
           description: The login name.
           minLength: 1
+          example: example-admin
         password:
           type: string
           description: The password.
           format: password
+          example: example-password-placeholder
     AdminUser:
       type: object
       description: A host admin.
@@ -6158,13 +6582,16 @@ components:
           type: string
           description: The admin's id.
           format: uuid
+          example: '0192e5a0-000b-7000-8000-00000000000b'
         username:
           type: string
           description: The login name.
+          example: example-admin
         created_at:
           type: string
           description: When the admin was created.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
     HostInfo:
       type: object
       description: The host's identity, sharing state and engine.
@@ -6173,26 +6600,33 @@ components:
         host_kid:
           type: string
           description: The host identity key's `kid`, the host's global id.
+          example: ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5
         sharing_state:
           $ref: '#/components/schemas/SharingState'
+          example: sharing
         paused_at:
           type: [string, 'null']
           description: When the host paused manually.
           format: date-time
+          example: 
         sharing_resumes_at:
           type: [string, 'null']
           description: When quiet hours end, if the host is quiet.
           format: date-time
+          example: 
         software_version:
           type: string
           description: The local-server version.
+          example: 0.0.0-example
         engine_state:
           type: string
           description: Whether the engine answers.
           enum: [available, unavailable]
+          example: available
         engine_version:
           type: [string, 'null']
           description: The engine's version, when known.
+          example: 0.0.0-example
     MetricValue:
       type: object
       description: A measured value and how it was measured.
@@ -6222,14 +6656,43 @@ components:
           type: string
           description: When it was sampled.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         total:
           $ref: '#/components/schemas/ResourceUse'
+          example:
+            memory_bytes:
+              value: 17179869184
+              method: example-counter
+            cpu_percent:
+              value: 12.5
+              method: example-counter
         share_budget_slice:
           $ref: '#/components/schemas/ResourceUse'
+          example:
+            memory_bytes:
+              value: 8589934592
+              method: example-counter
+            cpu_percent:
+              value: 6.25
+              method: example-counter
         other_apps:
           $ref: '#/components/schemas/ResourceUse'
+          example:
+            memory_bytes:
+              value: 4294967296
+              method: example-counter
+            cpu_percent:
+              value: 3.5
+              method: example-counter
         unattributed:
           $ref: '#/components/schemas/ResourceUse'
+          example:
+            memory_bytes:
+              value: 
+              method: example-counter
+            cpu_percent:
+              value: 
+              method: example-counter
     HostMetricsHistory:
       type: object
       description: Host-metrics samples over time.
@@ -6240,6 +6703,36 @@ components:
           description: The samples, oldest first.
           items:
             $ref: '#/components/schemas/HostMetricsSample'
+          example:
+            - sampled_at: '2026-01-15T10:00:00Z'
+              total:
+                memory_bytes:
+                  value: 17179869184
+                  method: example-counter
+                cpu_percent:
+                  value: 12.5
+                  method: example-counter
+              share_budget_slice:
+                memory_bytes:
+                  value: 8589934592
+                  method: example-counter
+                cpu_percent:
+                  value: 6.25
+                  method: example-counter
+              other_apps:
+                memory_bytes:
+                  value: 4294967296
+                  method: example-counter
+                cpu_percent:
+                  value: 3.5
+                  method: example-counter
+              unattributed:
+                memory_bytes:
+                  value: null
+                  method: example-counter
+                cpu_percent:
+                  value: null
+                  method: example-counter
     AuditEvent:
       type: object
       description: One audited action. Never carries content.
@@ -6281,8 +6774,20 @@ components:
           description: The events.
           items:
             $ref: '#/components/schemas/AuditEvent'
+          example:
+            - id: '0192e5a0-000e-7000-8000-00000000000e'
+              occurred_at: '2026-01-15T10:05:00Z'
+              actor:
+                principal_id: '0192e5a0-000b-7000-8000-00000000000b'
+                kind: host_admin
+                display_name: Example Admin
+              action: access_key.revoked
+              target_kind: access_key
+              target_id: '0192e5a0-0002-7000-8000-000000000002'
+              details: {}
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
+          example: 
     Invite:
       type: object
       description: A one-time sign-up invite, without its token.
@@ -6292,25 +6797,31 @@ components:
           type: string
           description: The invite's id.
           format: uuid
+          example: '0192e5a0-000a-7000-8000-00000000000a'
         status:
           type: string
           description: The invite's state.
           enum: [pending, redeemed, expired, revoked]
+          example: revoked
         note:
           type: [string, 'null']
           description: The host's note, for example who it is for.
+          example: For an example person
         created_at:
           type: string
           description: When it was created.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
         expires_at:
           type: string
           description: When it expires.
           format: date-time
+          example: '2026-01-16T10:00:00Z'
         redeemed_consumer_id:
           type: [string, 'null']
           description: The consumer created from it.
           format: uuid
+          example: 
     InviteList:
       type: object
       description: A page of invites.
@@ -6321,8 +6832,16 @@ components:
           description: The invites.
           items:
             $ref: '#/components/schemas/Invite'
+          example:
+            - id: '0192e5a0-000a-7000-8000-00000000000a'
+              status: pending
+              note: For an example person
+              created_at: '2026-01-15T10:00:00Z'
+              expires_at: '2026-01-16T10:00:00Z'
+              redeemed_consumer_id: null
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
+          example: 
     InviteCreate:
       type: object
       description: A new invite.
@@ -6330,10 +6849,12 @@ components:
         note:
           type: string
           description: A note, for example who it is for.
+          example: For an example person
         expires_at:
           type: string
           description: When it expires; absent means the host's invite TTL setting.
           format: date-time
+          example: '2026-01-16T10:00:00Z'
     InviteIssued:
       type: object
       description: A new invite with its token and link.
@@ -6341,13 +6862,22 @@ components:
       properties:
         invite:
           $ref: '#/components/schemas/Invite'
+          example:
+            id: '0192e5a0-000a-7000-8000-00000000000a'
+            status: pending
+            note: For an example person
+            created_at: '2026-01-15T10:00:00Z'
+            expires_at: '2026-01-16T10:00:00Z'
+            redeemed_consumer_id: null
         token:
           type: string
           description: The one-time token, shown once.
+          example: ls_invite_example_placeholder
         link:
           type: string
           description: The sign-up link on the consumer web page, carrying the token, shown once.
           format: uri
+          example: https://host.example.invalid/invite#ls_invite_example_placeholder
     HostModel:
       type: object
       description: One engine model and how the host shares it.
@@ -6357,29 +6887,37 @@ components:
           type: string
           description: The host model's id.
           format: uuid
+          example: '0192e5a0-000c-7000-8000-00000000000c'
         name:
           type: string
           description: The engine's model name.
+          example: example-model
         engine:
           type: string
           description: The engine adapter, for example `ollama`.
+          example: ollama
         allowed:
           type: boolean
           description: Whether grants may include it.
+          example: true
         preload:
           type: boolean
           description: Whether it is loaded at start and kept ready.
+          example: false
         keep_alive_seconds:
           type: [integer, 'null']
           description: How long it stays loaded when idle; null means the host's default keep-alive setting.
           minimum: 0
+          example: 
         loaded:
           type: boolean
           description: Whether it is loaded now.
+          example: true
         size_bytes:
           type: [integer, 'null']
           description: Its size in memory when loaded, if known.
           format: int64
+          example: 4000000000
     HostModelList:
       type: object
       description: The host's models.
@@ -6390,6 +6928,15 @@ components:
           description: The models.
           items:
             $ref: '#/components/schemas/HostModel'
+          example:
+            - id: '0192e5a0-000c-7000-8000-00000000000c'
+              name: example-model
+              engine: ollama
+              allowed: true
+              preload: false
+              keep_alive_seconds: null
+              loaded: true
+              size_bytes: 4000000000
     HostModelUpdate:
       type: object
       description: Changes to a model's configuration; absent fields stay as they are.
@@ -6397,13 +6944,16 @@ components:
         allowed:
           type: boolean
           description: Whether grants may include it.
+          example: true
         preload:
           type: boolean
           description: Whether it is loaded at start and kept ready.
+          example: true
         keep_alive_seconds:
           type: [integer, 'null']
           description: How long it stays loaded when idle; null means the host's default.
           minimum: 0
+          example: 300
     PolicyRule:
       type: object
       description: A versioned, declarative policy rule (D-25). Its `rule` document follows the policy rule format.
@@ -6413,22 +6963,34 @@ components:
           type: string
           description: The rule's id.
           format: uuid
+          example: '0192e5a0-000d-7000-8000-00000000000d'
         grant_id:
           type: [string, 'null']
           description: The grant it applies to; null for the whole host.
           format: uuid
+          example: 
         version:
           type: integer
           description: 1 for the first version, then up by one.
           minimum: 1
+          example: 1
         rule:
           type: object
           description: The rule document (request properties, time windows, priority class, caps), with its format version.
           additionalProperties: true
+          example:
+            format_version: 1
+            when:
+              properties:
+                background: true
+            priority: background
+            caps:
+              max_output_tokens: 512
         created_at:
           type: string
           description: When this version was stored.
           format: date-time
+          example: '2026-01-15T10:00:00Z'
     PolicyRuleList:
       type: object
       description: Policy rules.
@@ -6439,6 +7001,19 @@ components:
           description: The rules.
           items:
             $ref: '#/components/schemas/PolicyRule'
+          example:
+            - id: '0192e5a0-000d-7000-8000-00000000000d'
+              grant_id: null
+              version: 1
+              rule:
+                format_version: 1
+                when:
+                  properties:
+                    background: true
+                priority: background
+                caps:
+                  max_output_tokens: 512
+              created_at: '2026-01-15T10:00:00Z'
     PolicyRuleCreate:
       type: object
       description: A new policy rule.
@@ -6448,10 +7023,19 @@ components:
           type: [string, 'null']
           description: The grant it applies to; null or absent for the whole host.
           format: uuid
+          example: '0192e5a0-0004-7000-8000-000000000004'
         rule:
           type: object
           description: The rule document.
           additionalProperties: true
+          example:
+            format_version: 1
+            when:
+              properties:
+                background: true
+            priority: background
+            caps:
+              max_output_tokens: 512
     PolicyRuleUpdate:
       type: object
       description: A new version of a policy rule.
@@ -6461,3 +7045,11 @@ components:
           type: object
           description: The rule document.
           additionalProperties: true
+          example:
+            format_version: 1
+            when:
+              properties:
+                background: true
+            priority: background
+            caps:
+              max_output_tokens: 512
