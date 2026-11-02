@@ -3253,13 +3253,13 @@ components:
         leaf_index: 2
         leaf_hash: ZXhhbXBsZS1sZWFmLWhhc2gtcGxhY2Vob2xkZXItMDA=
         tree_size: 3
-        checkpoint: "example.invalid/ledger\n3\nZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=\n\n— example.invalid ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=\n"
-        inclusion_proof: ['ZXhhbXBsZS1wcm9vZi1oYXNoLXBsYWNlaG9sZGVyMA==', 'ZXhhbXBsZS1wcm9vZi1oYXNoLXBsYWNlaG9sZGVyMQ==']
+        checkpoint: "local-server/ledger/ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5\n3\nZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=\n\n— local-server/ledger/ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5 ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=\n"
+        inclusion_proof: ['ZXhhbXBsZS1wcm9vZi1oYXNoLXBsYWNlaG9sZGVyLTA=']
     LedgerCheckpoint:
       summary: Ledger checkpoint
       description: Ledger checkpoint, with placeholder values only.
       value:
-        checkpoint: "example.invalid/ledger\n3\nZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=\n\n— example.invalid ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=\n"
+        checkpoint: "local-server/ledger/ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5\n3\nZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=\n\n— local-server/ledger/ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5 ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=\n"
         tree_size: 3
         root_hash: ZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=
         from_tree_size: null
@@ -3616,7 +3616,7 @@ components:
           - key: limits.rate_capacity
             owner: host
             value: 20
-            default_value: 10
+            default_value: 60
             description: Requests allowed in a burst.
     SettingsUpdate:
       summary: Settings update
@@ -4901,7 +4901,7 @@ components:
           type: [string, 'null']
           description: When quiet hours end, if the host is quiet; null otherwise.
           format: date-time
-          example: 
+          example: null
         engine_state:
           type: string
           description: Whether the engine answers.
@@ -4989,6 +4989,8 @@ components:
               used_tokens: 2500
               remaining_tokens: 97500
               requests: 500
+              used_requests: 12
+              remaining_requests: 488
               resets_at: '2026-01-16T10:00:00Z'
           example:
           - scope: grant
@@ -5012,12 +5014,12 @@ components:
           type: [string, 'null']
           description: When the grant or the key expires, whichever is first.
           format: date-time
-          example: 
+          example: null
         benchmark:
           type: [object, 'null']
           description: Reserved for host benchmark fields (D-45); always null in this version.
           additionalProperties: true
-          example: 
+          example: null
     GrantModelLimit:
       type: object
       description: One model a grant allows, with its limits.
@@ -5138,7 +5140,7 @@ components:
         failure_reason:
           type: [string, 'null']
           description: Why a job `failed`, for example `host_restart` or `payload_minimized` (resubmit with the same Idempotency-Key to try again), or an error code such as `engine_unavailable`.
-          example: 
+          example: null
         model:
           type: string
           description: The model requested.
@@ -5271,12 +5273,12 @@ components:
           type: [string, 'null']
           description: When it reached a terminal state.
           format: date-time
-          example: 
+          example: null
         resulting_grant_version_id:
           type: [string, 'null']
           description: The grant version an approval created.
           format: uuid
-          example: 
+          example: null
         comments:
           type: array
           description: Comments, oldest first. Only on single-request responses.
@@ -5314,7 +5316,7 @@ components:
               resulting_grant_version_id: null
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
-          example: 
+          example: null
     Comment:
       type: object
       description: A comment on a resource request. Rendered as text, never as HTML.
@@ -5457,7 +5459,7 @@ components:
               total_tokens: 1800
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
-          example: 
+          example: null
     UsageProof:
       type: object
       description: Proof that a usage record's leaf is in the ledger (RFC 6962 inclusion proof).
@@ -5489,11 +5491,11 @@ components:
           type: string
           description: The first checkpoint that covers the leaf, a C2SP tlog-checkpoint signed note, verbatim.
           example: |
-            example.invalid/ledger
+            local-server/ledger/ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5
             3
             ZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=
           
-            — example.invalid ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=
+            — local-server/ledger/ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5 ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=
         inclusion_proof:
           type: array
           description: The proof hashes, base64, from the leaf up to the checkpoint's root.
@@ -5501,8 +5503,7 @@ components:
             type: string
             contentEncoding: base64
           example:
-          - ZXhhbXBsZS1wcm9vZi1oYXNoLXBsYWNlaG9sZGVyMA==
-          - ZXhhbXBsZS1wcm9vZi1oYXNoLXBsYWNlaG9sZGVyMQ==
+          - ZXhhbXBsZS1wcm9vZi1oYXNoLXBsYWNlaG9sZGVyLTA=
     LedgerCheckpoint:
       type: object
       description: The latest ledger checkpoint, and optionally a consistency proof from an earlier one.
@@ -5511,7 +5512,7 @@ components:
         checkpoint:
           type: string
           description: A C2SP tlog-checkpoint signed note, verbatim, signed by the checkpoint-signing key.
-          example: "example.invalid/ledger\n3\nZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=\n\n— example.invalid ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=\n"
+          example: "local-server/ledger/ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5\n3\nZXhhbXBsZS1yb290LWhhc2gtcGxhY2Vob2xkZXItMDA=\n\n— local-server/ledger/ZXhhbXBsZS1pZGVudGl0eS1wdWJsaWMta2V5 ZXhhbXBsZS1zaWduYXR1cmUtcGxhY2Vob2xkZXI=\n"
         tree_size:
           type: integer
           description: The checkpoint's tree size.
@@ -5527,14 +5528,14 @@ components:
           type: [integer, 'null']
           description: The earlier tree size the consistency proof starts from, when asked for.
           format: int64
-          example: 
+          example: null
         consistency_proof:
           type: [array, 'null']
           description: RFC 6962 consistency proof hashes, base64, from `from_tree_size` to `tree_size`, when asked for.
           items:
             type: string
             contentEncoding: base64
-          example: 
+          example: null
     HostKeySet:
       type: object
       description: The host's public keys as a JWK Set (RFC 7517).
@@ -5704,7 +5705,7 @@ components:
         disabled_reason:
           type: [string, 'null']
           description: Why it was disabled, for example `gone` or `consecutive_failures`.
-          example: 
+          example: null
         created_at:
           type: string
           description: When it was registered.
@@ -5945,7 +5946,7 @@ components:
               format: date-time
           example:
             sharing_state: paused
-            sharing_resumes_at: 
+            sharing_resumes_at: null
     MeteringFailedEvent:
       type: object
       description: Standard Webhooks payload for `metering.failed`. No content.
@@ -6021,7 +6022,7 @@ components:
           type: [string, 'null']
           description: When the account was deleted.
           format: date-time
-          example: 
+          example: null
     ConsumerList:
       type: object
       description: A page of consumers.
@@ -6044,7 +6045,7 @@ components:
               deleted_at: null
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
-          example: 
+          example: null
     ConsumerCreate:
       type: object
       description: A new key-only consumer.
@@ -6273,11 +6274,11 @@ components:
             - $ref: '#/components/schemas/AccessKeyNarrowing'
             - type: 'null'
           description: Limits the key adds to the grant, if any.
-          example: 
+          example: null
         bound_node:
           type: [string, 'null']
           description: The tailnet node the key is bound to (checked through Tailscale WhoIs), if any.
-          example: 
+          example: null
         created_at:
           type: string
           description: When it was issued.
@@ -6287,12 +6288,12 @@ components:
           type: [string, 'null']
           description: When it expires, if ever.
           format: date-time
-          example: 
+          example: null
         revoked_at:
           type: [string, 'null']
           description: When it was revoked.
           format: date-time
-          example: 
+          example: null
     AccessKeyList:
       type: object
       description: Access keys.
@@ -6473,7 +6474,7 @@ components:
           type: [string, 'null']
           description: When the grant expires, if ever.
           format: date-time
-          example: 
+          example: null
     GrantVersion:
       type: object
       description: An immutable grant version.
@@ -6508,7 +6509,7 @@ components:
           type: [string, 'null']
           description: The resource request whose approval created it, if any.
           format: uuid
-          example: 
+          example: null
         limits:
           $ref: '#/components/schemas/GrantLimits'
     GrantVersionList:
@@ -6543,7 +6544,7 @@ components:
                 expires_at: null
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
-          example: 
+          example: null
     NextCursor:
       type: [string, 'null']
       description: Pass as `cursor` for the next page; null on the last page.
@@ -6608,12 +6609,12 @@ components:
           type: [string, 'null']
           description: When the host paused manually.
           format: date-time
-          example: 
+          example: null
         sharing_resumes_at:
           type: [string, 'null']
           description: When quiet hours end, if the host is quiet.
           format: date-time
-          example: 
+          example: null
         software_version:
           type: string
           description: The local-server version.
@@ -6688,10 +6689,10 @@ components:
           $ref: '#/components/schemas/ResourceUse'
           example:
             memory_bytes:
-              value: 
+              value: null
               method: example-counter
             cpu_percent:
-              value: 
+              value: null
               method: example-counter
     HostMetricsHistory:
       type: object
@@ -6787,7 +6788,7 @@ components:
               details: {}
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
-          example: 
+          example: null
     Invite:
       type: object
       description: A one-time sign-up invite, without its token.
@@ -6821,7 +6822,7 @@ components:
           type: [string, 'null']
           description: The consumer created from it.
           format: uuid
-          example: 
+          example: null
     InviteList:
       type: object
       description: A page of invites.
@@ -6841,7 +6842,7 @@ components:
               redeemed_consumer_id: null
         next_cursor:
           $ref: '#/components/schemas/NextCursor'
-          example: 
+          example: null
     InviteCreate:
       type: object
       description: A new invite.
@@ -6908,7 +6909,7 @@ components:
           type: [integer, 'null']
           description: How long it stays loaded when idle; null means the host's default keep-alive setting.
           minimum: 0
-          example: 
+          example: null
         loaded:
           type: boolean
           description: Whether it is loaded now.
@@ -6968,7 +6969,7 @@ components:
           type: [string, 'null']
           description: The grant it applies to; null for the whole host.
           format: uuid
-          example: 
+          example: null
         version:
           type: integer
           description: 1 for the first version, then up by one.

@@ -17,8 +17,10 @@ const examplesRefPrefix = "#/components/examples/"
 
 // TestSpecExamplesMatchSchemas checks the examples in api/openapi.yaml against
 // the schemas they illustrate: every media type that has a schema carries an
-// example, each example validates against that schema, each schema-level
-// example validates against its schema, and no component example is unused.
+// example, each example validates against that schema, each schema-level and
+// property-level example (in component schemas, and in the schemas of
+// parameters, headers and media types) validates against the schema it sits
+// in, and no component example is unused.
 func TestSpecExamplesMatchSchemas(t *testing.T) {
 	raw, err := os.ReadFile("../../api/openapi.yaml")
 	if err != nil {
@@ -85,11 +87,70 @@ func TestSpecExamplesMatchSchemas(t *testing.T) {
 		}
 	}
 
+	// walkSchema validates the example and examples of the schema at ptr and of
+	// every schema nested in it. It follows the JSON Schema keywords that hold
+	// schemas, not every key, because a property can be named "properties" and
+	// example values are data, not schemas.
+	visited := map[string]bool{}
+	var walkSchema func(where, ptr string, s map[string]any)
+	walkSchema = func(where, ptr string, s map[string]any) {
+		visited[ptr] = true
+		if ex, ok := s["example"]; ok {
+			validate(where+" "+ptr+" example", ptr, ex)
+		}
+		if exs, ok := s["examples"].([]any); ok {
+			for i, ex := range exs {
+				validate(where+" "+ptr+" examples["+strconv.Itoa(i)+"]", ptr, ex)
+			}
+		}
+		for _, kw := range []string{"properties", "patternProperties", "$defs", "dependentSchemas"} {
+			children := obj(s, kw)
+			for _, name := range sortedKeys(children) {
+				if child, _ := children[name].(map[string]any); child != nil {
+					walkSchema(where, ptr+"/"+kw+"/"+esc(name), child)
+				}
+			}
+		}
+		for _, kw := range []string{
+			"items", "additionalProperties", "not", "if", "then", "else",
+			"contains", "propertyNames", "unevaluatedItems", "unevaluatedProperties",
+		} {
+			if child, _ := s[kw].(map[string]any); child != nil {
+				walkSchema(where, ptr+"/"+kw, child)
+			}
+		}
+		for _, kw := range []string{"allOf", "anyOf", "oneOf", "prefixItems"} {
+			children, _ := s[kw].([]any)
+			for i, v := range children {
+				if child, _ := v.(map[string]any); child != nil {
+					walkSchema(where, ptr+"/"+kw+"/"+strconv.Itoa(i), child)
+				}
+			}
+		}
+	}
+
+	// walkParams walks the schema of each inline parameter in a parameters array.
+	walkParams := func(where, ptr string, params any) {
+		list, _ := params.([]any)
+		for i, v := range list {
+			param, _ := v.(map[string]any)
+			if param == nil || isRef(param) {
+				continue
+			}
+			if sch, _ := param["schema"].(map[string]any); sch != nil {
+				walkSchema(where+" parameter", ptr+"/"+strconv.Itoa(i)+"/schema", sch)
+			}
+		}
+	}
+
 	checkMedia := func(where, ptr string, media map[string]any) {
 		if _, ok := media["schema"]; !ok {
 			return
 		}
 		schemaPtr := ptr + "/schema"
+		if sch, _ := media["schema"].(map[string]any); sch != nil {
+			walkSchema(where, schemaPtr, sch)
+		}
 		example, hasExample := media["example"]
 		examples, _ := media["examples"].(map[string]any)
 		if !hasExample && len(examples) == 0 {
@@ -137,6 +198,7 @@ func TestSpecExamplesMatchSchemas(t *testing.T) {
 	walkItems := func(where, ptr string, items map[string]any) {
 		for _, name := range sortedKeys(items) {
 			item, _ := items[name].(map[string]any)
+			walkParams(where+" "+name, ptr+"/"+esc(name)+"/parameters", item["parameters"])
 			for _, method := range sortedKeys(item) {
 				if method == "parameters" {
 					continue
@@ -147,6 +209,7 @@ func TestSpecExamplesMatchSchemas(t *testing.T) {
 				}
 				opPtr := ptr + "/" + esc(name) + "/" + method
 				opWhere := where + " " + name + " " + method
+				walkParams(opWhere, opPtr+"/parameters", op["parameters"])
 				if rb, _ := op["requestBody"].(map[string]any); rb != nil && !isRef(rb) {
 					walkContent(opWhere+" request", opPtr+"/requestBody", rb)
 				}
@@ -180,14 +243,27 @@ func TestSpecExamplesMatchSchemas(t *testing.T) {
 		if sch == nil {
 			continue
 		}
-		ptr := "/components/schemas/" + esc(name)
-		if ex, ok := sch["example"]; ok {
-			validate("schema "+name+" example", ptr, ex)
-		}
-		if exs, ok := sch["examples"].([]any); ok {
-			for i, ex := range exs {
-				validate("schema "+name+" examples["+strconv.Itoa(i)+"]", ptr, ex)
+		walkSchema("schema "+name, "/components/schemas/"+esc(name), sch)
+	}
+
+	for _, kind := range []string{"parameters", "headers"} {
+		holders := obj(components, kind)
+		for _, name := range sortedKeys(holders) {
+			holder, _ := holders[name].(map[string]any)
+			if sch, _ := holder["schema"].(map[string]any); sch != nil {
+				walkSchema(kind+" "+name, "/components/"+kind+"/"+esc(name)+"/schema", sch)
 			}
+		}
+	}
+
+	// A walker that stops early would pass without checking; make sure it
+	// reached a nested property and a parameter schema.
+	for _, ptr := range []string{
+		"/components/schemas/UsageProof/properties/tree_size",
+		"/components/parameters/ResourceRequestStatusFilter/schema",
+	} {
+		if !visited[ptr] {
+			t.Errorf("schema walker never visited %s", ptr)
 		}
 	}
 
