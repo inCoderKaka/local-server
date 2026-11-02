@@ -249,6 +249,7 @@ type env struct {
 type envOpts struct {
 	version func(models []grants.VersionModel) grants.NewVersion
 	policy  policy.Policy // replaces the real policy service
+	engine  []fake.Option // added to the fake engine's options
 }
 
 func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
@@ -277,9 +278,9 @@ func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
 	if e.cps, err = checkpoint.New(db, e.keys, e.st); err != nil {
 		t.Fatal(err)
 	}
-	e.eng = &recEngine{Engine: fake.New(fake.WithModels(
+	e.eng = &recEngine{Engine: fake.New(append([]fake.Option{fake.WithModels(
 		fake.ModelSpec{Name: chatModel, ContextLength: 8192},
-		fake.ModelSpec{Name: embedModel, ContextLength: 8192, Embedding: true, Dim: 4}))}
+		fake.ModelSpec{Name: embedModel, ContextLength: 8192, Embedding: true, Dim: 4})}, o.engine...)...)}
 	if e.share, err = host.NewSharing(db, e.st, e.bus, nil); err != nil {
 		t.Fatal(err)
 	}

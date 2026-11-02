@@ -27,6 +27,7 @@ type fakeOllama struct {
 	bodies  map[string][]map[string]any // path -> decoded request bodies
 	// behaviour switches
 	chatDelay time.Duration // wait before the first chat line
+	chunkGap  time.Duration // wait before the second chat line
 	midError  string        // error line sent after the first chat chunk
 	embedFail string        // embed answers 500 with this error text
 	srv       *httptest.Server
@@ -205,6 +206,13 @@ func (f *fakeOllama) chat(w http.ResponseWriter, r *http.Request, body map[strin
 	line := func(v any) { _ = json.NewEncoder(w).Encode(v); fl.Flush() }
 	reply := []string{"hello", " from", " fake", " ollama"}
 	for i, tok := range reply {
+		if i == 1 && f.chunkGap > 0 {
+			select {
+			case <-time.After(f.chunkGap):
+			case <-r.Context().Done():
+				return
+			}
+		}
 		line(map[string]any{"model": model, "message": map[string]string{"role": "assistant", "content": tok}, "done": false})
 		if i == 0 && f.midError != "" {
 			line(map[string]any{"error": f.midError})
@@ -397,6 +405,17 @@ func TestStreamErrorMidway(t *testing.T) {
 	if _, err := s.Recv(); !errors.Is(err, engine.ErrContextTooLong) {
 		t.Fatalf("err = %v, want context_too_long", err)
 	}
+}
+
+// PLT-B-039: the per-call limits beat the adapter's Config values, in both directions.
+func TestChatTimeoutsContract(t *testing.T) {
+	enginetest.RunChatTimeouts(t, func(t *testing.T, firstStall, idleStall, fallback time.Duration) engine.Engine {
+		f := newFakeOllama(t)
+		f.chatDelay, f.chunkGap = firstStall, idleStall
+		a := newAdapter(f, func(c *ollama.Config) { c.FirstTokenTimeout, c.StreamIdleTimeout = fallback, fallback })
+		t.Cleanup(a.Close)
+		return a
+	})
 }
 
 func TestFirstTokenTimeout(t *testing.T) {

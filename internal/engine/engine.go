@@ -71,6 +71,15 @@ type ChatRequest struct {
 	// KeepAlive is how long the model stays loaded afterwards. Zero means the
 	// adapter's configured default; negative means until unloaded.
 	KeepAlive time.Duration
+	// FirstTokenTimeout bounds the wait from the call until the first chunk
+	// (a model load included) for this call only. Zero means the adapter's
+	// configured fallback; the caller that owns the policy (the gateway, from
+	// its host settings, req_001 D-38, D-54) sets it so no adapter default can
+	// cut the call before the host's value.
+	FirstTokenTimeout time.Duration
+	// IdleTimeout bounds the gap between two chunks for this call only. Zero
+	// means the adapter's configured fallback, as FirstTokenTimeout.
+	IdleTimeout time.Duration
 	// OnContextOverflow is zero (refuse) or one of the OverflowPolicy values.
 	OnContextOverflow OverflowPolicy
 	// Optional sampling controls. Nil (or an empty Stop) means not set and the

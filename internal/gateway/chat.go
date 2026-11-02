@@ -79,11 +79,17 @@ func (g *Gateway) CreateChatCompletion(ctx context.Context, req *api.ChatComplet
 // runChat is F1 step 6 for a non-streamed answer: it reads the engine's stream to its end.
 // The reply text lives in memory for the length of the call and is never logged. It also returns
 // how many chunks with content arrived before the stream ended or failed.
+//
+// gateway.engine_timeout is the only bound (req_001 D-38, D-54): it is the context deadline, and
+// it is also sent as the engine's first-token and idle limit, so an engine adapter's own default
+// for those (an adapter streams from its runtime even for a non-streamed answer) can neither cut
+// the call early nor run past it.
 func (g *Gateway) runChat(ctx context.Context, c call, keepAlive time.Duration, in chatInput, p plan) (string, engine.ChatChunk, int, error) {
 	ectx, cancel := context.WithTimeout(ctx, c.cfg.engineTimeout)
 	defer cancel()
 	s, err := g.cfg.Engine.Chat(ectx, engine.ChatRequest{Model: in.model, Messages: in.messages, NumCtx: p.numCtx,
-		NumPredict: p.numPredict, KeepAlive: keepAlive, OnContextOverflow: p.overflow})
+		NumPredict: p.numPredict, KeepAlive: keepAlive, OnContextOverflow: p.overflow,
+		FirstTokenTimeout: c.cfg.engineTimeout, IdleTimeout: c.cfg.engineTimeout})
 	if err != nil {
 		return "", engine.ChatChunk{}, 0, err
 	}

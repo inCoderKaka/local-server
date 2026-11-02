@@ -325,3 +325,73 @@ func RunUnavailable(t *testing.T, f Factory) {
 		t.Fatalf("Loaded: err = %v, want engine_unavailable", err)
 	}
 }
+
+// TimeoutFactory returns a fresh engine for RunChatTimeouts. The engine takes firstStall before
+// the first chat chunk and idleStall before the second one (zero: no wait), and its own
+// first-token and idle timeouts, the fallback for a call that sets none, are both fallback.
+type TimeoutFactory func(t *testing.T, firstStall, idleStall, fallback time.Duration) engine.Engine
+
+// RunChatTimeouts checks that ChatRequest.FirstTokenTimeout and ChatRequest.IdleTimeout win over
+// the engine's own timeouts for that call, in both directions: a per-call value shorter than the
+// engine's fallback cuts the call, and a longer one keeps it open past the fallback (req_001
+// D-38, D-54: the host's setting is the only owner of those bounds).
+func RunChatTimeouts(t *testing.T, f TimeoutFactory) {
+	const (
+		stall = 300 * time.Millisecond // the engine's wait, longer than short and shorter than long
+		short = 50 * time.Millisecond
+		long  = 5 * time.Second
+	)
+	// run chats to the end and returns the first error from Chat or Recv, nil at io.EOF.
+	run := func(t *testing.T, e engine.Engine, req engine.ChatRequest) error {
+		t.Helper()
+		s, err := e.Chat(ctxT(t), req)
+		if err != nil {
+			return err
+		}
+		defer s.Close()
+		for {
+			if _, err := s.Recv(); err != nil {
+				if errors.Is(err, io.EOF) {
+					return nil
+				}
+				return err
+			}
+		}
+	}
+	t.Run("FirstTokenShorterThanFallbackApplies", func(t *testing.T) {
+		req := chatReq("", user("say hello please"))
+		req.FirstTokenTimeout = short
+		if err := run(t, f(t, stall, 0, long), req); !errors.Is(err, engine.ErrTimeout) {
+			t.Fatalf("err = %v, want engine_timeout", err)
+		}
+	})
+	t.Run("IdleShorterThanFallbackApplies", func(t *testing.T) {
+		req := chatReq("", user("say hello please"))
+		req.IdleTimeout = short
+		if err := run(t, f(t, 0, stall, long), req); !errors.Is(err, engine.ErrTimeout) {
+			t.Fatalf("err = %v, want engine_timeout", err)
+		}
+	})
+	t.Run("FirstTokenLongerThanFallbackIsHonored", func(t *testing.T) {
+		req := chatReq("", user("say hello please"))
+		req.FirstTokenTimeout = long
+		if err := run(t, f(t, stall, 0, short), req); err != nil {
+			t.Fatalf("a first-token wait inside the call's limit failed: %v", err)
+		}
+	})
+	t.Run("IdleLongerThanFallbackIsHonored", func(t *testing.T) {
+		req := chatReq("", user("say hello please"))
+		req.IdleTimeout = long
+		if err := run(t, f(t, 0, stall, short), req); err != nil {
+			t.Fatalf("an idle gap inside the call's limit failed: %v", err)
+		}
+	})
+	t.Run("FallbackAppliesWhenTheCallSetsNone", func(t *testing.T) {
+		if err := run(t, f(t, stall, 0, short), chatReq("", user("say hello please"))); !errors.Is(err, engine.ErrTimeout) {
+			t.Fatalf("first token: err = %v, want engine_timeout", err)
+		}
+		if err := run(t, f(t, 0, stall, short), chatReq("", user("say hello please"))); !errors.Is(err, engine.ErrTimeout) {
+			t.Fatalf("idle: err = %v, want engine_timeout", err)
+		}
+	})
+}

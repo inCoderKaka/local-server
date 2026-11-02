@@ -54,6 +54,11 @@ type Engine struct {
 	inject map[Op][]error
 	calls  map[Op]int
 	last   *Sampling
+
+	// fallbackFirst and fallbackIdle are the chat timeouts that apply when a call sets none, as an
+	// adapter's configured timeouts do; zero means no limit. gaps are the delays before chunks.
+	fallbackFirst, fallbackIdle time.Duration
+	gaps                        map[int]time.Duration
 }
 
 // Option configures New.
@@ -71,6 +76,28 @@ func WithModels(specs ...ModelSpec) Option {
 
 // WithReply sets the chat reply (streamed one word per chunk).
 func WithReply(s string) Option { return func(e *Engine) { e.reply = s } }
+
+// WithChatTimeouts sets the fake's own first-token and idle limits for a chat call that sets
+// none in its ChatRequest, as an adapter's configured timeouts do. Zero means no limit. A call
+// that sets FirstTokenTimeout or IdleTimeout uses its value instead (req_001 D-38, D-54).
+func WithChatTimeouts(firstToken, idle time.Duration) Option {
+	return func(e *Engine) { e.fallbackFirst, e.fallbackIdle = firstToken, idle }
+}
+
+// WithChunkGap makes the engine take d (real time) before it delivers chunk number index of every
+// chat reply: 0 is the first chunk, 1 the second, and the last, Done chunk comes after one chunk
+// per word. The wait ends early with the context's error when the call is cancelled. When d is
+// longer than the call's limit (the first-token limit for chunk 0, else the idle limit; see
+// WithChatTimeouts and ChatRequest), Recv fails with a timeout error once that limit has passed,
+// as the Ollama adapter does.
+func WithChunkGap(index int, d time.Duration) Option {
+	return func(e *Engine) {
+		if e.gaps == nil {
+			e.gaps = map[int]time.Duration{}
+		}
+		e.gaps[index] = d
+	}
+}
 
 // WithClock sets the clock used for load expiry.
 func WithClock(now func() time.Time) Option { return func(e *Engine) { e.now = now } }
@@ -301,12 +328,21 @@ func (e *Engine) Chat(ctx context.Context, req engine.ChatRequest) (engine.ChatS
 	if len(words) > req.NumPredict {
 		words, reason = words[:req.NumPredict], "length"
 	}
-	st := &stream{ctx: ctx, words: words, prompt: prompt, reason: reason}
+	st := &stream{ctx: ctx, words: words, prompt: prompt, reason: reason, gaps: e.gaps,
+		first: positiveOr(req.FirstTokenTimeout, e.fallbackFirst), idle: positiveOr(req.IdleTimeout, e.fallbackIdle)}
 	if q := e.inject[OpChatStream]; len(q) > 0 {
 		st.fail, e.inject[OpChatStream] = q[0], q[1:]
 	}
 	e.calls[OpChatStream]++
 	return st, nil
+}
+
+// positiveOr is call when it is positive, else fallback.
+func positiveOr(call, fallback time.Duration) time.Duration {
+	if call > 0 {
+		return call
+	}
+	return fallback
 }
 
 func copyPtr[T any](p *T) *T {
@@ -352,6 +388,39 @@ type stream struct {
 	i      int
 	done   bool
 	closed bool
+
+	gaps        map[int]time.Duration
+	first, idle time.Duration // the limits for this call; zero means none
+	sent        int           // chunks delivered, the Done chunk included
+}
+
+// wait takes the gap before the next chunk, if any, and fails it with a timeout error when the
+// gap is longer than the limit that applies.
+func (s *stream) wait() error {
+	d := s.gaps[s.sent]
+	if d <= 0 {
+		return nil
+	}
+	limit := s.idle
+	if s.sent == 0 {
+		limit = s.first
+	}
+	timedOut := limit > 0 && d > limit
+	if timedOut {
+		d = limit
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
+	if timedOut {
+		s.fail = engine.Errorf(engine.CodeTimeout, nil, "the engine stopped answering in time")
+		return s.fail
+	}
+	return nil
 }
 
 func (s *stream) Recv() (engine.ChatChunk, error) {
@@ -367,6 +436,10 @@ func (s *stream) Recv() (engine.ChatChunk, error) {
 	if s.done {
 		return engine.ChatChunk{}, io.EOF
 	}
+	if err := s.wait(); err != nil {
+		return engine.ChatChunk{}, err
+	}
+	s.sent++
 	if s.i < len(s.words) {
 		w := s.words[s.i]
 		if s.i > 0 {

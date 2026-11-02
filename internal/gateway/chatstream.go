@@ -19,7 +19,9 @@ import (
 // once the engine produced its first chunk, so an engine error or a first-token timeout still
 // answers with a plain HTTP error. The ticket is released by the stream once: when the engine call
 // ends or the total timeout expires, whichever comes first. The usage is written when the call
-// ends, not when this function returns.
+// ends, not when this function returns. The host's first-token and idle values also go to the
+// engine on the request, so the host settings are the only owner of those bounds and no engine
+// adapter default cuts the stream before them (req_001 D-38, D-54, PLT-B-039).
 func (g *Gateway) streamChat(ctx context.Context, c call, in chatInput, p plan, tk *scheduler.Ticket, admission time.Duration) (api.CreateChatCompletionRes, error) {
 	startedAt := g.now()
 	t0 := time.Now()
@@ -61,7 +63,8 @@ func (g *Gateway) streamChat(ctx context.Context, c call, in chatInput, p plan, 
 		Release: tk.Release, Finish: finish, ErrorEvent: g.streamErrorEvent(ctx),
 	}, func(ectx context.Context) (engine.ChatStream, error) {
 		return g.cfg.Engine.Chat(ectx, engine.ChatRequest{Model: in.model, Messages: in.messages, NumCtx: p.numCtx,
-			NumPredict: p.numPredict, KeepAlive: keepAlive, OnContextOverflow: p.overflow})
+			NumPredict: p.numPredict, KeepAlive: keepAlive, OnContextOverflow: p.overflow,
+			FirstTokenTimeout: c.cfg.streamFirstToken, IdleTimeout: c.cfg.streamIdle})
 	})
 	if err != nil {
 		if ctx.Err() != nil { // the client went away before the first chunk (req_001 D-38 aborted)

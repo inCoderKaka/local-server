@@ -21,6 +21,29 @@ func newEngine(t *testing.T) engine.Engine {
 
 func TestContract(t *testing.T) { enginetest.Run(t, newEngine) }
 
+func TestChatTimeoutsContract(t *testing.T) {
+	enginetest.RunChatTimeouts(t, func(t *testing.T, firstStall, idleStall, fallback time.Duration) engine.Engine {
+		return fake.New(fake.WithModels(fake.ModelSpec{Name: enginetest.ChatModel, ContextLength: 4096}),
+			fake.WithChatTimeouts(fallback, fallback), fake.WithChunkGap(0, firstStall), fake.WithChunkGap(1, idleStall))
+	})
+}
+
+func TestChunkGapEndsWhenTheCallIsCancelled(t *testing.T) {
+	e := fake.New(fake.WithChunkGap(1, time.Hour))
+	ctx, cancel := context.WithCancel(context.Background())
+	s, err := e.Chat(ctx, engine.ChatRequest{Model: "fake-chat", Messages: []engine.Message{{Role: engine.RoleUser, Content: "hi"}}, NumCtx: 32, NumPredict: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Recv(); err != nil {
+		t.Fatal(err)
+	}
+	time.AfterFunc(20*time.Millisecond, cancel)
+	if _, err := s.Recv(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
 func TestInjectedErrors(t *testing.T) {
 	e := fake.New()
 	ctx := context.Background()

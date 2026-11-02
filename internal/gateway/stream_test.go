@@ -387,6 +387,95 @@ func TestStreamTotalTimeout(t *testing.T) {
 	e.assertFailedStream(t, r.Body.String(), 3)
 }
 
+// The next tests are PLT-B-039 (req_001 D-38, D-54). The fake engine stands in for an adapter whose
+// own first-token and idle timeouts (the `fallback`) are shorter than the host's settings; the
+// numbers are the ticket's 30 s fallback, 45 s engine gap and 60 s setting scaled by 1/100, because
+// the stream package runs on real timers and has no clock seam.
+const (
+	adapterFallback = 300 * time.Millisecond // the engine adapter's own timeout: "30 s"
+	engineGap       = 450 * time.Millisecond // how long the engine goes quiet: "45 s"
+	settingLong     = 600 * time.Millisecond // the host setting above the gap: "60 s"
+)
+
+// defaultReplyWords is the token count of fake.DefaultReply; the gap sits before chunk 3, after
+// three words.
+var defaultReplyWords = int64(fake.CountTokens(fake.DefaultReply))
+
+func withEngine(opts ...fake.Option) func(*envOpts) {
+	return func(o *envOpts) { o.engine = opts }
+}
+
+// assertCompletedStream checks a stream that ran to its end and was metered as completed.
+func (e *env) assertCompletedStream(t *testing.T, r resp) {
+	t.Helper()
+	statusIs(t, r, http.StatusOK)
+	evs := sseEvents(t, r.Body.String())
+	n := len(evs)
+	if evs[n-1] != "data: [DONE]" || !strings.HasPrefix(evs[n-2], receiptPrefix) {
+		t.Fatalf("tail = %q", evs[n-2:])
+	}
+	rc := e.verify(strings.TrimPrefix(evs[n-2], receiptPrefix))
+	if rc.Outcome != ledger.OutcomeCompleted || rc.CompletionTokens != defaultReplyWords {
+		t.Fatalf("receipt = %+v", rc)
+	}
+}
+
+// A host stream_idle_timeout above the engine gap keeps the stream open even though the engine's
+// own fallback is below the gap: the gateway sends its setting on the request.
+func TestStreamIdleSettingAboveTheEngineGapKeepsTheStreamOpen(t *testing.T) {
+	e := newEnv(t, withEngine(fake.WithChatTimeouts(adapterFallback, adapterFallback), fake.WithChunkGap(3, engineGap)))
+	e.set(gateway.KeyStreamIdle, settingLong.String())
+	r := e.chat(streamChatBody)
+	e.assertCompletedStream(t, r)
+	if len(e.eng.chats) != 1 || e.eng.chats[0].IdleTimeout != settingLong {
+		t.Fatalf("engine requests = %+v, want IdleTimeout %v", e.eng.chats, settingLong)
+	}
+}
+
+// The same gap with a stream_idle_timeout below it ends the stream with the idle timeout error.
+func TestStreamIdleSettingBelowTheEngineGapEndsTheStream(t *testing.T) {
+	e := newEnv(t, withEngine(fake.WithChatTimeouts(settingLong, settingLong), fake.WithChunkGap(3, engineGap)))
+	e.set(gateway.KeyStreamIdle, adapterFallback.String())
+	r := e.chat(streamChatBody)
+	statusIs(t, r, http.StatusOK)
+	e.assertFailedStream(t, r.Body.String(), 3)
+	if e.eng.chats[0].IdleTimeout != adapterFallback {
+		t.Fatalf("engine requests = %+v, want IdleTimeout %v", e.eng.chats, adapterFallback)
+	}
+}
+
+// A host stream_first_token_timeout above the engine's wait for its first chunk keeps the call open.
+func TestStreamFirstTokenSettingAboveTheEngineWaitKeepsTheStreamOpen(t *testing.T) {
+	e := newEnv(t, withEngine(fake.WithChatTimeouts(adapterFallback, adapterFallback), fake.WithChunkGap(0, engineGap)))
+	e.set(gateway.KeyStreamFirstToken, settingLong.String())
+	r := e.chat(streamChatBody)
+	e.assertCompletedStream(t, r)
+	if len(e.eng.chats) != 1 || e.eng.chats[0].FirstTokenTimeout != settingLong {
+		t.Fatalf("engine requests = %+v, want FirstTokenTimeout %v", e.eng.chats, settingLong)
+	}
+}
+
+// A non-streamed call is bounded by gateway.engine_timeout alone: the engine's own first-token and
+// idle fallback must not cut it, and the request carries engine_timeout as both limits.
+func TestNonStreamedChatIsBoundedByTheEngineTimeoutAlone(t *testing.T) {
+	e := newEnv(t, withEngine(fake.WithChatTimeouts(adapterFallback, adapterFallback),
+		fake.WithChunkGap(0, engineGap), fake.WithChunkGap(3, engineGap)))
+	e.set(gateway.KeyEngineTimeout, (2 * settingLong).String())
+	r := e.chat(okChat)
+	statusIs(t, r, http.StatusOK)
+	got := e.eng.chats[0]
+	if got.FirstTokenTimeout != 2*settingLong || got.IdleTimeout != 2*settingLong {
+		t.Fatalf("engine request limits = %v and %v, want engine_timeout %v", got.FirstTokenTimeout, got.IdleTimeout, 2*settingLong)
+	}
+}
+
+// ... and it still ends when engine_timeout is shorter than the engine's wait.
+func TestNonStreamedChatEndsAtTheEngineTimeout(t *testing.T) {
+	e := newEnv(t, withEngine(fake.WithChunkGap(3, engineGap)))
+	e.set(gateway.KeyEngineTimeout, adapterFallback.String())
+	statusIs(t, e.chat(okChat), http.StatusGatewayTimeout)
+}
+
 // assertFailedStream checks a stream the gateway ended with a 504 error event, the receipt of
 // the failed call and [DONE], after `words` words.
 func (e *env) assertFailedStream(t *testing.T, body string, words int64) {

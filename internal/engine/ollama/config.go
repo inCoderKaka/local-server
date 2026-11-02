@@ -51,9 +51,12 @@ type Config struct {
 	EmbedTimeout time.Duration
 	// LoadTimeout bounds Load.
 	LoadTimeout time.Duration
-	// FirstTokenTimeout bounds the wait for the first chat chunk (includes model load).
+	// FirstTokenTimeout bounds the wait for the first chat chunk (includes model
+	// load). It is the fallback for a chat call that sets no
+	// ChatRequest.FirstTokenTimeout.
 	FirstTokenTimeout time.Duration
-	// StreamIdleTimeout bounds the gap between chat chunks.
+	// StreamIdleTimeout bounds the gap between chat chunks. It is the fallback
+	// for a chat call that sets no ChatRequest.IdleTimeout.
 	StreamIdleTimeout time.Duration
 	// MaxResponseBytes bounds a non-streaming response body.
 	MaxResponseBytes int64
