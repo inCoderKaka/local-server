@@ -505,7 +505,7 @@ func (UnimplementedHandler) BeginMyPasskeyRegistration(ctx context.Context) (r *
 // state is returned unchanged with `409`.
 //
 // POST /v1/jobs/{job_id}/cancel
-func (UnimplementedHandler) CancelJob(ctx context.Context, params CancelJobParams) (r *Job, _ error) {
+func (UnimplementedHandler) CancelJob(ctx context.Context, params CancelJobParams) (r CancelJobRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -681,9 +681,11 @@ func (UnimplementedHandler) GetJob(ctx context.Context, params GetJobParams) (r 
 
 // GetJobResult implements getJobResult operation.
 //
-// The result of a `succeeded` job, with its receipt in `LS-Receipt`. The result is deleted when it is
-// fetched or when the consumer's job-result TTL passes; afterwards this returns `410`. A job that has
-// not succeeded returns `409`.
+// The result of a `succeeded` job, with its receipt in `LS-Receipt`. The host deletes the result only
+// after this response body has been fully written to you, or when the consumer's job-result TTL passes
+// (D-85). Until then it can be fetched again: if the connection drops before the body is complete,
+// fetch again. Afterwards this returns `410`. A job that has not succeeded returns `409`. A job that
+// does not exist, or belongs to another consumer, returns `404`. Errors use the error envelope.
 //
 // GET /v1/jobs/{job_id}/result
 func (UnimplementedHandler) GetJobResult(ctx context.Context, params GetJobResultParams) (r *JobResultHeaders, _ error) {

@@ -19,6 +19,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/gateway/stream"
 	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/host"
+	"github.com/inCoderKaka/local-server/internal/jobs"
 	"github.com/inCoderKaka/local-server/internal/ledger"
 	"github.com/inCoderKaka/local-server/internal/ledger/checkpoint"
 	"github.com/inCoderKaka/local-server/internal/limits"
@@ -78,7 +79,7 @@ type Checkpoints interface {
 	ProofForUsage(ctx context.Context, usageID string) (checkpoint.UsageProof, error)
 }
 
-// Config is what New needs. All fields except Telemetry and Clock are required.
+// Config is what New needs. All fields except Jobs, Telemetry and Clock are required.
 type Config struct {
 	DB       *storage.DB
 	Settings *settings.Store
@@ -94,6 +95,8 @@ type Config struct {
 	Engine      Engine
 	Ledger      Meter
 	Checkpoints Checkpoints
+	// Jobs serves the job endpoints (PLT-F-022). Optional: nil leaves them answering 501.
+	Jobs Jobs
 	// Telemetry nil means telemetry.Nop().
 	Telemetry telemetry.Telemetry
 	// Clock nil means time.Now.
@@ -184,6 +187,9 @@ type reqState struct {
 	r           *http.Request
 	started     time.Time
 	wroteHeader bool // the status line went out; set by headerWriter
+	// afterDelivery, when a handler sets it, runs once the response has been written whole to the
+	// connection and not otherwise. A job result is deleted this way (req_001 D-85).
+	afterDelivery func(ctx context.Context)
 }
 
 // headerWriter records that the response has started, so a late failure does not append a JSON
@@ -251,7 +257,11 @@ func (g *Gateway) serve(w http.ResponseWriter, r *http.Request) {
 		writeError(w, e)
 		return
 	}
-	g.srv.ServeHTTP(stream.NewFlushWriter(&headerWriter{ResponseWriter: w, st: st}), r)
+	dw := jobs.NewDelivery(w)
+	g.srv.ServeHTTP(stream.NewFlushWriter(&headerWriter{ResponseWriter: dw, st: st}), r)
+	if st.afterDelivery != nil && r.Context().Err() == nil && dw.Complete() {
+		st.afterDelivery(context.WithoutCancel(r.Context()))
+	}
 }
 
 func (g *Gateway) notFound(w http.ResponseWriter, _ *http.Request) {
@@ -346,5 +356,5 @@ func (g *Gateway) HandleConsumerSessionAuth(context.Context, api.OperationName, 
 }
 
 func isInference(op api.OperationName) bool {
-	return op == api.CreateChatCompletionOperation || op == api.CreateEmbeddingOperation
+	return op == api.CreateChatCompletionOperation || op == api.CreateEmbeddingOperation || op == api.CreateJobOperation
 }

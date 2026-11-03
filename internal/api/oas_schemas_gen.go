@@ -892,6 +892,14 @@ func (s *AuditEventList) SetNextCursor(val NilNextCursor) {
 	s.NextCursor = val
 }
 
+type CancelJobConflict Job
+
+func (*CancelJobConflict) cancelJobRes() {}
+
+type CancelJobOK Job
+
+func (*CancelJobOK) cancelJobRes() {}
+
 // The caller's effective limits, after the key's narrowing, and remaining quota.
 // Ref: #/components/schemas/Capabilities
 type Capabilities struct {

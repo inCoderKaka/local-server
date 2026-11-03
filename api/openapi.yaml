@@ -83,8 +83,9 @@ info:
       admin, host or consumer), with a default; nothing here hard-codes one (D-54).
     - **Content privacy.** Prompts and responses are never logged or stored by default
       (D-31, D-40). Webhook payloads and notifications never carry content. Queued job
-      content and job results are the only content at rest, encrypted, and deleted at a
-      terminal state or on fetch.
+      content and job results are the only content at rest, encrypted. Queued job content is
+      deleted at a terminal state; a job result is deleted once a fetch has written it
+      whole, or when its time-to-live passes (D-85).
     - **Request id.** Every response carries `X-Request-Id`. A well-formed inbound
       `X-Request-Id` (letters, digits, `-` and `_`, at most 64 characters) is kept; otherwise
       the host generates one. Quote it when reporting a failure: the host's logs carry the
@@ -394,6 +395,15 @@ paths:
               examples:
                 default:
                   $ref: '#/components/examples/JobCancelled'
+        '409':
+          description: The job is already in a terminal state; it is returned unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+              examples:
+                default:
+                  $ref: '#/components/examples/Job'
         default:
           $ref: '#/components/responses/Error'
   /v1/jobs/{job_id}/result:
@@ -402,10 +412,12 @@ paths:
       tags: [jobs]
       summary: Fetch a job's result
       description: |
-        The result of a `succeeded` job, with its receipt in `LS-Receipt`. The result is
-        deleted when it is fetched or when the consumer's
-        job-result TTL passes; afterwards this returns `410`. A job that has not succeeded
-        returns `409`.
+        The result of a `succeeded` job, with its receipt in `LS-Receipt`. The host deletes the
+        result only after this response body has been fully written to you, or when the
+        consumer's job-result TTL passes (D-85). Until then it can be fetched again: if the
+        connection drops before the body is complete, fetch again. Afterwards this returns
+        `410`. A job that has not succeeded returns `409`. A job that does not exist, or belongs
+        to another consumer, returns `404`. Errors use the error envelope.
       security:
         - accessKeyAuth: []
       parameters:
@@ -3603,11 +3615,11 @@ components:
       description: Setting list, with placeholder values only.
       value:
         data:
-          - key: jobs.result_ttl_seconds
+          - key: jobs.result_ttl
             owner: consumer
-            value: 3600
-            default_value: 86400
-            description: Seconds an unfetched job result is kept.
+            value: 1h
+            default_value: 24h
+            description: How long a job's result is kept for fetching, as a duration such as `90m` or `24h`.
     HostSettingList:
       summary: Host setting list
       description: Host setting list, with placeholder values only.
@@ -3623,7 +3635,7 @@ components:
       description: Settings update, with placeholder values only.
       value:
         values:
-          jobs.result_ttl_seconds: 3600
+          jobs.result_ttl: 1h
     HostSettingsUpdate:
       summary: Host settings update
       description: Host settings update, with placeholder values only.
@@ -6415,11 +6427,11 @@ components:
           items:
             $ref: '#/components/schemas/Setting'
           example:
-            - key: jobs.result_ttl_seconds
+            - key: jobs.result_ttl
               owner: consumer
-              value: 3600
-              default_value: 86400
-              description: Seconds an unfetched job result is kept.
+              value: 1h
+              default_value: 24h
+              description: How long a job's result is kept for fetching, as a duration such as `90m` or `24h`.
     SettingsUpdate:
       type: object
       description: New values by setting key. A `null` value returns that setting to its default.
@@ -6431,7 +6443,7 @@ components:
           additionalProperties: true
       example:
         values:
-          jobs.result_ttl_seconds: 3600
+          jobs.result_ttl: 1h
     GrantLimits:
       type: object
       description: The limits of a grant version.

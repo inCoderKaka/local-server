@@ -29,6 +29,16 @@
 //     counted, and a metering.failed event is emitted (D-39 step 9, D-51). A call the client
 //     abandons while the engine runs is metered as aborted with the tokens received so far.
 //
+// # Jobs
+//
+// POST /v1/jobs (req_001 D-39 F2) runs F1 steps 2 to 4 and queues the request through
+// internal/jobs; the job worker then runs it through JobExecutor: policy again (a closed time
+// window keeps the job queued), the key and quota again, Scheduler.Admit as a background job, the
+// engine call, metering under the job id and the signed receipt. A job's result is deleted only
+// once GET /v1/jobs/{job_id}/result has written its body whole to the connection (req_001 D-85):
+// the handler registers the deletion, and serve runs it after the response was written and
+// flushed without error.
+//
 // # Errors
 //
 // Every error uses the OpenAI error envelope (api/openapi.yaml). Request decoding errors,

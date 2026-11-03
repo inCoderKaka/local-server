@@ -121,7 +121,7 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 		eng = ad
 	}
 
-	sv, err := wire(d, keys, eng, tel)
+	sv, err := wire(ctx, d, keys, eng, tel)
 	if err != nil {
 		return fmt.Errorf("wire modules: %w", err)
 	}

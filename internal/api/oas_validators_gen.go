@@ -520,6 +520,22 @@ func (s *AuditEventList) Validate() error {
 	return nil
 }
 
+func (s *CancelJobConflict) Validate() error {
+	alias := (*Job)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *CancelJobOK) Validate() error {
+	alias := (*Job)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Capabilities) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer

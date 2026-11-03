@@ -16,6 +16,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/gateway/stream"
+	"github.com/inCoderKaka/local-server/internal/jobs"
 	"github.com/inCoderKaka/local-server/internal/ledger/checkpoint"
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/policy"
@@ -169,6 +170,12 @@ func classify(err error, now time.Time) (e *apiError, internal bool) {
 		return &apiError{status: http.StatusConflict, typ: typeInvalidRequest, message: "No checkpoint covers this record yet. Retry later.", retryAfter: max(nc.RetryAfter, time.Second)}, false
 	case errors.Is(err, checkpoint.ErrUnknownUsage), errors.Is(err, usage.ErrNotFound):
 		return newErr(http.StatusNotFound, typeInvalidRequest, "", "usage_id", "No metered usage record has this id."), false
+	case errors.Is(err, jobs.ErrNotFound):
+		return newErr(http.StatusNotFound, typeInvalidRequest, "", "job_id", "No job of yours has this id."), false
+	case errors.Is(err, jobs.ErrNotSucceeded):
+		return newErr(http.StatusConflict, typeInvalidRequest, "", "job_id", "The job has not succeeded, so it has no result."), false
+	case errors.Is(err, jobs.ErrResultGone):
+		return newErr(http.StatusGone, typeInvalidRequest, "", "job_id", "The job's result was already fetched, or its time-to-live passed."), false
 	case errors.Is(err, checkpoint.ErrNoCheckpoint):
 		return newErr(http.StatusNotFound, typeInvalidRequest, "", "", "No checkpoint has been signed yet."), false
 	case errors.Is(err, checkpoint.ErrBadTreeSize):

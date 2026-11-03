@@ -14,6 +14,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
 	"github.com/inCoderKaka/local-server/internal/hostmetrics"
 	"github.com/inCoderKaka/local-server/internal/identity"
+	"github.com/inCoderKaka/local-server/internal/jobs"
 	"github.com/inCoderKaka/local-server/internal/ledger"
 	"github.com/inCoderKaka/local-server/internal/ledger/checkpoint"
 	"github.com/inCoderKaka/local-server/internal/limits"
@@ -33,12 +34,16 @@ type services struct {
 	sched      *scheduler.Scheduler
 	sampler    *hostmetrics.Sampler
 	checkpoint *checkpoint.Worker
+	jobs       *jobs.Service
+	jobExec    jobs.Executor
 }
 
 // wire builds every module on d, keys and eng, in dependency order, and returns what serve
 // runs. Constructors register their own settings; registerSettings did the rest. To add a
-// module that serves or runs a worker, build it here and add its worker in startWorkers.
-func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Telemetry) (*services, error) {
+// module that serves or runs a worker, build it here and add its worker in startWorkers. It also
+// marks the jobs a stop interrupted failed(host_restart), before any worker or listener runs
+// (req_001 D-38, D-54).
+func wire(ctx context.Context, d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Telemetry) (*services, error) {
 	var err error
 	db, st, log := d.db, d.st, tel.Logger()
 	bus := events.New(events.WithLogger(log))
@@ -61,6 +66,15 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 	}
 	sv.checkpoint = checkpoint.NewWorker(cps, tel)
 
+	if sv.jobs, err = jobs.New(jobs.Config{DB: db, Settings: st, Events: bus, Keys: keys, Telemetry: tel}); err != nil {
+		return nil, err
+	}
+	if n, err := sv.jobs.FailInterrupted(ctx); err != nil {
+		return nil, err
+	} else if n > 0 {
+		log.WarnContext(ctx, "jobs interrupted by the last stop were marked failed (host_restart); clients resubmit with their Idempotency-Key", "jobs", n)
+	}
+
 	au, err := auth.New(auth.Config{DB: db, Identity: ir, Grants: gr, Events: bus, Settings: st, Logger: log})
 	if err != nil {
 		return nil, err
@@ -74,11 +88,11 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 		return nil, err
 	}
 	gw, err := gateway.New(gateway.Config{DB: db, Settings: st, Events: bus, Grants: gr, Auth: au, Limits: lim, Policy: pol,
-		Scheduler: sv.sched, Sharing: share, Engine: eng, Ledger: ledger.New(db, keys), Checkpoints: cps, Telemetry: tel})
+		Scheduler: sv.sched, Sharing: share, Engine: eng, Ledger: ledger.New(db, keys), Checkpoints: cps, Jobs: sv.jobs, Telemetry: tel})
 	if err != nil {
 		return nil, fmt.Errorf("gateway: %w", err)
 	}
-	sv.consumer = gw.Handler()
+	sv.consumer, sv.jobExec = gw.Handler(), gw.JobExecutor()
 	return sv, nil
 }
 
@@ -93,4 +107,6 @@ func (sv *services) startWorkers(ctx context.Context, sup *supervisor, log *slog
 	sup.Go(ctx, "host-metrics", func(ctx context.Context) error { sv.sampler.Run(ctx); return nil })
 	// Signs ledger checkpoints and rotates host signing keys (hostkeys.EnsureCurrent).
 	sup.Go(ctx, "ledger-checkpoint", sv.checkpoint.Run)
+	// Runs queued jobs through the gateway's admission, engine call and metering (F2).
+	sup.Go(ctx, "jobs", func(ctx context.Context) error { sv.jobs.Run(ctx, sv.jobExec); return nil })
 }

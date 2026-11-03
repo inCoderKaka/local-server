@@ -25,6 +25,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/host"
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
 	"github.com/inCoderKaka/local-server/internal/identity"
+	"github.com/inCoderKaka/local-server/internal/jobs"
 	"github.com/inCoderKaka/local-server/internal/ledger"
 	"github.com/inCoderKaka/local-server/internal/ledger/checkpoint"
 	"github.com/inCoderKaka/local-server/internal/limits"
@@ -155,6 +156,8 @@ type timedSched struct {
 	nanos atomic.Int64
 	mu    sync.Mutex
 	last  scheduler.Request
+	// refuse, when set, decides before the scheduler does: a non-nil result is Admit's error.
+	refuse func(scheduler.Request) error
 }
 
 func (t *timedSched) Admit(ctx context.Context, r scheduler.Request) (*scheduler.Ticket, error) {
@@ -162,7 +165,13 @@ func (t *timedSched) Admit(ctx context.Context, r scheduler.Request) (*scheduler
 	defer func() { t.nanos.Add(int64(time.Since(t0))) }()
 	t.mu.Lock()
 	t.last = r
+	refuse := t.refuse
 	t.mu.Unlock()
+	if refuse != nil {
+		if err := refuse(r); err != nil {
+			return nil, err
+		}
+	}
 	return t.s.Admit(ctx, r)
 }
 
@@ -233,6 +242,7 @@ type env struct {
 	au    *auth.Service
 	gr    *grants.Repos
 	ir    *identity.Repos
+	jobs  *jobs.Service
 	gw    *gateway.Gateway
 	h     http.Handler
 	tel   *testTelemetry
@@ -250,6 +260,7 @@ type envOpts struct {
 	version func(models []grants.VersionModel) grants.NewVersion
 	policy  policy.Policy // replaces the real policy service
 	engine  []fake.Option // added to the fake engine's options
+	noJobs  bool          // build the gateway without a jobs service
 }
 
 func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
@@ -260,7 +271,7 @@ func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
 	}
 	ctx := context.Background()
 	db, err := storage.Open(ctx, storage.DefaultConfig(filepath.Join(t.TempDir(), "t.db"),
-		settings.Module(), host.Module(), identity.Module(), grants.Module(), audit.Module(), events.Module(), usage.Module(), ledger.Module()))
+		settings.Module(), host.Module(), identity.Module(), grants.Module(), audit.Module(), events.Module(), usage.Module(), ledger.Module(), scheduler.Module()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,6 +299,9 @@ func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
 		t.Fatal(err)
 	}
 	e.timed = &timedSched{s: e.sched}
+	if e.jobs, err = jobs.New(jobs.Config{DB: db, Settings: e.st, Events: e.bus, Keys: e.keys, Telemetry: e.tel}); err != nil {
+		t.Fatal(err)
+	}
 	if e.au, err = auth.New(auth.Config{DB: db, Identity: e.ir, Grants: e.gr, Events: e.bus, Settings: e.st}); err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +314,7 @@ func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
 			t.Fatal(err)
 		}
 	}
-	for _, ty := range []events.Type{events.MeteringFailed, events.PolicyRuleInvalid, events.QuotaNearLimit} {
+	for _, ty := range []events.Type{events.MeteringFailed, events.PolicyRuleInvalid, events.QuotaNearLimit, events.JobDone} {
 		if err := e.bus.Subscribe("test."+string(ty), func(_ context.Context, ev events.Event) error {
 			e.evMu.Lock()
 			e.evs = append(e.evs, ev)
@@ -310,8 +324,12 @@ func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
 			t.Fatal(err)
 		}
 	}
+	var jobsSvc gateway.Jobs
+	if !o.noJobs {
+		jobsSvc = e.jobs
+	}
 	e.gw, err = gateway.New(gateway.Config{DB: db, Settings: e.st, Events: e.bus, Grants: e.gr, Auth: e.au, Limits: e.lim, Policy: pol,
-		Scheduler: e.timed, Sharing: e.share, Engine: e.eng, Ledger: e.meter, Checkpoints: e.cps, Telemetry: e.tel})
+		Scheduler: e.timed, Sharing: e.share, Engine: e.eng, Ledger: e.meter, Checkpoints: e.cps, Jobs: jobsSvc, Telemetry: e.tel})
 	if err != nil {
 		t.Fatal(err)
 	}

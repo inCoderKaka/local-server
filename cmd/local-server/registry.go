@@ -7,6 +7,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/identity"
 	"github.com/inCoderKaka/local-server/internal/ledger"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
+	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/usage"
@@ -21,14 +22,15 @@ import (
 // To add a module (a later ticket's whole job here): add one line, after the modules it
 // references. The registry test then opens every registered module on a fresh database.
 var registry = []func() storage.Module{
-	settings.Module, // hst_setting: first, every later module's settings live here
-	host.Module,     // hst_host, hst_key, hst_metric_minute
-	identity.Module, // idn_*
-	grants.Module,   // grt_*: references idn_*
-	audit.Module,    // aud_*: references idn_principal
-	events.Module,   // ntf_*
-	usage.Module,    // use_*
-	ledger.Module,   // ldg_*
+	settings.Module,  // hst_setting: first, every later module's settings live here
+	host.Module,      // hst_host, hst_key, hst_metric_minute
+	identity.Module,  // idn_*
+	grants.Module,    // grt_*: references idn_*
+	audit.Module,     // aud_*: references idn_principal
+	events.Module,    // ntf_*
+	usage.Module,     // use_*
+	ledger.Module,    // ldg_*
+	scheduler.Module, // sch_*: jobs of internal/jobs
 }
 
 // registryModules returns the storage modules of the registry, in order.

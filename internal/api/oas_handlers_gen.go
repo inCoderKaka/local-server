@@ -7252,7 +7252,7 @@ func (s *Server) handleCancelJobRequest(args [1]string, argsEscaped bool, w http
 
 	var rawBody []byte
 
-	var response *Job
+	var response CancelJobRes
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
 			Context:          ctx,
@@ -7273,7 +7273,7 @@ func (s *Server) handleCancelJobRequest(args [1]string, argsEscaped bool, w http
 		type (
 			Request  = struct{}
 			Params   = CancelJobParams
-			Response = *Job
+			Response = CancelJobRes
 		)
 		response, err = middleware.HookMiddleware[
 			Request,
@@ -9600,9 +9600,11 @@ func (s *Server) handleGetJobRequest(args [1]string, argsEscaped bool, w http.Re
 
 // handleGetJobResultRequest handles getJobResult operation.
 //
-// The result of a `succeeded` job, with its receipt in `LS-Receipt`. The result is deleted when it is
-// fetched or when the consumer's job-result TTL passes; afterwards this returns `410`. A job that has
-// not succeeded returns `409`.
+// The result of a `succeeded` job, with its receipt in `LS-Receipt`. The host deletes the result only
+// after this response body has been fully written to you, or when the consumer's job-result TTL passes
+// (D-85). Until then it can be fetched again: if the connection drops before the body is complete,
+// fetch again. Afterwards this returns `410`. A job that has not succeeded returns `409`. A job that
+// does not exist, or belongs to another consumer, returns `404`. Errors use the error envelope.
 //
 // GET /v1/jobs/{job_id}/result
 func (s *Server) handleGetJobResultRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

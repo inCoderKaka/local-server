@@ -20,9 +20,12 @@ func typeName(v any) string { return fmt.Sprintf("%T", v) }
 
 // call is what the two inference handlers share once auth has passed.
 type call struct {
-	id  *auth.Identity
+	id *auth.Identity
+	// st is nil for a call the job worker runs: there is no request in flight.
 	st  *reqState
 	cfg config
+	// jobID is the job the call runs for, or "" for a synchronous call (req_001 D-39 F2).
+	jobID string
 }
 
 func (g *Gateway) newCall(ctx context.Context) (call, error) {
@@ -39,6 +42,12 @@ func (g *Gateway) newCall(ctx context.Context) (call, error) {
 
 // evaluate is F1 step 3: the policy decision for the request's properties, model and time.
 func (g *Gateway) evaluate(ctx context.Context, c call, model string) (policy.Decision, error) {
+	return g.evaluateFor(ctx, c.cfg, c.id, c.st.r.Header.Values(policy.HeaderName), model)
+}
+
+// evaluateFor is evaluate for any identity and request properties: a queued job is decided again
+// at admission with the properties it was submitted with (req_001 D-38, D-54).
+func (g *Gateway) evaluateFor(ctx context.Context, cfg config, id *auth.Identity, properties []string, model string) (policy.Decision, error) {
 	models, err := g.cfg.Grants.Models.List(ctx, g.cfg.DB.Reader(), false)
 	if err != nil {
 		return policy.Decision{}, fmt.Errorf("gateway: read models: %w", err)
@@ -47,27 +56,30 @@ func (g *Gateway) evaluate(ctx context.Context, c call, model string) (policy.De
 	for _, m := range models {
 		names[m.ID] = m.Name
 	}
-	lim := c.id.Limits
-	grant := policy.Grant{ID: c.id.GrantID, AllowedProperties: lim.AllowedProperties, MaxConcurrency: lim.MaxConcurrency}
+	lim := id.Limits
+	grant := policy.Grant{ID: id.GrantID, AllowedProperties: lim.AllowedProperties, MaxConcurrency: lim.MaxConcurrency}
 	for _, m := range lim.Models {
 		if name, ok := names[m.ModelID]; ok { // a retired model is no longer granted
 			grant.Models = append(grant.Models, policy.GrantModel{Name: name, ContextCap: m.ContextCap, MaxOutputTokens: m.MaxOutputTokens})
 		}
 	}
 	dec, err := g.cfg.Policy.Evaluate(ctx, policy.Input{
-		Properties: c.st.r.Header.Values(policy.HeaderName), Model: model, Time: g.now(), Grant: grant})
+		Properties: properties, Model: model, Time: g.now(), Grant: grant})
 	if err != nil {
-		g.noteRuleFailure(ctx, c.cfg, err)
+		g.noteRuleFailure(ctx, cfg, err)
 	}
 	return dec, err
 }
 
 // admit is F1 step 5. A refusal is a *scheduler.Error. The call is counted once admitted
 // (req_001 D-100). It returns how long Admit took. A synchronous call is never a job: whatever
-// its priority class it gets host_paused while paused and waits at most the queue-wait limit.
+// its priority class it gets host_paused while paused and waits at most the queue-wait limit. A
+// job's call is background class with scheduler.Request.Job set, so it stays queued while the host
+// is paused or quiet and waits without a limit (req_001 D-26, D-38); its wait is not an
+// admission-latency sample.
 func (g *Gateway) admit(ctx context.Context, c call, model string, dec policy.Decision, p plan) (*scheduler.Ticket, time.Duration, error) {
 	class := scheduler.ClassInteractive
-	if p.background {
+	if p.background || c.jobID != "" {
 		class = scheduler.ClassBackground
 	}
 	conc := 0
@@ -76,9 +88,11 @@ func (g *Gateway) admit(ctx context.Context, c call, model string, dec policy.De
 	}
 	t0 := time.Now()
 	tk, err := g.cfg.Scheduler.Admit(ctx, scheduler.Request{GrantID: c.id.GrantID, GrantConcurrency: conc,
-		Class: class, Model: model, EstimatedCtxTokens: p.numCtx})
+		Class: class, Job: c.jobID != "", Model: model, EstimatedCtxTokens: p.numCtx})
 	d := time.Since(t0)
-	g.admissionSeconds.Observe(d.Seconds())
+	if c.jobID == "" {
+		g.admissionSeconds.Observe(d.Seconds())
+	}
 	if err != nil {
 		return nil, d, err
 	}
@@ -154,7 +168,7 @@ func (g *Gateway) meterAborted(ctx context.Context, c call, usageID, op, model s
 // midway is metered with it as outcome failed, and its receipt goes out on the stream (D-16).
 func (g *Gateway) meterPartial(ctx context.Context, c call, usageID, op, model, outcome string, completionTokens int64, startedAt time.Time) (metered, error) {
 	u := ledger.Usage{UsageID: usageID, ConsumerID: c.id.ConsumerID, AccessKeyID: c.id.KeyID,
-		GrantVersionID: c.id.GrantVersionID, Operation: op, Model: model, Outcome: outcome,
+		GrantVersionID: c.id.GrantVersionID, JobID: c.jobID, Operation: op, Model: model, Outcome: outcome,
 		PromptTokens: 0, CompletionTokens: completionTokens, StartedAt: startedAt, FinishedAt: g.now()}
 	return g.meter(ctx, c, u)
 }
