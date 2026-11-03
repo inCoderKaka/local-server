@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -121,7 +120,7 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 		eng = ad
 	}
 
-	sv, err := wire(ctx, d, keys, eng, tel)
+	sv, err := wire(ctx, d, keys, eng, tel, tel.MetricsHandler())
 	if err != nil {
 		return fmt.Errorf("wire modules: %w", err)
 	}
@@ -138,9 +137,7 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 	httpLog := slog.NewLogLogger(log.Handler(), slog.LevelWarn)
 	tracker := newInflight()
 	consumer := &http.Server{Handler: tracker.wrap(sv.consumer), ReadHeaderTimeout: cfg.ReadHeaderTimeout, IdleTimeout: cfg.IdleTimeout, ErrorLog: httpLog}
-	mux := http.NewServeMux()
-	mux.Handle("GET /metrics", tel.MetricsHandler())
-	admin := &http.Server{Handler: loopbackHostOnly(mux), ReadHeaderTimeout: cfg.ReadHeaderTimeout, IdleTimeout: cfg.IdleTimeout, ErrorLog: httpLog}
+	admin := &http.Server{Handler: sv.admin, ReadHeaderTimeout: cfg.ReadHeaderTimeout, IdleTimeout: cfg.IdleTimeout, ErrorLog: httpLog}
 
 	serveErr := make(chan error, 2)
 	for _, s := range []struct {
@@ -153,7 +150,7 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 			}
 		}()
 	}
-	fmt.Fprintf(a.stderr, "local-server %s: consumer API on http://%s, admin listener on http://%s (metrics at /metrics); press Ctrl-C to stop\n",
+	fmt.Fprintf(a.stderr, "local-server %s: consumer API on http://%s, admin listener on http://%s (admin API at /admin/v1, metrics at /metrics); press Ctrl-C to stop\n",
 		version, consumerLn.Addr(), adminLn.Addr())
 	log.Info("listening", "consumer", consumerLn.Addr().String(), "admin", adminLn.Addr().String(), "engine", engineKind)
 	if a.onListening != nil {
@@ -197,35 +194,6 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 	stopWorkers()
 	sup.Wait()
 	return err
-}
-
-// loopbackHostOnly answers 403 to a request whose Host header is not localhost or a loopback IP
-// address. The admin listener is bound to loopback, but a web page on another site can rebind its
-// own host name to 127.0.0.1 and reach it from the user's browser; such a request still carries
-// the other site's name in Host. PLT-F-024's shared guard replaces this one.
-func loopbackHostOnly(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isLoopbackHost(r.Host) {
-			http.Error(w, "forbidden: this listener answers only to localhost or a loopback address", http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// isLoopbackHost reports whether a Host header value, with or without a port, names localhost or
-// a loopback IP address.
-func isLoopbackHost(hostport string) bool {
-	host := hostport
-	if h, _, err := net.SplitHostPort(hostport); err == nil {
-		host = h
-	}
-	host = strings.Trim(host, "[]")
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 // sinkErrorInterval reads telemetry.log_sink_error_interval through the settings store, so a

@@ -229,6 +229,70 @@ func TestAdminListenerRefusesForeignHost(t *testing.T) {
 	}
 }
 
+// The admin API is on the admin listener only. The consumer listener answers 404 to every
+// /admin/v1 route; the admin listener answers them, and refuses a foreign Host on the API as it
+// does on /metrics (req_001 D-10, D-104).
+func TestAdminRoutesLiveOnTheAdminListenerOnly(t *testing.T) {
+	ta := newTestApp(t, true)
+	seed(t, ta.dir, loopbackAny)
+	r := startServe(t, ta, "--engine", "fake")
+	defer r.stop()
+	for _, path := range []string{"/admin/v1/setup", "/admin/v1/usage?granularity=day", "/admin/v1/session", "/admin/v1/host"} {
+		if status, body := get(t, "http://"+r.addrs.Consumer+path); status != http.StatusNotFound {
+			t.Errorf("consumer listener GET %s = %d (%s), want 404", path, status, body)
+		}
+	}
+	if status, body := get(t, "http://"+r.addrs.Consumer+"/metrics"); status != http.StatusNotFound {
+		t.Errorf("consumer listener GET /metrics = %d (%s), want 404", status, body)
+	}
+	status, body := get(t, "http://"+r.addrs.Admin+"/admin/v1/setup")
+	if status != http.StatusOK || !strings.Contains(body, `"admin_exists":false`) {
+		t.Errorf("admin listener GET /admin/v1/setup = %d (%s)", status, body)
+	}
+	if status, _ := get(t, "http://"+r.addrs.Admin+"/admin/v1/usage?granularity=day"); status != http.StatusUnauthorized {
+		t.Errorf("admin listener GET /admin/v1/usage without a session = %d, want 401", status)
+	}
+	if status, _ := get(t, "http://"+r.addrs.Admin+"/v1/health"); status != http.StatusNotFound {
+		t.Errorf("admin listener GET /v1/health = %d, want 404", status)
+	}
+	for _, path := range []string{"/admin/v1/setup", "/metrics"} {
+		req, err := http.NewRequest("GET", "http://"+r.addrs.Admin+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = "evil.example"
+		resp, err := testClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("admin listener GET %s with a foreign Host = %d, want 403", path, resp.StatusCode)
+		}
+	}
+	// A first-run admin created over HTTP can log in, and the session reaches a protected route.
+	resp, err := testClient.Post("http://"+r.addrs.Admin+"/admin/v1/setup", "application/json",
+		strings.NewReader(`{"username":"serve-admin","password":"a long enough password"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated || len(resp.Cookies()) != 1 {
+		t.Fatalf("POST /admin/v1/setup = %d, %d cookies", resp.StatusCode, len(resp.Cookies()))
+	}
+	hostReq, _ := http.NewRequest("GET", "http://"+r.addrs.Admin+"/admin/v1/host", nil)
+	hostReq.AddCookie(resp.Cookies()[0])
+	hr, err := testClient.Do(hostReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(hr.Body)
+	hr.Body.Close()
+	if hr.StatusCode != http.StatusOK || !strings.Contains(string(b), `"engine_state":"available"`) || !strings.Contains(string(b), `"software_version":"`+version+`"`) {
+		t.Errorf("GET /admin/v1/host = %d %s", hr.StatusCode, b)
+	}
+}
+
 // Workers run under the supervisor: the host-metrics sampler writes its first row.
 func TestServeRunsWorkers(t *testing.T) {
 	ta := newTestApp(t, true)

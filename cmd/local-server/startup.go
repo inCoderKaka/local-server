@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inCoderKaka/local-server/internal/auth/credential"
 	"github.com/inCoderKaka/local-server/internal/engine/ollama"
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
@@ -74,7 +75,7 @@ func startupDefs() []settings.Def {
 		{Key: keyConsumerListen, Kind: settings.String, Default: defaultConsumerListen, Owner: h,
 			Description: "host:port the consumer API (/v1) listens on. It must be a loopback address (127.0.0.1, ::1 or localhost): until the tailnet listener exists, the consumer API is reachable from this machine only (req_001 D-10). Applies on the next start."},
 		{Key: keyAdminListen, Kind: settings.String, Default: defaultAdminListen, Owner: h,
-			Description: "host:port of the admin listener, which serves /metrics (and the admin API once it is built). It must be a loopback address (127.0.0.1, ::1 or localhost); the optional tailnet admin listener is a separate setting (req_001 D-10). Applies on the next start."},
+			Description: "host:port of the admin listener, which serves the admin API (/admin/v1) and /metrics. It must be a loopback address (127.0.0.1, ::1 or localhost); the optional tailnet admin listener is a separate setting (req_001 D-10). Applies on the next start."},
 		{Key: keyShutdownTimeout, Kind: settings.Duration, Default: defaultShutdownTimeout.String(), Owner: h,
 			Description: "Longest a stopping local-server waits for requests in flight to finish before it closes their connections. After it closes them, it waits up to the same time again for those requests to record their usage. Applies on the next start."},
 		{Key: keyReadHeaderTimeout, Kind: settings.Duration, Default: defaultReadHeaderTimeout.String(), Owner: h,
@@ -174,7 +175,7 @@ func checkBaseURL(v string) error {
 	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return fmt.Errorf("must be an http:// or https:// address with a host")
 	}
-	if !isLoopbackHost(u.Host) {
+	if !credential.IsLoopbackHost(u.Host) {
 		return fmt.Errorf("must be on this machine (localhost or a loopback address such as 127.0.0.1 or ::1), not %q", u.Hostname())
 	}
 	return nil

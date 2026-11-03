@@ -4,7 +4,11 @@
 //
 //	local-server serve  [--data-dir DIR] [--engine ollama|fake]
 //	local-server doctor [--data-dir DIR] [--json]
+//	local-server recovery-code [--data-dir DIR]
 //	local-server --version
+//
+// recovery-code shows the host's recovery code again after an admin login on a terminal; it is
+// audited (req_001 D-80, D-101).
 //
 // The data directory is the only thing configured outside the database: --data-dir, else the
 // environment variable LS_DATA_DIR, else "local-server" inside the user's configuration
@@ -71,6 +75,13 @@ type app struct {
 	// stderrIsTerminal says whether a person can see stderr. The recovery code is shown only
 	// then (req_001 D-101).
 	stderrIsTerminal func() bool
+	// stdinIsTerminal says whether a person can type at stdin. recovery-code needs both
+	// terminals: it reads a password (req_001 D-80, D-101).
+	stdinIsTerminal func() bool
+	// stdin is where recovery-code reads the login name, one line.
+	stdin io.Reader
+	// readPassword reads the admin password without echo; the real one reads the terminal.
+	readPassword func() (string, error)
 	// keychain is the OS keychain; nil means the real one.
 	keychain hostkeys.Keychain
 	// onListening, when set, is called by serve once its listeners are bound.
@@ -82,7 +93,8 @@ type listening struct{ Consumer, Admin string }
 
 func newApp(stdout, stderr io.Writer) *app {
 	return &app{stdout: stdout, stderr: stderr, getenv: os.Getenv,
-		userConfigDir: os.UserConfigDir, userLogDir: osUserLogDir, stderrIsTerminal: stderrIsTerminal}
+		userConfigDir: os.UserConfigDir, userLogDir: osUserLogDir, stderrIsTerminal: stderrIsTerminal,
+		stdinIsTerminal: stdinIsTerminal, stdin: os.Stdin, readPassword: readPasswordFromTerminal}
 }
 
 // osUserLogDir is the folder the OS keeps a user's application logs in: ~/Library/Logs/local-server
@@ -116,6 +128,7 @@ func osUserLogDir() (string, error) {
 const usageText = `usage:
   local-server serve  [--data-dir DIR] [--engine ollama|fake]
   local-server doctor [--data-dir DIR] [--json]
+  local-server recovery-code [--data-dir DIR]
   local-server --version
 
 The data directory is --data-dir, else $LS_DATA_DIR, else "local-server" in the user's
@@ -129,6 +142,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 			return a.serve(ctx, args[1:])
 		case "doctor":
 			return a.doctor(ctx, args[1:])
+		case "recovery-code":
+			return a.recoveryCode(ctx, args[1:])
 		}
 	}
 	fs := flag.NewFlagSet("local-server", flag.ContinueOnError)
@@ -170,8 +185,13 @@ func (a *app) dataDir(flagValue string) (string, error) {
 
 // stderrIsTerminal reports whether stderr is an interactive terminal: a character device that
 // is not the null device.
-func stderrIsTerminal() bool {
-	fi, err := os.Stderr.Stat()
+func stderrIsTerminal() bool { return isTerminal(os.Stderr) }
+
+// stdinIsTerminal reports whether stdin is an interactive terminal.
+func stdinIsTerminal() bool { return isTerminal(os.Stdin) }
+
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
 	if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
 		return false
 	}

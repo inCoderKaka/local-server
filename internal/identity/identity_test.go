@@ -207,3 +207,25 @@ func TestInviteConsentAndSessions(t *testing.T) {
 		t.Fatalf("session = %+v, %v", s, err)
 	}
 }
+
+func TestAdminUserGetByPrincipal(t *testing.T) {
+	db, r := open(t)
+	ctx := context.Background()
+	var p identity.Principal
+	if err := db.Write(ctx, func(tx *storage.Tx) (err error) {
+		if p, err = r.Principals.Create(tx, "host_admin", nil, nil); err != nil {
+			return err
+		}
+		_, err = r.AdminUsers.Create(tx, p.ID, "admin", nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	a, err := r.AdminUsers.GetByPrincipal(ctx, db.Reader(), p.ID)
+	if err != nil || a.Username != "admin" || a.PrincipalID != p.ID {
+		t.Fatalf("GetByPrincipal = %+v, %v", a, err)
+	}
+	if _, err := r.AdminUsers.GetByPrincipal(ctx, db.Reader(), "nobody"); !errors.Is(err, identity.ErrNotFound) {
+		t.Fatalf("unknown principal = %v", err)
+	}
+}

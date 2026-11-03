@@ -337,6 +337,11 @@ func (k *Keys) IdentityPublicKey() ed25519.PublicKey {
 // never log or store the key.
 func (k *Keys) DataKey() []byte { return append([]byte(nil), k.dataKey...) }
 
+// RecoveryCode returns the recovery code form of the host data key: 52 base32 characters in groups
+// of four (req_001 D-41). It lets the audited re-show command of req_001 D-80 print the code
+// after setup. Callers must never log, store or return it anywhere but to the host at a terminal.
+func (k *Keys) RecoveryCode() string { return recoveryCodeOf(k.dataKey) }
+
 // Sign signs msg with the live key of purpose Receipt or Checkpoint and returns that key's id.
 func (k *Keys) Sign(p Purpose, msg []byte) (keyID string, sig []byte, err error) {
 	return k.SignWithKeyID(p, func(string) []byte { return msg })

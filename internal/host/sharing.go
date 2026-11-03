@@ -131,6 +131,31 @@ func (s *SharingState) StoredPaused(ctx context.Context) (bool, error) {
 	return v == string(Paused), nil
 }
 
+// PausedAt reports when the manual switch last turned to paused. ok is false while the host is not
+// paused. The admin API shows it (hst_host.sharing_state_changed_at).
+func (s *SharingState) PausedAt(ctx context.Context) (at time.Time, ok bool, err error) {
+	rows, err := s.db.Reader().Query(ctx, `SELECT sharing_state, sharing_state_changed_at FROM hst_host`)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("host: read hst_host: %w", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return time.Time{}, false, fmt.Errorf("host: read hst_host: %w", err)
+		}
+		return time.Time{}, false, ErrNoHost
+	}
+	var state string
+	var ms *int64
+	if err := rows.Scan(&state, &ms); err != nil {
+		return time.Time{}, false, fmt.Errorf("host: read hst_host: %w", err)
+	}
+	if state != string(Paused) || ms == nil {
+		return time.Time{}, false, nil
+	}
+	return time.UnixMilli(*ms).UTC(), true, nil
+}
+
 // Effective returns the state at the clock's current time.
 func (s *SharingState) Effective(ctx context.Context) (State, error) {
 	return s.EffectiveAt(ctx, s.clock())

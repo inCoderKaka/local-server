@@ -1,0 +1,228 @@
+package admin
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/ogen-go/ogen/ogenerrors"
+
+	"github.com/inCoderKaka/local-server/internal/api"
+	"github.com/inCoderKaka/local-server/internal/audit"
+	"github.com/inCoderKaka/local-server/internal/auth/credential"
+	"github.com/inCoderKaka/local-server/internal/engine"
+	"github.com/inCoderKaka/local-server/internal/host"
+	"github.com/inCoderKaka/local-server/internal/hostmetrics"
+	"github.com/inCoderKaka/local-server/internal/identity"
+	"github.com/inCoderKaka/local-server/internal/settings"
+	"github.com/inCoderKaka/local-server/internal/storage"
+	"github.com/inCoderKaka/local-server/internal/telemetry"
+)
+
+// Sharing is the part of host.SharingState the admin API uses.
+type Sharing interface {
+	Effective(ctx context.Context) (host.State, error)
+	PausedAt(ctx context.Context) (time.Time, bool, error)
+	Pause(ctx context.Context, by string) (changed bool, err error)
+	Resume(ctx context.Context, by string) (changed bool, err error)
+}
+
+// Sampler is the part of hostmetrics.Sampler the admin API uses.
+type Sampler interface {
+	Current() (hostmetrics.Reading, bool)
+	Read(ctx context.Context) (hostmetrics.Reading, error)
+	GetRange(ctx context.Context, from, to time.Time) ([]hostmetrics.Minute, error)
+}
+
+// HostKeys is the part of hostkeys.Keys the admin API uses: the host's global id, which is the
+// host identity key's kid that receipts and checkpoints name too.
+type HostKeys interface {
+	HostID() string
+}
+
+// Engine is the part of the engine port the admin API uses: whether it answers. An engine that
+// also has `Version(ctx) (string, error)` (the Ollama adapter does) has its version shown; the
+// engine port itself does not carry one.
+type Engine interface {
+	Loaded(ctx context.Context) ([]engine.LoadedModel, error)
+}
+
+// Config is what New needs. All fields except Telemetry, Version and Clock are required.
+type Config struct {
+	DB       *storage.DB
+	Settings *settings.Store
+	// Identity is built with the same clock as Clock, so a session's created_at and expires_at
+	// agree.
+	Identity *identity.Repos
+	Audit    *audit.Log
+	Sharing  Sharing
+	Sampler  Sampler
+	Keys     HostKeys
+	Engine   Engine
+	// Metrics serves GET /metrics (telemetry.MetricsHandler), behind the same guard as the API.
+	Metrics http.Handler
+	// Version is the software version shown in /admin/v1/host. Empty means "dev".
+	Version string
+	// Telemetry nil means telemetry.Nop().
+	Telemetry telemetry.Telemetry
+	// Clock nil means time.Now.
+	Clock func() time.Time
+}
+
+// Admin serves the admin API. Build it with New and mount Handler on the admin listener. It is
+// safe for concurrent use.
+type Admin struct {
+	api.UnimplementedHandler
+
+	cfg  Config
+	now  func() time.Time
+	log  *slog.Logger
+	auth *Authenticator
+	srv  http.Handler
+}
+
+var (
+	_ api.Handler         = (*Admin)(nil)
+	_ api.SecurityHandler = (*Admin)(nil)
+)
+
+// New registers the admin and credential settings and builds the admin API.
+func New(cfg Config) (*Admin, error) {
+	if cfg.DB == nil || cfg.Settings == nil || cfg.Identity == nil || cfg.Audit == nil || cfg.Sharing == nil ||
+		cfg.Sampler == nil || cfg.Keys == nil || cfg.Engine == nil || cfg.Metrics == nil {
+		return nil, errors.New("admin: DB, Settings, Identity, Audit, Sharing, Sampler, Keys, Engine and Metrics are required")
+	}
+	if cfg.Telemetry == nil {
+		cfg.Telemetry = telemetry.Nop()
+	}
+	if cfg.Clock == nil {
+		cfg.Clock = time.Now
+	}
+	if cfg.Version == "" {
+		cfg.Version = "dev"
+	}
+	if err := registerSettings(cfg.Settings); err != nil {
+		return nil, err
+	}
+	au, err := NewAuthenticator(AuthConfig{DB: cfg.DB, Settings: cfg.Settings, Identity: cfg.Identity, Clock: cfg.Clock})
+	if err != nil {
+		return nil, err
+	}
+	a := &Admin{cfg: cfg, now: cfg.Clock, log: cfg.Telemetry.Logger(), auth: au}
+	srv, err := api.NewServer(a, a,
+		api.WithErrorHandler(a.errorHandler),
+		api.WithNotFound(a.notFound),
+		api.WithMethodNotAllowed(a.methodNotAllowed),
+	)
+	if err != nil {
+		return nil, err
+	}
+	a.srv = srv
+	return a, nil
+}
+
+// Authenticate checks a login name and password with the login lockout (req_001 D-54). See
+// Authenticator.Authenticate.
+func (a *Admin) Authenticate(ctx context.Context, username, password, remoteAddr string) (Authenticated, error) {
+	return a.auth.Authenticate(ctx, username, password, remoteAddr)
+}
+
+// Handler returns the admin listener's handler: a request id on every response, the credential
+// guard, then GET /metrics, the /admin/v1 API, and a 404 envelope for everything else. A panic
+// in a handler is answered 500 and logged by type only.
+func (a *Admin) Handler() http.Handler {
+	guard := credential.Guard(credential.GuardConfig{
+		Names:          a.hostNames,
+		SessionCookies: []string{credential.AdminSessionCookie},
+		Reject:         a.reject,
+	})
+	return telemetry.Middleware(a.recoverPanics(guard(http.HandlerFunc(a.serve))))
+}
+
+// hostNames returns the extra Host name the guard accepts: admin.tailnet_name, read per request.
+func (a *Admin) hostNames(ctx context.Context) ([]string, error) {
+	n, err := a.cfg.Settings.String(ctx, KeyTailnetName, "")
+	if err != nil || n == "" {
+		return nil, err
+	}
+	return []string{n}, nil
+}
+
+// reject answers a request the guard refused. The reason is a fixed code; the Host or Origin that
+// caused it is neither answered nor logged.
+func (a *Admin) reject(w http.ResponseWriter, r *http.Request, why credential.Reason) {
+	a.log.InfoContext(r.Context(), "admin: request refused by the guard", "reason", string(why))
+	msg := "This listener answers only to localhost, a loopback address or the host's configured name."
+	switch why {
+	case credential.ReasonForeignOrigin, credential.ReasonOriginRequired:
+		msg = "A state-changing request that carries a session must come from this page's own origin."
+	}
+	writeError(w, forbidden(msg))
+}
+
+func (a *Admin) recoverPanics(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if p := recover(); p != nil {
+				// A panic value can hold request bytes; log its type only.
+				a.log.ErrorContext(r.Context(), "admin: handler panic", "panic_type", typeName(p))
+				writeError(w, internalError())
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func typeName(v any) string { return fmt.Sprintf("%T", v) }
+
+// onAdminPath reports whether a request path belongs to the admin API. Both the decoded and the
+// escaped form must be under /admin/v1/, so no encoding reaches a consumer route (PLT-B-005).
+func onAdminPath(r *http.Request) bool {
+	if !strings.HasPrefix(r.URL.Path, "/admin/v1/") {
+		return false
+	}
+	return r.URL.RawPath == "" || strings.HasPrefix(r.URL.RawPath, "/admin/v1/")
+}
+
+func (a *Admin) serve(w http.ResponseWriter, r *http.Request) {
+	switch {
+	case r.URL.Path == "/metrics" && r.URL.RawPath == "":
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			writeError(w, newErr(http.StatusMethodNotAllowed, typeInvalidRequest, "", "", "This endpoint does not accept this method."))
+			return
+		}
+		a.cfg.Metrics.ServeHTTP(w, r)
+	case onAdminPath(r):
+		max, err := a.intSetting(r.Context(), KeyMaxBodyBytes)
+		if err != nil {
+			a.log.ErrorContext(r.Context(), "admin: read settings", "err", err)
+			writeError(w, internalError())
+			return
+		}
+		if r.ContentLength > max {
+			writeError(w, tooLarge())
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, max)
+		r = r.WithContext(context.WithValue(r.Context(), remoteKey{}, r.RemoteAddr))
+		a.srv.ServeHTTP(w, r)
+	default:
+		writeError(w, notFound())
+	}
+}
+
+// HandleAccessKeyAuth never authenticates: access keys belong to the consumer API.
+func (a *Admin) HandleAccessKeyAuth(context.Context, api.OperationName, api.AccessKeyAuth) (context.Context, error) {
+	return nil, ogenerrors.ErrSkipServerSecurity
+}
+
+// HandleConsumerSessionAuth never authenticates: the consumer session belongs to the consumer
+// web page (PLT-F-027).
+func (a *Admin) HandleConsumerSessionAuth(context.Context, api.OperationName, api.ConsumerSessionAuth) (context.Context, error) {
+	return nil, ogenerrors.ErrSkipServerSecurity
+}

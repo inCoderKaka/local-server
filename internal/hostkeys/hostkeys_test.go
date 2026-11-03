@@ -256,8 +256,11 @@ func TestRecoveryCodeShownOnce(t *testing.T) {
 	if got, err := RecoverDataKey(recoveryCodeOf(other)); err != nil || bytes.Equal(got, e.keys.DataKey()) {
 		t.Errorf("a different valid code decoded to the data key (err %v)", err)
 	}
-	if _, code := e.open(t); code != "" {
+	if k2, code := e.open(t); code != "" {
 		t.Errorf("second Open returned a recovery code %q; it must be shown once", code)
+	} else if k2.RecoveryCode() != e.code || e.keys.RecoveryCode() != e.code {
+		// The audited re-show command (req_001 D-80) prints the same code the first run showed.
+		t.Errorf("RecoveryCode() differs from the code the first run showed")
 	}
 	// Neither the code nor the data key is in the database in the clear.
 	rows, err := e.db.Reader().Query(ctx, `SELECT data_key_sealed FROM hst_host`)

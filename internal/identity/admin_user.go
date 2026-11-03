@@ -55,6 +55,11 @@ func (r *AdminUserRepo) GetByUsername(ctx context.Context, rd *storage.Reader, u
 	return first[AdminUser](rd.Query(ctx, `SELECT `+adminCols+` FROM idn_admin_user WHERE username = ?`, username))(scanAdmin)
 }
 
+// GetByPrincipal returns the admin user of a principal.
+func (r *AdminUserRepo) GetByPrincipal(ctx context.Context, rd *storage.Reader, principalID string) (AdminUser, error) {
+	return first[AdminUser](rd.Query(ctx, `SELECT `+adminCols+` FROM idn_admin_user WHERE principal_id = ?`, principalID))(scanAdmin)
+}
+
 // List returns every admin user, oldest first.
 func (r *AdminUserRepo) List(ctx context.Context, rd *storage.Reader) ([]AdminUser, error) {
 	rows, err := rd.Query(ctx, `SELECT `+adminCols+` FROM idn_admin_user ORDER BY created_at, id`)

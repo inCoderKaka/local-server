@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/inCoderKaka/local-server/internal/admin"
+	"github.com/inCoderKaka/local-server/internal/audit"
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/gateway"
@@ -30,6 +32,9 @@ import (
 type services struct {
 	// consumer is the consumer API (/v1).
 	consumer http.Handler
+	// admin is the whole admin listener: /admin/v1 and /metrics, behind the credential guard
+	// (PLT-F-024).
+	admin http.Handler
 
 	st         *settings.Store
 	sched      *scheduler.Scheduler
@@ -41,11 +46,12 @@ type services struct {
 }
 
 // wire builds every module on d, keys and eng, in dependency order, and returns what serve
-// runs. Constructors register their own settings; registerSettings did the rest. To add a
+// runs; metrics is telemetry's /metrics handler, which the admin listener serves. Constructors
+// register their own settings; registerSettings did the rest. To add a
 // module that serves or runs a worker, build it here and add its worker in startWorkers. It also
 // marks the jobs a stop interrupted failed(host_restart), before any worker or listener runs
 // (req_001 D-38, D-54).
-func wire(ctx context.Context, d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Telemetry) (*services, error) {
+func wire(ctx context.Context, d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Telemetry, metrics http.Handler) (*services, error) {
 	var err error
 	db, st, log := d.db, d.st, tel.Logger()
 	bus := events.New(events.WithLogger(log))
@@ -100,6 +106,19 @@ func wire(ctx context.Context, d *database, keys *hostkeys.Keys, eng engine.Engi
 		return nil, fmt.Errorf("gateway: %w", err)
 	}
 	sv.consumer, sv.jobExec = gw.Handler(), gw.JobExecutor()
+
+	// The admin API shares the settings, the sharing state and the sampler built above; it reads
+	// the host kid from the keys and the usage rollups from the usage module (req_001 D-104).
+	auditLog, err := audit.NewLog(st)
+	if err != nil {
+		return nil, err
+	}
+	adm, err := admin.New(admin.Config{DB: db, Settings: st, Identity: ir, Audit: auditLog, Sharing: share, Sampler: sv.sampler,
+		Keys: keys, Engine: eng, Metrics: metrics, Version: version, Telemetry: tel})
+	if err != nil {
+		return nil, fmt.Errorf("admin: %w", err)
+	}
+	sv.admin = adm.Handler()
 	return sv, nil
 }
 

@@ -289,3 +289,26 @@ func TestInvalidScheduleKeepsPause(t *testing.T) {
 		t.Fatalf("paused with bad schedule = %v %v", s, err)
 	}
 }
+
+func TestPausedAt(t *testing.T) {
+	e := newEnv(t, true)
+	ctx := context.Background()
+	if _, ok, err := e.sh.PausedAt(ctx); err != nil || ok {
+		t.Fatalf("before a pause: ok = %v, err = %v", ok, err)
+	}
+	if _, err := e.sh.Pause(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	if at, ok, err := e.sh.PausedAt(ctx); err != nil || !ok || !at.Equal(e.now) {
+		t.Fatalf("paused: at = %v, ok = %v, err = %v; want %v", at, ok, err, e.now)
+	}
+	if _, err := e.sh.Resume(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := e.sh.PausedAt(ctx); err != nil || ok {
+		t.Fatalf("after resume: ok = %v, err = %v", ok, err)
+	}
+	if _, _, err := newEnv(t, false).sh.PausedAt(ctx); !errors.Is(err, host.ErrNoHost) {
+		t.Fatalf("no host = %v", err)
+	}
+}

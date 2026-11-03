@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,6 +94,9 @@ func newTestApp(t *testing.T, terminal bool) *testApp {
 		userConfigDir:    func() (string, error) { return filepath.Join(ta.dir, "config"), nil },
 		userLogDir:       func() (string, error) { return ta.logDir, nil },
 		stderrIsTerminal: func() bool { return terminal },
+		stdinIsTerminal:  func() bool { return terminal },
+		stdin:            strings.NewReader(""),
+		readPassword:     func() (string, error) { return "", io.EOF },
 		keychain:         ta.kc,
 	}
 	return ta
