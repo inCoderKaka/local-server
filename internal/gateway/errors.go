@@ -170,6 +170,10 @@ func classify(err error, now time.Time) (e *apiError, internal bool) {
 		return &apiError{status: http.StatusConflict, typ: typeInvalidRequest, message: "No checkpoint covers this record yet. Retry later.", retryAfter: max(nc.RetryAfter, time.Second)}, false
 	case errors.Is(err, checkpoint.ErrUnknownUsage), errors.Is(err, usage.ErrNotFound):
 		return newErr(http.StatusNotFound, typeInvalidRequest, "", "usage_id", "No metered usage record has this id."), false
+	case errors.Is(err, usage.ErrInvalidCursor):
+		return invalidParam("cursor", "The cursor is not valid. Use the next_cursor of the previous page."), false
+	case errors.Is(err, usage.ErrInvalidGranularity):
+		return invalidParam("granularity", "The granularity must be minute, hour or day."), false
 	case errors.Is(err, jobs.ErrNotFound):
 		return newErr(http.StatusNotFound, typeInvalidRequest, "", "job_id", "No job of yours has this id."), false
 	case errors.Is(err, jobs.ErrNotSucceeded):

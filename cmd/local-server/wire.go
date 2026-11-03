@@ -23,6 +23,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
+	"github.com/inCoderKaka/local-server/internal/usage"
 )
 
 // services are the built modules serve runs.
@@ -36,6 +37,7 @@ type services struct {
 	checkpoint *checkpoint.Worker
 	jobs       *jobs.Service
 	jobExec    jobs.Executor
+	rollups    *usage.Rollups
 }
 
 // wire builds every module on d, keys and eng, in dependency order, and returns what serve
@@ -75,6 +77,11 @@ func wire(ctx context.Context, d *database, keys *hostkeys.Keys, eng engine.Engi
 		log.WarnContext(ctx, "jobs interrupted by the last stop were marked failed (host_restart); clients resubmit with their Idempotency-Key", "jobs", n)
 	}
 
+	// Adds usage records to the minute, hour and day rollups the usage endpoint reads (F-023).
+	if sv.rollups, err = usage.NewRollups(db, st, tel); err != nil {
+		return nil, err
+	}
+
 	au, err := auth.New(auth.Config{DB: db, Identity: ir, Grants: gr, Events: bus, Settings: st, Logger: log})
 	if err != nil {
 		return nil, err
@@ -109,4 +116,6 @@ func (sv *services) startWorkers(ctx context.Context, sup *supervisor, log *slog
 	sup.Go(ctx, "ledger-checkpoint", sv.checkpoint.Run)
 	// Runs queued jobs through the gateway's admission, engine call and metering (F2).
 	sup.Go(ctx, "jobs", func(ctx context.Context) error { sv.jobs.Run(ctx, sv.jobExec); return nil })
+	// Adds new usage records to the usage rollups behind GET /v1/usage (PLT-F-023).
+	sup.Go(ctx, "usage-rollups", func(ctx context.Context) error { sv.rollups.Run(ctx); return nil })
 }
