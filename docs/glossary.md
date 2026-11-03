@@ -78,7 +78,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Key endorsement | The host identity key's signature over a signing key's certificate (host id, role, public key, creation time), published with the key in the key set (`ls_endorsement`) so anyone can check that the key belongs to the host. | — | D-96 |
 | Verifier key | The signed-note text form `<name>+<hash>+<key>` of a checkpoint-signing key, which signed-note tools use to check a checkpoint; published in the key set as `ls_note_verifier_key`. | — | D-65, D-97 |
 | Host master key | The key that seals every secret local-server keeps at rest (private keys, the host data key, credentials). When the host is first set up it goes into the OS keychain or, if the keychain cannot be used or does not answer within `hostkeys.keychain_timeout`, into a user-only file in the data directory, where it then stays. It is never in the database. | — | D-40, D-81, D-102 |
-| Host data key | The key that encrypts queued job content, job results and backup snapshots. It is sealed with the host master key and shown once, at setup, as the recovery code. | — | D-40, D-41 |
+| Host data key | The key that encrypts queued job content, job results and backup snapshots. It is sealed with the host master key and shown once, at setup, as the recovery code (see Recovery code). | — | D-40, D-41 |
 | Policy rule | A versioned, declarative rule the host edits through a form (request properties, time windows, priority class, caps). Set per grant or globally. | Rule | D-25 |
 | Priority class | *Interactive* (someone is waiting) or *background* (can wait). Interactive runs first, and background ages up so it is never starved. | Interactive / Background | D-26 |
 | Quota | A grant's or key's token or request allowance for a period. Going over it returns `quota_exceeded`, and a near-limit notice is sent first. | Quota | D-25, D-29, D-98 |
@@ -127,7 +127,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Off-host backup | Encrypted database snapshots the host machine sends to a folder or a bucket the host owns. The default. Which tables are minimized (left empty) is the host's choice (D-64). | Backup | D-41, D-64 |
 | Backup minimization | The host's per-table backup choice: *minimize* (rows left out of the snapshot) or *keep as is*. Job content and sessions are minimized by default. A table can be minimized only when every table that references it is minimized too (D-69). | Leave out of backups | D-64, D-69 |
 | Platform sync | Opt-in per host. Encrypted change rows sent to the platform's database, needed only for platform features such as sharing grants. | Platform sync | D-41 |
-| Recovery code | The host data key, shown once at setup, needed to restore encrypted backups. | Recovery code | D-41 |
+| Recovery code | The host data key, shown once at setup, needed to restore encrypted backups. The host can see it again with `local-server recovery-code`, which needs a terminal and the admin login and writes an audit row. | Recovery code | D-41, D-80, D-101 |
 | Module table prefix | The short prefix on every table name naming its owning module: `hst_` host (including host-local configuration such as `hst_setting`, D-70), `idn_` identity, `grt_` grants, `req_` requests, `sch_` scheduler, `use_` usage, `ldg_` ledger, `ntf_` notify, `aud_` audit, `syn_` sync, `plt_` platform, `ops_` ops. | — | D-44, D-70 |
 
 ## Retired names
