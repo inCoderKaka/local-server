@@ -215,7 +215,7 @@ Each feature names what it does, how it works, the engineering ideas it rests on
   - **Concurrency limits:** per grant, with the total kept at or below Ollama's `OLLAMA_NUM_PARALLEL`.
   - **Memory admission:** the loaded model size from `/api/ps` plus the estimated context must fit the share budget (the §4 KV formula).
   - **A bounded queue:** when it is full, the request fails fast with `queue_full` and `Retry-After`, so Ollama's own queue never fills. A running request is never interrupted.
-  - **Background jobs:** they can use the async jobs API, `POST /v1/jobs` with an `Idempotency-Key`. Results are encrypted, kept briefly, and deleted on fetch.
+  - **Background jobs:** they can use the async jobs API, `POST /v1/jobs` with an `Idempotency-Key`. Results are encrypted, kept briefly, and deleted once a fetch has written them whole (D-85).
 - **Ideas in play:**
   - A **priority queue** (a binary heap, `container/heap`) with **aging** to prevent starvation.
   - **Admission control and load shedding:** reject early and cheaply instead of queueing without bound, the overload advice of Google's SRE book.
@@ -359,7 +359,7 @@ The [developer guide](../developer-guide.md) shows these from a client app's sid
 
 ### 8.2 Privacy
 
-- **Content:** prompts and responses are never written to disk or logs. Queued job content and job results are the only content at rest. Both are encrypted, and both are deleted at completion or on fetch. Backups leave both out by default. A host who sets them to *keep as is* keeps a copy in each snapshot until that snapshot is pruned (D-64).
+- **Content:** prompts and responses are never written to disk or logs. Queued job content and job results are the only content at rest. Both are encrypted, and queued job content is deleted at the terminal state and a result once a fetch has written it whole (D-85). Backups leave both out by default. A host who sets them to *keep as is* keeps a copy in each snapshot until that snapshot is pruned (D-64).
 - **Personal fields:** erased when a consumer is deleted. The row stays, so ledger references remain valid.
 - **Consent and classification:** consent records (`idn_consent`) and data classification exist from day one (D-40, D-44, D-45).
 

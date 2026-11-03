@@ -105,6 +105,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Audit log | The record of admin actions: keys issued or revoked, grants changed, requests decided. | Activity log | D-07 |
 | Job | A background request submitted to `/v1/jobs`. It runs when the host admits it, and the result is fetched later. | Background job | D-26, D-38 |
 | Idempotency key | A client-chosen id on a job submission, so a retried submission never runs twice. | — | D-26 |
+| Job result lifetime | How long a finished job's result stays fetchable if no fetch delivers it whole: the consumer-owned setting `jobs.result_ttl` (24 hours by default). A job's own time limit is `jobs.deadline`. | Result TTL | D-85, D-38 |
 | Checkpoint | A signed snapshot of the usage ledger's size and root hash, made in the background. A receipt carries its leaf index and tree size; the consumer later fetches the first checkpoint covering that leaf with an inclusion proof, and keeps checkpoints so consistency proofs can show the ledger only grew. | — | D-27, D-52 |
 | Unmetered receipt | A usage receipt marked *unmetered*: the host answered but could not record the call, so it carries the engine's token counts and no leaf index; signed evidence the call can't be billed later. | Unmetered | D-51 |
 | Inclusion proof | A short proof that one usage record's leaf is in the usage ledger, checked against a signed checkpoint. | — | D-27, D-52 |
