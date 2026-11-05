@@ -8,7 +8,7 @@ Admission, queueing and the job state machine for interactive requests and queue
 
 - Packages: `internal/scheduler/`, `internal/jobs/` (`scheduler` built by PLT-F-014; `jobs` built by PLT-F-022).
 - Tables: `sch_job`, `sch_job_payload` and `sch_job_result` (migration `internal/scheduler/migrations/0001_job_tables.sql`, registered by `scheduler.Module()`). The payload and the result are the only content-bearing tables: sealed with the host data key, never synced, no `syn_change` capture. The scheduler's own queue stays in memory.
-- Settings: `scheduler.*` (host); `jobs.deadline` and `jobs.result_ttl` (consumer-owned, one value per consumer id), `jobs.poll_interval`, `jobs.retry_interval` and `jobs.max_active` (host).
+- Settings: `scheduler.*` (host); `jobs.deadline` and `jobs.result_ttl` (consumer-owned, one value per consumer id), `jobs.poll_interval`, `jobs.retry_interval`, `jobs.max_active` and `jobs.retention` (host; how long a finished job record is kept, `0s` keeps it forever, and a job whose result can still be fetched is never pruned).
 - Metrics and events: `scheduler_refusals_total{code}`, `scheduler_unloads_total{reason}`, `scheduler_unload_failures_total{reason}`, `jobs_finished_total{status}`; emits `job.done` (ids and times only).
 - Port: none exported. It defines consumer-side `Engine` and `Sharing` interfaces for what it calls, and `jobs.Executor` / `jobs.Slot`, which the gateway implements.
 
