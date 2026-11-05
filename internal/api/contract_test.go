@@ -212,3 +212,70 @@ func TestJobResultMatchesChatCompletion(t *testing.T) {
 		t.Errorf("JobResult required = %v; ChatCompletion required = %v", jrr, ccr)
 	}
 }
+
+// The input schemas for a quota hold what storage holds (D-25, D-98): one token figure and one
+// request figure, with the window length a host setting, not a client choice. Only the read-only
+// QuotaStatus reports the window and when it resets.
+func TestQuotaInputShapeMatchesStorage(t *testing.T) {
+	b, err := os.ReadFile("../../api/openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := ogen.Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schemas := spec.Components.Schemas
+
+	quota := schemas["Quota"]
+	if quota == nil {
+		t.Fatal("Quota missing from the spec")
+	}
+	if _, ok := findProperty(quota, "window_seconds"); ok {
+		t.Error("Quota has a window_seconds property; the window is the host setting limits.quota_window")
+	}
+	if slices.Contains(quota.Required, "window_seconds") {
+		t.Error("Quota requires window_seconds")
+	}
+	for _, name := range []string{"tokens", "requests"} {
+		if _, ok := findProperty(quota, name); !ok {
+			t.Errorf("Quota has no %s property", name)
+		}
+	}
+
+	for _, name := range []string{"GrantLimits", "AccessKeyNarrowing", "ResourceRequestAsk"} {
+		s := schemas[name]
+		if s == nil {
+			t.Errorf("%s missing from the spec", name)
+			continue
+		}
+		if _, ok := findProperty(s, "quota"); !ok {
+			t.Errorf("%s has no quota property", name)
+		}
+		if _, ok := findProperty(s, "quotas"); ok {
+			t.Errorf("%s still has a quotas list; storage holds one quota", name)
+		}
+	}
+
+	status := schemas["QuotaStatus"]
+	if status == nil {
+		t.Fatal("QuotaStatus missing from the spec")
+	}
+	for _, name := range []string{"window_seconds", "resets_at"} {
+		if _, ok := findProperty(status, name); !ok {
+			t.Errorf("QuotaStatus has no %s property", name)
+		}
+		if !slices.Contains(status.Required, name) {
+			t.Errorf("QuotaStatus does not require %s", name)
+		}
+	}
+}
+
+func findProperty(s *ogen.Schema, name string) (*ogen.Schema, bool) {
+	for _, p := range s.Properties {
+		if p.Name == name {
+			return p.Schema, true
+		}
+	}
+	return nil, false
+}

@@ -3262,10 +3262,9 @@ components:
             - model: example-model
               context_limit: 4096
               max_output_tokens: 1024
-          quotas:
-            - window_seconds: 86400
-              tokens: 100000
-              requests: 500
+          quota:
+            tokens: 100000
+            requests: 500
           concurrency: 2
           on_context_overflow: refuse
           allowed_request_properties: [background]
@@ -3514,10 +3513,9 @@ components:
           - model: example-model
             context_limit: 4096
             max_output_tokens: 1024
-        quotas:
-          - window_seconds: 86400
-            tokens: 100000
-            requests: 500
+        quota:
+          tokens: 100000
+          requests: 500
         concurrency: 2
         on_context_overflow: refuse
         allowed_request_properties: [background]
@@ -3537,10 +3535,9 @@ components:
             - model: example-model
               context_limit: 4096
               max_output_tokens: 1024
-          quotas:
-            - window_seconds: 86400
-              tokens: 100000
-              requests: 500
+          quota:
+            tokens: 100000
+            requests: 500
           concurrency: 2
           on_context_overflow: refuse
           allowed_request_properties: [background]
@@ -3561,10 +3558,9 @@ components:
                 - model: example-model
                   context_limit: 4096
                   max_output_tokens: 1024
-              quotas:
-                - window_seconds: 86400
-                  tokens: 100000
-                  requests: 500
+              quota:
+                tokens: 100000
+                requests: 500
               concurrency: 2
               on_context_overflow: refuse
               allowed_request_properties: [background]
@@ -5088,21 +5084,16 @@ components:
       enum: [refuse, truncate]
     Quota:
       type: object
-      description: A token and request allowance per window. Leave out `tokens` or `requests` for no limit on it; `0` allows none (D-25, D-98).
-      required: [window_seconds]
+      description: A token and request allowance per quota window. The window length is the host setting `limits.quota_window` (one day by default), not set by the client (D-25, D-98, D-38). Leave out `tokens` or `requests` for no limit on it; `0` allows none.
       properties:
-        window_seconds:
-          type: integer
-          description: The window's length.
-          minimum: 1
         tokens:
           type: integer
-          description: Tokens allowed per window; absent means no token limit, 0 allows none.
+          description: Tokens allowed per quota window; absent means no token limit, 0 allows none.
           format: int64
           minimum: 0
         requests:
           type: integer
-          description: Requests allowed per window; absent means no request limit, 0 allows none.
+          description: Requests allowed per quota window; absent means no request limit, 0 allows none.
           format: int64
           minimum: 0
     QuotaStatus:
@@ -5239,11 +5230,11 @@ components:
           description: Models to add.
           items:
             type: string
-        quotas:
-          type: array
-          description: Quotas wanted.
-          items:
-            $ref: '#/components/schemas/Quota'
+        quota:
+          description: The allowance per quota window wanted, or null for none.
+          oneOf:
+            - $ref: '#/components/schemas/Quota'
+            - type: 'null'
         context_limit:
           type: integer
           description: Context limit wanted.
@@ -5403,10 +5394,9 @@ components:
               - model: example-model
                 context_limit: 4096
                 max_output_tokens: 1024
-            quotas:
-              - window_seconds: 86400
-                tokens: 100000
-                requests: 500
+            quota:
+              tokens: 100000
+              requests: 500
             concurrency: 2
             on_context_overflow: refuse
             allowed_request_properties: [background]
@@ -6270,11 +6260,11 @@ components:
           description: Only these of the grant's models.
           items:
             type: string
-        quotas:
-          type: array
-          description: Extra quotas for this key.
-          items:
-            $ref: '#/components/schemas/Quota'
+        quota:
+          description: An extra allowance per quota window for this key, or null for none.
+          oneOf:
+            - $ref: '#/components/schemas/Quota'
+            - type: 'null'
         context_limit:
           type: integer
           description: A lower context limit for every model.
@@ -6481,7 +6471,7 @@ components:
     GrantLimits:
       type: object
       description: The limits of a grant version.
-      required: [models, quotas, concurrency, on_context_overflow, allowed_request_properties]
+      required: [models, quota, concurrency, on_context_overflow, allowed_request_properties]
       properties:
         models:
           type: array
@@ -6492,13 +6482,12 @@ components:
             - model: example-model
               context_limit: 4096
               max_output_tokens: 1024
-        quotas:
-          type: array
-          description: Token and request quotas.
-          items:
-            $ref: '#/components/schemas/Quota'
+        quota:
+          description: The token and request allowance per quota window, or null for no quota.
+          oneOf:
+            - $ref: '#/components/schemas/Quota'
+            - type: 'null'
           example:
-          - window_seconds: 86400
             tokens: 100000
             requests: 500
         concurrency:
@@ -6580,10 +6569,9 @@ components:
                   - model: example-model
                     context_limit: 4096
                     max_output_tokens: 1024
-                quotas:
-                  - window_seconds: 86400
-                    tokens: 100000
-                    requests: 500
+                quota:
+                  tokens: 100000
+                  requests: 500
                 concurrency: 2
                 on_context_overflow: refuse
                 allowed_request_properties: [background]

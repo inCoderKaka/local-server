@@ -269,8 +269,8 @@ func (s *AccessKeyList) SetData(val []AccessKey) {
 type AccessKeyNarrowing struct {
 	// Only these of the grant's models.
 	Models []string `json:"models"`
-	// Extra quotas for this key.
-	Quotas []Quota `json:"quotas"`
+	// An extra allowance per quota window for this key, or null for none.
+	Quota OptNilQuota `json:"quota"`
 	// A lower context limit for every model.
 	ContextLimit OptInt `json:"context_limit"`
 	// A lower output limit for every model.
@@ -284,9 +284,9 @@ func (s *AccessKeyNarrowing) GetModels() []string {
 	return s.Models
 }
 
-// GetQuotas returns the value of Quotas.
-func (s *AccessKeyNarrowing) GetQuotas() []Quota {
-	return s.Quotas
+// GetQuota returns the value of Quota.
+func (s *AccessKeyNarrowing) GetQuota() OptNilQuota {
+	return s.Quota
 }
 
 // GetContextLimit returns the value of ContextLimit.
@@ -309,9 +309,9 @@ func (s *AccessKeyNarrowing) SetModels(val []string) {
 	s.Models = val
 }
 
-// SetQuotas sets the value of Quotas.
-func (s *AccessKeyNarrowing) SetQuotas(val []Quota) {
-	s.Quotas = val
+// SetQuota sets the value of Quota.
+func (s *AccessKeyNarrowing) SetQuota(val OptNilQuota) {
+	s.Quota = val
 }
 
 // SetContextLimit sets the value of ContextLimit.
@@ -2979,8 +2979,8 @@ func (s *FunctionDefinitionParameters) init() FunctionDefinitionParameters {
 type GrantLimits struct {
 	// The models allowed, with their limits.
 	Models []GrantModelLimit `json:"models"`
-	// Token and request quotas.
-	Quotas []Quota `json:"quotas"`
+	// The token and request allowance per quota window, or null for no quota.
+	Quota NilQuota `json:"quota"`
 	// Most requests at once.
 	Concurrency       int             `json:"concurrency"`
 	OnContextOverflow ContextOverflow `json:"on_context_overflow"`
@@ -2995,9 +2995,9 @@ func (s *GrantLimits) GetModels() []GrantModelLimit {
 	return s.Models
 }
 
-// GetQuotas returns the value of Quotas.
-func (s *GrantLimits) GetQuotas() []Quota {
-	return s.Quotas
+// GetQuota returns the value of Quota.
+func (s *GrantLimits) GetQuota() NilQuota {
+	return s.Quota
 }
 
 // GetConcurrency returns the value of Concurrency.
@@ -3025,9 +3025,9 @@ func (s *GrantLimits) SetModels(val []GrantModelLimit) {
 	s.Models = val
 }
 
-// SetQuotas sets the value of Quotas.
-func (s *GrantLimits) SetQuotas(val []Quota) {
-	s.Quotas = val
+// SetQuota sets the value of Quota.
+func (s *GrantLimits) SetQuota(val NilQuota) {
+	s.Quota = val
 }
 
 // SetConcurrency sets the value of Concurrency.
@@ -5288,6 +5288,51 @@ func (o NilNextCursor) Or(d NextCursor) NextCursor {
 	return d
 }
 
+// NewNilQuota returns new NilQuota with value set to v.
+func NewNilQuota(v Quota) NilQuota {
+	return NilQuota{
+		Value: v,
+	}
+}
+
+// NilQuota is nullable Quota.
+type NilQuota struct {
+	Value Quota
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilQuota) SetTo(v Quota) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilQuota) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilQuota) SetToNull() {
+	o.Null = true
+	var v Quota
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilQuota) Get() (v Quota, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilQuota) Or(d Quota) Quota {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewNilString returns new NilString with value set to v.
 func NewNilString(v string) NilString {
 	return NilString{
@@ -6476,6 +6521,74 @@ func (o OptNilPrincipalRef) Or(d PrincipalRef) PrincipalRef {
 	return d
 }
 
+// NewOptNilQuota returns new OptNilQuota with value set to v.
+func NewOptNilQuota(v Quota) OptNilQuota {
+	return OptNilQuota{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNilQuota is optional nullable Quota.
+type OptNilQuota struct {
+	Value Quota
+	Set   bool
+	Null  bool
+}
+
+// IsSet returns true if OptNilQuota was set.
+func (o OptNilQuota) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNilQuota) Reset() {
+	var v Quota
+	o.Value = v
+	o.Set = false
+	o.Null = false
+}
+
+// SetTo sets value to v.
+func (o *OptNilQuota) SetTo(v Quota) {
+	o.Set = true
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o OptNilQuota) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *OptNilQuota) SetToNull() {
+	o.Set = true
+	o.Null = true
+	var v Quota
+	o.Value = v
+}
+
+// IsEmpty returns true if the field was omitted from the payload (not Set and not Null).
+func (o OptNilQuota) IsEmpty() bool {
+	return !o.Set && !o.Null
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNilQuota) Get() (v Quota, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNilQuota) Or(d Quota) Quota {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptNilRateLimit returns new OptNilRateLimit with value set to v.
 func NewOptNilRateLimit(v RateLimit) OptNilRateLimit {
 	return OptNilRateLimit{
@@ -7580,21 +7693,15 @@ func (s *PrincipalRefKind) UnmarshalText(data []byte) error {
 	}
 }
 
-// A token and request allowance per window. Leave out `tokens` or `requests` for no limit on it; `0`
-// allows none (D-25, D-98).
+// A token and request allowance per quota window. The window length is the host setting
+// `limits.quota_window` (one day by default), not set by the client (D-25, D-98, D-38). Leave out
+// `tokens` or `requests` for no limit on it; `0` allows none.
 // Ref: #/components/schemas/Quota
 type Quota struct {
-	// The window's length.
-	WindowSeconds int `json:"window_seconds"`
-	// Tokens allowed per window; absent means no token limit, 0 allows none.
+	// Tokens allowed per quota window; absent means no token limit, 0 allows none.
 	Tokens OptInt64 `json:"tokens"`
-	// Requests allowed per window; absent means no request limit, 0 allows none.
+	// Requests allowed per quota window; absent means no request limit, 0 allows none.
 	Requests OptInt64 `json:"requests"`
-}
-
-// GetWindowSeconds returns the value of WindowSeconds.
-func (s *Quota) GetWindowSeconds() int {
-	return s.WindowSeconds
 }
 
 // GetTokens returns the value of Tokens.
@@ -7605,11 +7712,6 @@ func (s *Quota) GetTokens() OptInt64 {
 // GetRequests returns the value of Requests.
 func (s *Quota) GetRequests() OptInt64 {
 	return s.Requests
-}
-
-// SetWindowSeconds sets the value of WindowSeconds.
-func (s *Quota) SetWindowSeconds(val int) {
-	s.WindowSeconds = val
 }
 
 // SetTokens sets the value of Tokens.
@@ -8005,8 +8107,8 @@ func (s *ResourceRequestApproval) SetComment(val OptString) {
 type ResourceRequestAsk struct {
 	// Models to add.
 	Models []string `json:"models"`
-	// Quotas wanted.
-	Quotas []Quota `json:"quotas"`
+	// The allowance per quota window wanted, or null for none.
+	Quota OptNilQuota `json:"quota"`
 	// Context limit wanted.
 	ContextLimit OptInt `json:"context_limit"`
 	// Output limit wanted.
@@ -8022,9 +8124,9 @@ func (s *ResourceRequestAsk) GetModels() []string {
 	return s.Models
 }
 
-// GetQuotas returns the value of Quotas.
-func (s *ResourceRequestAsk) GetQuotas() []Quota {
-	return s.Quotas
+// GetQuota returns the value of Quota.
+func (s *ResourceRequestAsk) GetQuota() OptNilQuota {
+	return s.Quota
 }
 
 // GetContextLimit returns the value of ContextLimit.
@@ -8052,9 +8154,9 @@ func (s *ResourceRequestAsk) SetModels(val []string) {
 	s.Models = val
 }
 
-// SetQuotas sets the value of Quotas.
-func (s *ResourceRequestAsk) SetQuotas(val []Quota) {
-	s.Quotas = val
+// SetQuota sets the value of Quota.
+func (s *ResourceRequestAsk) SetQuota(val OptNilQuota) {
+	s.Quota = val
 }
 
 // SetContextLimit sets the value of ContextLimit.
