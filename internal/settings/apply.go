@@ -48,8 +48,11 @@ func (e *UpdateError) Unwrap() error { return e.Err }
 
 // Apply sets or resets several non-scoped settings on behalf of by in one unit of work: either
 // every change is written or none is. It checks every update first (the key exists, by owns it,
-// the value parses as the setting's type, and the validators of SetValidator and SetTxValidator
-// accept it) and only then writes.
+// the value parses as the setting's type, and the SetValidator validator accepts it) and only
+// then writes. The SetTxValidator validator of a key runs inside the unit of work, before that
+// key's write, and only when its effective value changes: an update that leaves a value as it is
+// passes even a validator that now refuses every write (a setting frozen once a checkpoint
+// exists, req_001 D-97).
 //
 // A setting whose new effective value equals its current one is not a change: nothing is written
 // for it and it is not in the returned list. After all writes, and in the same unit of work,

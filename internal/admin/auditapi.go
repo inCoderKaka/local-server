@@ -93,7 +93,7 @@ func (a *Admin) principal(ctx context.Context, cache map[string]*principalInfo, 
 				info.displayName = *au.DisplayName
 			}
 		}
-	case "consumer":
+	case string(api.PrincipalRefKindConsumer):
 		c, err := ir.Consumers.GetByPrincipal(ctx, rd, id)
 		if err != nil && !errors.Is(err, identity.ErrNotFound) {
 			return nil, err

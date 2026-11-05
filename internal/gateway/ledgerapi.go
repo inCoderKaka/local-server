@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -60,9 +59,9 @@ func checkpointBody(cp checkpoint.Checkpoint) *api.LedgerCheckpoint {
 // GetUsageProof implements GET /v1/usage/{usage_id}/proof. A consumer gets the proof of its
 // own records only; another consumer's record answers 404 like an unknown one.
 func (g *Gateway) GetUsageProof(ctx context.Context, params api.GetUsageProofParams) (*api.UsageProof, error) {
-	id := identityOf(ctx)
-	if id == nil {
-		return nil, errors.New("gateway: request reached a handler without authentication")
+	id, err := g.caller(ctx)
+	if err != nil {
+		return nil, err
 	}
 	usageID := params.UsageID.String()
 	owner, err := usage.ConsumerOf(ctx, g.cfg.DB.Reader(), usageID)

@@ -107,7 +107,7 @@ func promptOrCancel(ctx context.Context, read func() (string, error)) (string, e
 	}
 }
 
-var errRunServeFirst = errors.New("this host has no admin yet: run `local-server serve` once and create the admin first")
+var errRunServeFirst = errors.New("this host has no admin yet: with `local-server serve` running, create the first admin (POST /admin/v1/setup on the admin listener), then run this command again")
 
 func (a *app) runRecoveryCode(ctx context.Context, dataDir string) error {
 	dbPath := filepath.Join(dataDir, dbFileName)

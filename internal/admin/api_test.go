@@ -382,6 +382,11 @@ func TestSettingsRefusalsApplyNothing(t *testing.T) {
 		"below OWASP":       {`{"values":{"admin.session_ttl":"3h","auth.password.memory_kib":1024}}`, http.StatusBadRequest, credential.KeyMemoryKiB},
 		"validator refuses": {`{"values":{"admin.session_ttl":"3h","admin.max_body_bytes":0}}`, http.StatusBadRequest, admin.KeyMaxBodyBytes},
 		"bad tailnet name":  {`{"values":{"admin.session_ttl":"3h","admin.tailnet_name":"http://x.ts.net"}}`, http.StatusBadRequest, admin.KeyTailnetName},
+		"empty label":       {`{"values":{"admin.session_ttl":"3h","admin.tailnet_name":"a..b"}}`, http.StatusBadRequest, admin.KeyTailnetName},
+		"leading hyphen":    {`{"values":{"admin.session_ttl":"3h","admin.tailnet_name":"-a.ts.net"}}`, http.StatusBadRequest, admin.KeyTailnetName},
+		"trailing hyphen":   {`{"values":{"admin.session_ttl":"3h","admin.tailnet_name":"a-.ts.net"}}`, http.StatusBadRequest, admin.KeyTailnetName},
+		"label of 64":       {`{"values":{"admin.session_ttl":"3h","admin.tailnet_name":"` + strings.Repeat("a", 64) + `.ts.net"}}`, http.StatusBadRequest, admin.KeyTailnetName},
+		"only a dot":        {`{"values":{"admin.session_ttl":"3h","admin.tailnet_name":"."}}`, http.StatusBadRequest, admin.KeyTailnetName},
 		"empty values":      {`{"values":{}}`, http.StatusBadRequest, "values"},
 	} {
 		r := e.call(token, "PATCH", "/admin/v1/settings", c.body)
@@ -403,6 +408,18 @@ func TestSettingsRefusalsApplyNothing(t *testing.T) {
 		}
 		if n := e.count(`SELECT count(*) FROM aud_event WHERE action = 'setting.changed'`); n != 0 {
 			t.Errorf("%s: %d audit rows after a refused request", name, n)
+		}
+	}
+}
+
+// A host name of valid labels is accepted, with or without one trailing dot.
+func TestSettingsAcceptTailnetNames(t *testing.T) {
+	e := newEnv(t)
+	token := e.setup()
+	for _, name := range []string{"my-host.example.ts.net", "my-host.example.ts.net."} {
+		status(t, e.call(token, "PATCH", "/admin/v1/settings", `{"values":{"admin.tailnet_name":"`+name+`"}}`), http.StatusOK)
+		if got, _ := e.st.String(context.Background(), admin.KeyTailnetName, ""); got != name {
+			t.Errorf("tailnet name = %q, want %q", got, name)
 		}
 	}
 }
@@ -502,7 +519,7 @@ func TestAuditListShapeFilterAndPaging(t *testing.T) {
 	status(t, e.call(token, "GET", "/admin/v1/audit-events"+q(map[string]string{"from": "nope"}), ""), http.StatusBadRequest)
 }
 
-// An actor-less (system) event is a null actor; an actor that is a consumer has its kind.
+// An actor-less (system) event is a null actor.
 func TestAuditListSystemEvent(t *testing.T) {
 	e := newEnv(t)
 	token := e.setup()
@@ -521,8 +538,40 @@ func TestAuditListSystemEvent(t *testing.T) {
 	}
 }
 
+// An event whose actor is a consumer names the consumer's kind and display name, and its target
+// kind is the principal's kind.
+func TestAuditListConsumerActor(t *testing.T) {
+	e := newEnv(t)
+	token := e.setup()
+	var pid string
+	err := e.db.Write(context.Background(), func(tx *storage.Tx) error {
+		p, err := e.ir.Principals.Create(tx, "consumer", nil, nil)
+		if err != nil {
+			return err
+		}
+		pid = p.ID
+		name := "Friend App"
+		if _, err := e.ir.Consumers.Create(tx, p.ID, "individual", &name, nil); err != nil {
+			return err
+		}
+		_, err = tx.Exec(`INSERT INTO aud_event (id, action, actor_id, target_id, detail, created_at) VALUES (?, 'consumer.test', ?, ?, '{}', ?)`,
+			uuid.NewString(), p.ID, p.ID, e.clk.now().UnixMilli()+1)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := e.call(token, "GET", "/admin/v1/audit-events"+q(map[string]string{"action": "consumer.test"}), "")
+	status(t, r, http.StatusOK)
+	ev := r.json()["data"].([]any)[0].(map[string]any)
+	actor, _ := ev["actor"].(map[string]any)
+	if actor["kind"] != "consumer" || actor["display_name"] != "Friend App" || actor["principal_id"] != pid || ev["target_kind"] != "consumer" {
+		t.Errorf("event = %v", ev)
+	}
+}
+
 // seedRollups writes rollup rows of two consumers the way the rollup worker would.
-func seedRollups(t *testing.T, e *env) (consA, consB string) {
+func seedRollups(t *testing.T, e *env) (consA, consB, keyB string) {
 	t.Helper()
 	consA, consB = uuid.NewString(), uuid.NewString()
 	keyA, keyB := uuid.NewString(), uuid.NewString()
@@ -540,7 +589,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, g, int64(60000*(i+1)), row.cons, row.key, r
 	if err != nil {
 		t.Fatal(err)
 	}
-	return consA, consB
+	return consA, consB, keyB
 }
 
 // /admin/v1/usage answers with the same rollups usage.QueryRollups returns for the same query,
@@ -548,7 +597,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, g, int64(60000*(i+1)), row.cons, row.key, r
 func TestUsageIsTheQueryFunction(t *testing.T) {
 	e := newEnv(t)
 	token := e.setup()
-	consA, consB := seedRollups(t, e)
+	consA, consB, keyB := seedRollups(t, e)
 	for _, c := range []struct {
 		name  string
 		query map[string]string
@@ -560,6 +609,7 @@ func TestUsageIsTheQueryFunction(t *testing.T) {
 		{"minute, one consumer", map[string]string{"granularity": "minute", "consumer_id": consB}, usage.RollupQuery{Granularity: usage.GranularityMinute, ConsumerID: consB}, 2},
 		{"one model", map[string]string{"granularity": "day", "model": "model-a"}, usage.RollupQuery{Granularity: usage.GranularityDay, Model: "model-a"}, 1},
 		{"consumer A", map[string]string{"granularity": "day", "consumer_id": consA}, usage.RollupQuery{Granularity: usage.GranularityDay, ConsumerID: consA}, 1},
+		{"one access key", map[string]string{"granularity": "day", "access_key_id": keyB}, usage.RollupQuery{Granularity: usage.GranularityDay, AccessKeyID: keyB}, 2},
 	} {
 		want, err := usage.QueryRollups(context.Background(), e.db.Reader(), e.st, c.q)
 		if err != nil || len(want.Rollups) != c.want {

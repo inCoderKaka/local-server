@@ -204,9 +204,11 @@ func Verify(password, encoded string) (bool, error) {
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
 
-// Burn does the work of one Verify at the current cost and discards it. A login for a name that
-// does not exist calls it, so that it takes as long as a wrong password and the response time
-// does not reveal which names exist.
+// Burn does the work of one Verify at the current cost settings and discards it. A login for a
+// name that does not exist calls it, so that it takes as long as a wrong password and the response
+// time does not reveal which names exist. A stored hash keeps the cost it was made at, so a caller
+// that has a stored hash of the same surface should Verify against that hash instead; Burn is for
+// when it has none.
 func (h *Hasher) Burn(ctx context.Context, password string) error {
 	p, err := h.CurrentParams(ctx)
 	if err != nil {

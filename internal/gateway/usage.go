@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 
@@ -15,9 +14,9 @@ import (
 // caller's consumer, so one consumer never sees another's usage; access_key_id and model only
 // narrow within it. The page size is the usage.page_size setting (req_001 D-38).
 func (g *Gateway) GetUsage(ctx context.Context, params api.GetUsageParams) (*api.UsageRollupList, error) {
-	id := identityOf(ctx)
-	if id == nil {
-		return nil, errors.New("gateway: request reached a handler without authentication")
+	id, err := g.caller(ctx)
+	if err != nil {
+		return nil, err
 	}
 	q := usage.RollupQuery{Granularity: usage.Granularity(params.Granularity), ConsumerID: id.ConsumerID}
 	if v, ok := params.From.Get(); ok {

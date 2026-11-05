@@ -142,7 +142,18 @@ func (a *Authenticator) Authenticate(ctx context.Context, username, password, re
 		}
 	}
 	if !known {
-		if err := a.hasher.Burn(ctx, password); err != nil {
+		ref, err := a.referenceHash(ctx, rd)
+		if err != nil {
+			return Authenticated{}, err
+		}
+		// Verify at the cost an admin's stored hash really has, which differs from the current
+		// cost settings after a change; a malformed row or no admin yet falls back to Burn.
+		if ref == "" {
+			err = a.hasher.Burn(ctx, password)
+		} else if _, verr := credential.Verify(password, ref); verr != nil {
+			err = a.hasher.Burn(ctx, password)
+		}
+		if err != nil {
 			return Authenticated{}, err
 		}
 		return reject()
@@ -168,6 +179,22 @@ func (a *Authenticator) Authenticate(ctx context.Context, username, password, re
 	// Only the name's counter is cleared: a success proves the name, not the address.
 	a.lock.Succeed(credential.LoginKeys("", username), a.now())
 	return Authenticated{PrincipalID: cred.PrincipalID, CredentialID: cred.ID, AdminUser: au}, nil
+}
+
+// referenceHash returns the stored password hash of the oldest live admin credential, or "" when
+// there is none. Authenticate verifies a password against it for an unknown name, so that the
+// work has the cost of a real hash, which a stored hash keeps after the cost settings change.
+func (a *Authenticator) referenceHash(ctx context.Context, rd *storage.Reader) (string, error) {
+	var secret string
+	err := rd.QueryRow(ctx, `SELECT c.secret FROM idn_credential c JOIN idn_admin_user u ON u.principal_id = c.principal_id
+WHERE c.kind = ? AND c.revoked_at IS NULL ORDER BY c.created_at, c.id LIMIT 1`, identity.CredentialPassword).Scan(&secret)
+	if errors.Is(err, storage.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return secret, nil
 }
 
 // validUsername reports whether name can be an admin login name: 1 to 128 characters, valid
@@ -421,14 +448,17 @@ func (a *Admin) AdminCreateSession(ctx context.Context, req *api.AdminCredential
 }
 
 // AdminDeleteSession implements DELETE /admin/v1/session (logout): it revokes the session,
-// audits admin.session_ended and clears the cookie.
+// audits admin.session_ended and clears the cookie. A session that another request already ended
+// still answers 204 and clears the cookie; only the request that revoked it writes the audit row.
 func (a *Admin) AdminDeleteSession(ctx context.Context) (*api.AdminDeleteSessionNoContent, error) {
 	s, ok := SessionOf(ctx)
 	if !ok {
 		return nil, unauthenticated()
 	}
 	err := a.cfg.DB.Write(ctx, func(tx *storage.Tx) error {
-		if err := a.cfg.Identity.Sessions.Revoke(tx, s.ID); err != nil {
+		if err := a.cfg.Identity.Sessions.Revoke(tx, s.ID); errors.Is(err, identity.ErrNotFound) {
+			return nil
+		} else if err != nil {
 			return err
 		}
 		return a.record(tx, audit.Event{Action: ActionSessionEnded, ActorID: s.PrincipalID, Detail: map[string]string{"session_id": s.ID}})

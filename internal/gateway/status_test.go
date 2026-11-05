@@ -185,6 +185,21 @@ func TestHealthQueueDepthByClass(t *testing.T) {
 	}
 }
 
+func TestHealthBackgroundDepthCountsJobsStillQueued(t *testing.T) {
+	e := newEnv(t)
+	depth := func() map[string]any {
+		return e.do(http.MethodGet, "/v1/health", "").json()["queue_depth"].(map[string]any)
+	}
+	if q := depth(); q["background"] != float64(0) {
+		t.Fatalf("queue_depth = %v, want no background", q)
+	}
+	statusIs(t, e.postJob("idem-1", jobBody), http.StatusAccepted) // no worker runs: it stays in sch_job
+	q := depth()
+	if q["background"] != float64(1) || q["interactive"] != float64(0) {
+		t.Fatalf("queue_depth = %v, want 1 background and 0 interactive", q)
+	}
+}
+
 func TestCapabilitiesAfterGrantAndKeyNarrowing(t *testing.T) {
 	e := newEnv(t, func(o *envOpts) {
 		o.version = func(models []grantsModel) grantsNewVersion {

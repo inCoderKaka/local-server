@@ -50,6 +50,9 @@ type Rollups struct {
 	db  *storage.DB
 	st  *settings.Store
 	tel telemetry.Telemetry
+
+	rolled   telemetry.Counter // usage records added to the rollups
+	failures telemetry.Counter // passes that failed, not counting a cancelled context
 }
 
 // NewRollups registers the usage settings, their validators and the three retention rules of
@@ -84,7 +87,10 @@ func NewRollups(db *storage.DB, st *settings.Store, tel telemetry.Telemetry) (*R
 	if err := st.RegisterRetention(rules...); err != nil {
 		return nil, err
 	}
-	return &Rollups{db: db, st: st, tel: tel}, nil
+	return &Rollups{db: db, st: st, tel: tel,
+		rolled:   tel.Counter("usage_rollup_records_total"),
+		failures: tel.Counter("usage_rollup_errors_total"),
+	}, nil
 }
 
 func checkPositive(v string, isDuration bool) error {
@@ -112,7 +118,21 @@ func checkPositive(v string, isDuration bool) error {
 // returns how many rows it added. It works in steps of usage.rollup.batch_rows rows; each step
 // is one unit of work that adds the sums and moves the watermark together, so a record is
 // counted exactly once even if the process stops between steps.
+//
+// The rows added count toward usage_rollup_records_total, even when a later step fails, and a
+// failed pass counts toward usage_rollup_errors_total unless ctx ended.
 func (r *Rollups) RunOnce(ctx context.Context) (int64, error) {
+	n, err := r.runOnce(ctx)
+	if n > 0 {
+		r.rolled.Add(float64(n))
+	}
+	if err != nil && ctx.Err() == nil {
+		r.failures.Inc()
+	}
+	return n, err
+}
+
+func (r *Rollups) runOnce(ctx context.Context) (int64, error) {
 	size, err := r.st.Int(ctx, KeyRollupBatchRows, "")
 	if err != nil {
 		return 0, err
@@ -137,6 +157,11 @@ func (r *Rollups) RunOnce(ctx context.Context) (int64, error) {
 }
 
 // step rolls up at most limit uncounted rows and returns how many it counted.
+//
+// The watermark is the implicit rowid of use_record, because that table has a TEXT primary key
+// (0001_record.sql:9). SQLite's VACUUM and VACUUM INTO may renumber implicit rowids, and an
+// import may assign new ones, so the claim in migration 0003 that its rowids only grow holds
+// only until then. PLT-F-088 replaces the rowid with a sequence column.
 func (r *Rollups) step(ctx context.Context, limit int64) (int64, error) {
 	var n int64
 	err := r.db.Write(ctx, func(tx *storage.Tx) error {

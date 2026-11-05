@@ -190,6 +190,9 @@ type reqState struct {
 	// afterDelivery, when a handler sets it, runs once the response has been written whole to the
 	// connection and not otherwise. A job result is deleted this way (req_001 D-85).
 	afterDelivery func(ctx context.Context)
+	// quotaErr is a used-up quota on POST /v1/jobs, decided in CreateJob so a duplicate
+	// Idempotency-Key still returns its job.
+	quotaErr error
 }
 
 // headerWriter records that the response has started, so a late failure does not append a JSON
@@ -338,9 +341,15 @@ func (g *Gateway) HandleAccessKeyAuth(ctx context.Context, op api.OperationName,
 		return nil, err
 	}
 	// A used-up quota stops inference. It must not stop a consumer from fetching the keys,
-	// checkpoint and proofs it needs to verify what it was billed.
-	if err := g.cfg.Limits.Check(ctx, id); err != nil && (isInference(op) || !errors.Is(err, limits.ErrQuotaExceeded)) {
-		return nil, err
+	// checkpoint and proofs it needs to verify what it was billed. On POST /v1/jobs CreateJob
+	// decides, so a retry of an Idempotency-Key that already holds a job still gets that job.
+	if err := g.cfg.Limits.Check(ctx, id); err != nil {
+		switch {
+		case op == api.CreateJobOperation && errors.Is(err, limits.ErrQuotaExceeded):
+			st.quotaErr = err
+		case isInference(op) || !errors.Is(err, limits.ErrQuotaExceeded):
+			return nil, err
+		}
 	}
 	return context.WithValue(ctx, identityKey{}, id), nil
 }

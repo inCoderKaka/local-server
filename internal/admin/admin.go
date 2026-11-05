@@ -146,15 +146,25 @@ func (a *Admin) Handler() http.Handler {
 // hostNames returns the extra Host name the guard accepts: admin.tailnet_name, read per request.
 func (a *Admin) hostNames(ctx context.Context) ([]string, error) {
 	n, err := a.cfg.Settings.String(ctx, KeyTailnetName, "")
-	if err != nil || n == "" {
+	if err != nil {
+		a.log.ErrorContext(ctx, "admin: read setting", "key", KeyTailnetName, "err", err)
 		return nil, err
+	}
+	if n == "" {
+		return nil, nil
 	}
 	return []string{n}, nil
 }
 
 // reject answers a request the guard refused. The reason is a fixed code; the Host or Origin that
-// caused it is neither answered nor logged.
+// caused it is neither answered nor logged. A failed read of the accepted host names is a server
+// fault, so it is answered 500 and logged at Error level; the request is still refused.
 func (a *Admin) reject(w http.ResponseWriter, r *http.Request, why credential.Reason) {
+	if why == credential.ReasonHostUnavailable {
+		a.log.ErrorContext(r.Context(), "admin: guard could not read the accepted host names", "reason", string(why))
+		writeError(w, internalError())
+		return
+	}
 	a.log.InfoContext(r.Context(), "admin: request refused by the guard", "reason", string(why))
 	msg := "This listener answers only to localhost, a loopback address or the host's configured name."
 	switch why {

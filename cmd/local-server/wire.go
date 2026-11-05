@@ -49,9 +49,7 @@ type services struct {
 // runs; metrics is telemetry's /metrics handler, which the admin listener serves. Constructors
 // register their own settings; registerSettings did the rest. To add a
 // module that serves or runs a worker, build it here and add its worker in startWorkers.
-// runServe marks the jobs a stop interrupted failed(host_restart) once both listeners are bound
-// (failInterrupted), before any worker or server runs (req_001 D-38, D-54).
-func wire(ctx context.Context, d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Telemetry, metrics http.Handler) (*services, error) {
+func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Telemetry, metrics http.Handler) (*services, error) {
 	var err error
 	db, st, log := d.db, d.st, tel.Logger()
 	bus := events.New(events.WithLogger(log))

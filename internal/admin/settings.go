@@ -21,6 +21,7 @@ const (
 	KeyTailnetName          = "admin.tailnet_name"
 	defaultMaxBodyBytes     = 1 << 20
 	maxTailnetNameLen       = 253
+	maxTailnetLabelLen      = 63
 )
 
 // Defs are the admin settings; New registers them.
@@ -30,7 +31,7 @@ func Defs() []settings.Def {
 		{Key: KeyMaxBodyBytes, Kind: settings.Int, Default: strconv.Itoa(defaultMaxBodyBytes), Owner: h,
 			Description: "Largest request body, in bytes, the admin API reads; a larger one is refused with 413. It also bounds the longest password."},
 		{Key: KeySessionTTL, Kind: settings.Duration, Default: "12h", Owner: h,
-			Description: "How long an admin login lasts before the admin must log in again."},
+			Description: "How long an admin login lasts before the admin must log in again. A change applies to logins after it; a session already started keeps its end time."},
 		{Key: KeyEngineProbeTimeout, Kind: settings.Duration, Default: "2s", Owner: h,
 			Description: "Longest the admin API waits for the model engine when it reports whether the engine answers."},
 		{Key: KeyMetricsHistoryRange, Kind: settings.Duration, Default: "1h", Owner: h,
@@ -78,9 +79,10 @@ func registerSettings(st *settings.Store) error {
 	return st.SetValidator(KeyTailnetName, func(_ context.Context, v string) error { return checkTailnetName(v) })
 }
 
-// checkTailnetName accepts a bare host name: letters, digits, dots and hyphens, as the Host
-// guard compares it. Empty is allowed (no extra name). A scheme, a port or a path is refused,
-// because the guard compares names without them.
+// checkTailnetName accepts a bare host name: dot-separated labels of 1 to 63 letters, digits or
+// hyphens, none starting or ending with a hyphen, with one optional trailing dot (the guard
+// removes it before comparing). Empty is allowed (no extra name). A scheme, a port or a path is
+// refused, because the guard compares names without them.
 func checkTailnetName(v string) error {
 	if v == "" {
 		return nil
@@ -93,8 +95,10 @@ func checkTailnetName(v string) error {
 			return fmt.Errorf("must be a host name: letters, digits, dots and hyphens, without a scheme, port or path")
 		}
 	}
-	if strings.HasPrefix(v, ".") || strings.HasPrefix(v, "-") {
-		return fmt.Errorf("must start with a letter or digit")
+	for _, label := range strings.Split(strings.TrimSuffix(v, "."), ".") {
+		if len(label) < 1 || len(label) > maxTailnetLabelLen || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return fmt.Errorf("must be a host name: dot-separated labels of 1 to %d letters, digits or hyphens, none starting or ending with a hyphen", maxTailnetLabelLen)
+		}
 	}
 	return nil
 }

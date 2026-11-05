@@ -28,6 +28,8 @@ type Jobs interface {
 	Cancel(ctx context.Context, consumerID, id string) (jobs.Job, error)
 	Result(ctx context.Context, consumerID, id string) (jobs.Result, error)
 	DeleteResult(ctx context.Context, consumerID, id string) error
+	FindByIdempotencyKey(ctx context.Context, accessKeyID, key string) (jobs.Job, bool, error)
+	QueuedWaiting(ctx context.Context) (int, error)
 }
 
 // jobPayload is the request content of a job, as the worker gets it back when it is admitted. It
@@ -73,6 +75,18 @@ func (g *Gateway) CreateJob(ctx context.Context, req *api.ChatCompletionRequest,
 	c, err := g.newCall(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if c.st.quotaErr != nil {
+		// The quota is used up: only a job this Idempotency-Key already holds is answered.
+		j, found, err := g.cfg.Jobs.FindByIdempotencyKey(ctx, c.id.KeyID, params.IdempotencyKey)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, c.st.quotaErr
+		}
+		out := toAPIJob(j)
+		return (*api.CreateJobOK)(&out), nil
 	}
 	var notBefore time.Time
 	windowClosed := false

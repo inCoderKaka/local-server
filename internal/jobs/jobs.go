@@ -94,7 +94,8 @@ type NewJob struct {
 	GrantVersionID string
 	IdempotencyKey string
 	Model          string
-	// Identity is a JSON copy of the submitting key's identity and limits: ids and numbers only.
+	// Identity is a JSON copy of the submitting key's identity and limits: ids, numbers, the key prefix and
+	// the grant's policy fields (allowed properties, context-overflow rule). Never a secret or request content.
 	Identity []byte
 	// Payload is the request content.
 	Payload []byte
@@ -156,6 +157,10 @@ func New(cfg Config) (*Service, error) {
 		cfg.Clock = time.Now
 	}
 	if err := cfg.Settings.Register(Defs()...); err != nil {
+		return nil, err
+	}
+	if err := cfg.Settings.RegisterRetention(settings.Rule{Table: "sch_job", TimeColumn: "finished_at", Setting: KeyRetention,
+		Where: "status IN ('succeeded', 'failed', 'cancelled', 'expired') AND NOT EXISTS (SELECT 1 FROM sch_job_result r WHERE r.job_id = sch_job.id)"}); err != nil {
 		return nil, err
 	}
 	if err := setValidators(cfg.Settings); err != nil {
@@ -317,6 +322,43 @@ func nullable(t time.Time) time.Time {
 		return time.Time{}
 	}
 	return fromMS(ms(t))
+}
+
+// FindByIdempotencyKey returns the job that holds the Idempotency-Key of the access key, and
+// whether there is one. A job that ended failed with host_restart or payload_minimized does not
+// hold its key (req_001 D-26, D-38).
+func (s *Service) FindByIdempotencyKey(ctx context.Context, accessKeyID, key string) (Job, bool, error) {
+	j, err := scanJob(s.cfg.DB.Reader().QueryRow(ctx, jobSelect(`j.access_key_id = ? AND j.idempotency_key = ? AND `+holdsKey),
+		ms(s.now()), accessKeyID, key))
+	if errors.Is(err, storage.ErrNoRows) {
+		return Job{}, false, nil
+	}
+	if err != nil {
+		return Job{}, false, fmt.Errorf("jobs: find by idempotency key: %w", err)
+	}
+	return j, true, nil
+}
+
+// QueuedWaiting counts the queued jobs the worker has not handed to the scheduler: the ones still
+// waiting in the job queue, including a job kept back in memory because its retry time could not be
+// stored (s.hold). A job the worker has handed to the scheduler is waiting in the scheduler's queue,
+// which counts it, or is admitted already.
+func (s *Service) QueuedWaiting(ctx context.Context) (int, error) {
+	s.mu.Lock()
+	held := make([]any, 0, len(s.active))
+	for id := range s.active {
+		held = append(held, id)
+	}
+	s.mu.Unlock()
+	q := `SELECT count(*) FROM sch_job WHERE status = 'queued'`
+	if len(held) > 0 {
+		q += ` AND id NOT IN (` + strings.TrimSuffix(strings.Repeat("?, ", len(held)), ", ") + `)`
+	}
+	var n int
+	if err := s.cfg.DB.Reader().QueryRow(ctx, q, held...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("jobs: count queued jobs: %w", err)
+	}
+	return n, nil
 }
 
 // Get returns a job of the consumer, or ErrNotFound.

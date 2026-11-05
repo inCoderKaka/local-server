@@ -1,12 +1,17 @@
 package admin_test
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/ogen-go/ogen/ogenerrors"
+
 	"github.com/inCoderKaka/local-server/internal/admin"
+	"github.com/inCoderKaka/local-server/internal/auth/credential"
 )
 
 // Every error the admin listener answers is the OpenAI error envelope, whoever raised it, and
@@ -87,16 +92,58 @@ func TestErrorEnvelopeUnimplementedOperation(t *testing.T) {
 	status(t, e.do(req{path: "/admin/v1/consumers"}), http.StatusUnauthorized)
 }
 
-// An unknown field in a login body: reported if ogen refuses it, and never quoted.
+// An unknown field in a login body is ignored: the AdminCredentials schema does not refuse extra
+// keys, so the login succeeds.
 func TestErrorEnvelopeUnknownField(t *testing.T) {
 	e := newEnv(t)
 	e.setup()
 	r := e.do(req{method: "POST", path: "/admin/v1/session", body: `{"username":"` + testUser + `","password":"` + testPass + `","ZZextra":1}`, origin: adminOrigin})
-	if r.Code != http.StatusOK && r.Code != http.StatusBadRequest {
-		t.Fatalf("status %d: %s", r.Code, r.Body.String())
+	status(t, r, http.StatusOK)
+}
+
+// decodeError echoes a field name only when it is a short identifier; anything else is dropped.
+func TestDecodeErrorEchoesOnlySafeNames(t *testing.T) {
+	long := strings.Repeat("a", 65)
+	for _, c := range []struct {
+		name, text, param string
+	}{
+		{"unexpected field", `decode Foo: unexpected field "extra_field"`, "extra_field"},
+		{"unsafe unexpected field", `decode Foo: unexpected field "a b<x>"`, ""},
+		{"long unexpected field", `decode Foo: unexpected field "` + long + `"`, ""},
+		{"long decode field", `decode Foo: decode field "` + long + `": bad`, ""},
+		{"long validate field", "validate: invalid: " + long + " (bad)", ""},
+		{"decode field", `decode Foo: decode field "username": bad`, "username"},
+	} {
+		st, param, msg := admin.DecodeError(&ogenerrors.DecodeRequestError{Err: errors.New(c.text)})
+		if st != http.StatusBadRequest || param != c.param {
+			t.Errorf("%s: status %d, param %q; want 400, %q", c.name, st, param, c.param)
+		}
+		if strings.Contains(msg, "<x>") {
+			t.Errorf("%s: the message quotes the request: %q", c.name, msg)
+		}
 	}
-	if r.Code == http.StatusBadRequest {
-		r.errBody(t)
+}
+
+// The real ogen errors name the field: a wrong type, a failed validation and a missing required
+// field. An ogen upgrade that changes its message text fails here.
+func TestErrorEnvelopeNamesTheField(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	for _, c := range []struct {
+		name, body, param string
+	}{
+		{"decode field", `{"username": 5, "password": "x"}`, "username"},
+		{"validate minLength", `{"username": "", "password": "x"}`, "username"},
+		{"missing required", `{"username": "a"}`, "password"},
+	} {
+		r := e.do(req{method: "POST", path: "/admin/v1/session", body: c.body, origin: adminOrigin})
+		if r.Code != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400; body %s", c.name, r.Code, r.Body.String())
+			continue
+		}
+		if got := r.errBody(t)["param"]; got != c.param {
+			t.Errorf("%s: param = %v, want %q", c.name, got, c.param)
+		}
 	}
 }
 
@@ -174,4 +221,44 @@ func TestErrorEnvelopeOversizedChunkedBody(t *testing.T) {
 	r := resp{rec}
 	status(t, r, http.StatusRequestEntityTooLarge)
 	r.errBody(t)
+}
+
+// A failed read of the accepted host names is a server fault (500); a foreign host is a 403. Both
+// refuse the request.
+func TestRejectHostUnavailableIsServerFault(t *testing.T) {
+	e := newEnv(t)
+	for _, c := range []struct {
+		why  credential.Reason
+		want int
+	}{
+		{credential.ReasonHostUnavailable, http.StatusInternalServerError},
+		{credential.ReasonForeignHost, http.StatusForbidden},
+	} {
+		rec := httptest.NewRecorder()
+		e.admin.Reject(rec, httptest.NewRequest("GET", "http://"+adminHost+"/admin/v1/setup", nil), c.why)
+		r := resp{rec}
+		status(t, r, c.want)
+		r.errBody(t)
+	}
+}
+
+// A failed read of the accepted host names, met by the real guard, is a 500 server fault and is
+// logged as such, not a 403.
+func TestGuardHostReadFailureIsServerFault(t *testing.T) {
+	e := newEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	hr := httptest.NewRequest("GET", "http://box.example.ts.net/admin/v1/setup", nil).WithContext(ctx)
+	hr.Host = "box.example.ts.net"
+	hr.RemoteAddr = "127.0.0.1:5555"
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, hr)
+	r := resp{rec}
+	status(t, r, http.StatusInternalServerError)
+	if inner := r.errBody(t); inner["type"] != "server_error" {
+		t.Errorf("error = %v", inner)
+	}
+	if !strings.Contains(e.tel.buf.String(), "host_check_unavailable") {
+		t.Errorf("log lacks host_check_unavailable: %s", e.tel.buf.String())
+	}
 }

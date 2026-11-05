@@ -96,7 +96,7 @@ curl -X POST https://<host>/v1/jobs \
 
 - **Duplicates:** sending the same `Idempotency-Key` again returns the existing job, so a retry after a timeout never runs or bills twice. The exception is a job that ended `failed` with reason `host_restart` (the host restarted while it ran) or `payload_minimized` (the host restored a backup that left job content out). Send the same key again to start a new attempt.
 - **Getting the result:** poll `GET /v1/jobs/{id}`, or register a webhook for `job.done`. `job.done` is sent when a job succeeds. A job that ends `failed`, `cancelled` or `expired` shows its status and reason on `GET /v1/jobs/{id}`.
-- **The result is deleted once a fetch has delivered it whole** (or after the job-result time you set, 24 hours by default). If the connection drops before the body is fully written, fetch again until the time runs out. Store it yourself.
+- **The result is deleted once the host has written it whole to a fetch's connection** (or after the job-result time you set, 24 hours by default). If the connection drops before the host has written the whole body, fetch again until the time runs out. The host cannot see whether the last bytes reached you, so store the result as soon as you have it.
 
 ### Verifying receipts
 

@@ -80,9 +80,9 @@ func (g *Gateway) ListModels(ctx context.Context) (*api.ModelList, error) {
 // models and queue depth. It needs the same credential as every consumer route (D-24), so
 // public mode leaks nothing to anonymous callers. Loaded models are limited to those the caller
 // may use, so a caller never learns of a model outside its grant. Queue depth counts the
-// scheduler's waiting requests by class. A queued job counts, as background, only while the job
-// worker has it waiting in the scheduler's queue; jobs still waiting in the job queue (sch_job)
-// are not counted.
+// scheduler's waiting requests by class. Background depth counts the scheduler's waiting
+// background requests plus the jobs still queued in the job queue (sch_job); a job the job worker
+// has waiting in the scheduler's queue is counted once, there.
 func (g *Gateway) GetHealth(ctx context.Context) (*api.HostHealth, error) {
 	id, err := g.caller(ctx)
 	if err != nil {
@@ -108,6 +108,13 @@ func (g *Gateway) GetHealth(ctx context.Context) (*api.HostHealth, error) {
 	}
 	st := g.cfg.Scheduler.Stats()
 	out.QueueDepth = api.HostHealthQueueDepth{Interactive: st.QueuedInteractive, Background: st.QueuedBackground}
+	if g.cfg.Jobs != nil {
+		if n, err := g.cfg.Jobs.QueuedWaiting(ctx); err != nil {
+			g.log.WarnContext(ctx, "gateway: queued jobs could not be counted", "err", err)
+		} else {
+			out.QueueDepth.Background += n
+		}
+	}
 
 	timeout, err := g.cfg.Settings.Duration(ctx, KeyHealthEngineTimeout, "")
 	if err != nil {

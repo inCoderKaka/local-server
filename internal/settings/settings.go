@@ -175,7 +175,7 @@ func (s *Store) SetValidator(key string, fn func(ctx context.Context, value stri
 }
 
 // SetTxValidator makes fn run inside the write's unit of work, before the write, on every
-// Set and Reset of key, with the value about to be stored (the default's value for Reset).
+// Set and Reset of key, and on every Apply that changes key's effective value, with the value about to be stored (the default's value for Reset).
 // The single writer orders it against every other unit, so the rule is atomic with the write.
 // A non-nil error refuses the write; Set and Reset return it wrapped in ErrRejected. The key
 // must be registered; a later call for the same key replaces the validator.

@@ -149,7 +149,6 @@ type env struct {
 	share   *host.SharingState
 	admin   *admin.Admin
 	h       http.Handler
-	eng     admin.Engine
 }
 
 type envOpts struct {
@@ -170,7 +169,7 @@ func newEnv(t *testing.T, mod ...func(*envOpts)) *env {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	e := &env{t: t, db: db, st: settings.New(db), clk: &clock{t: t0}, tel: newLogTel(), sampler: &fakeSampler{}, eng: o.engine}
+	e := &env{t: t, db: db, st: settings.New(db), clk: &clock{t: t0}, tel: newLogTel(), sampler: &fakeSampler{}}
 	e.ir = identity.NewRepos(e.clk.now)
 	if err := db.Write(ctx, func(tx *storage.Tx) error {
 		_, err := tx.Exec(`INSERT INTO hst_host (id, created_at, data_key_sealed) VALUES ('h1', 1, x'00')`)
@@ -248,7 +247,7 @@ type req struct {
 	method, path, body string
 	host               string // default adminHost
 	remote             string // default 127.0.0.1:5555
-	origin             string // "" sends none; "-" is also none; default none
+	origin             string // "" sends none (the default)
 	cookie             string // the session token, sent as the cookie
 	header             map[string]string
 	noContentType      bool

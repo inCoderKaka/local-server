@@ -22,6 +22,8 @@ const (
 	KeyRetryInterval = "jobs.retry_interval"
 	// KeyMaxActive is host-owned: how many jobs the worker hands to the scheduler at once.
 	KeyMaxActive = "jobs.max_active"
+	// KeyRetention is host-owned: how long a finished job's record is kept (req_001 D-40, D-54).
+	KeyRetention = "jobs.retention"
 )
 
 // Defs are the job settings; New registers them.
@@ -38,6 +40,8 @@ func Defs() []settings.Def {
 			Description: "How long a queued job waits before the worker tries it again after a failure that may pass (the model engine is down, the key's request allowance is empty, a policy time window is closed with no known opening time). A full admission queue uses the scheduler's own Retry-After instead."},
 		{Key: KeyMaxActive, Kind: settings.Int, Default: "4", Owner: h,
 			Description: "Most jobs the worker hands to the scheduler at once, running or waiting for a slot. Jobs beyond it wait in the job queue, oldest first. Raise it together with scheduler.total_concurrency."},
+		{Key: KeyRetention, Kind: settings.Duration, Default: "0s", Owner: h,
+			Description: "How long a finished job's record (its state and times, never content) is kept after it reached a terminal state. A job whose result can still be fetched is kept until the result is fetched whole or passes its time-to-live (jobs.result_ttl). Deleting a record frees its Idempotency-Key, so a resubmission with that key starts a new job. Zero or less keeps records forever."},
 	}
 }
 

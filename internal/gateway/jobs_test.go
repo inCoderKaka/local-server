@@ -724,6 +724,54 @@ func TestUsedUpQuotaStopsNewJobsButNotReadingThem(t *testing.T) {
 	statusIs(t, e.cancelJob(id), http.StatusOK)
 }
 
+func TestUsedUpQuotaStillReturnsTheJobOfADuplicateIdempotencyKey(t *testing.T) {
+	e := newEnv(t, func(o *envOpts) {
+		o.version = func(models []grantsModel) grantsNewVersion {
+			return grantsNewVersion{Models: models, QuotaTokensPerDay: i64(20)}
+		}
+	})
+	first := e.postJob("idem-1", jobBody)
+	statusIs(t, first, http.StatusAccepted)
+	id := idOf(t, first)
+	statusIs(t, e.chat(okChat), http.StatusOK)
+	statusIs(t, e.chat(okChat), http.StatusOK) // over the quota now
+	again := e.postJob("idem-1", jobBody)
+	statusIs(t, again, http.StatusOK)
+	if idOf(t, again) != id {
+		t.Fatalf("duplicate returned job %s, want %s", idOf(t, again), id)
+	}
+	fresh := e.postJob("idem-2", jobBody)
+	statusIs(t, fresh, http.StatusTooManyRequests)
+	if fresh.errBody()["code"] != "quota_exceeded" {
+		t.Fatalf("error = %v", fresh.errBody())
+	}
+	if n := e.sqlInt(`SELECT count(*) FROM sch_job`); n != 1 {
+		t.Fatalf("%d jobs", n)
+	}
+}
+
+func TestUsedUpQuotaRefusesAReleasedIdempotencyKey(t *testing.T) {
+	e := newEnv(t, func(o *envOpts) {
+		o.version = func(models []grantsModel) grantsNewVersion {
+			return grantsNewVersion{Models: models, QuotaTokensPerDay: i64(20)}
+		}
+	})
+	first := e.postJob("idem-1", jobBody)
+	statusIs(t, first, http.StatusAccepted)
+	id := idOf(t, first)
+	e.execSQL("UPDATE sch_job SET status = 'failed', failure_reason = 'host_restart', finished_at = ? WHERE id = ?", time.Now().UnixMilli(), id)
+	statusIs(t, e.chat(okChat), http.StatusOK)
+	statusIs(t, e.chat(okChat), http.StatusOK) // over the quota now
+	again := e.postJob("idem-1", jobBody)
+	statusIs(t, again, http.StatusTooManyRequests)
+	if again.errBody()["code"] != "quota_exceeded" {
+		t.Fatalf("error = %v", again.errBody())
+	}
+	if n := e.sqlInt(`SELECT count(*) FROM sch_job`); n != 1 {
+		t.Fatalf("%d jobs", n)
+	}
+}
+
 func TestJobRequestContentNeverReachesTheLogOrTheDatabaseInTheClear(t *testing.T) {
 	e := newEnv(t)
 	const secret = "zebra-moon-secret-phrase"

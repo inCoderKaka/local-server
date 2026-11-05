@@ -158,7 +158,7 @@ func (t *Lockout) Check(keys []string, now time.Time) time.Duration {
 func (t *Lockout) Fail(keys []string, now time.Time, c LockoutConfig) (triggered bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.sweep(now, c, false)
+	t.sweep(now, c)
 	for _, k := range keys {
 		f, ok := t.m[k]
 		if !ok {
@@ -209,9 +209,9 @@ func (t *Lockout) Len() int {
 	return len(t.m)
 }
 
-// sweep drops idle entries, at most once per idle TTL unless forced.
-func (t *Lockout) sweep(now time.Time, c LockoutConfig, force bool) {
-	if !force && now.Sub(t.lastSweep) < c.IdleTTL {
+// sweep drops idle entries, at most once per idle TTL.
+func (t *Lockout) sweep(now time.Time, c LockoutConfig) {
+	if now.Sub(t.lastSweep) < c.IdleTTL {
 		return
 	}
 	for k, f := range t.m {

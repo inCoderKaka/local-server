@@ -1187,6 +1187,7 @@ func TestSettingsAreRegisteredWithOwnersAndDefaults(t *testing.T) {
 		{KeyPollInterval, settings.Host, "2s", false},
 		{KeyRetryInterval, settings.Host, "30s", false},
 		{KeyMaxActive, settings.Host, "4", false},
+		{KeyRetention, settings.Host, "0s", false},
 	} {
 		d, ok := e.st.Definition(c.key)
 		if !ok || d.Owner != c.owner || d.Default != c.def || d.Scoped != c.scoped {
@@ -1210,6 +1211,102 @@ func TestSettingsAreRegisteredWithOwnersAndDefaults(t *testing.T) {
 			t.Errorf("%s=%s accepted: %v", key, bad, err)
 		}
 	}
+}
+
+func TestQueuedWaitingCountsQueuedJobsNotHandedToTheScheduler(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if n, err := e.svc.QueuedWaiting(ctx); err != nil || n != 0 {
+		t.Fatalf("QueuedWaiting on an empty queue = %d, %v", n, err)
+	}
+	a, _ := e.create("c1", "k1", "idem-1")
+	b, _ := e.create("c1", "k1", "idem-2")
+	if n, err := e.svc.QueuedWaiting(ctx); err != nil || n != 2 {
+		t.Fatalf("QueuedWaiting = %d, %v; want 2", n, err)
+	}
+	// A job handed to the scheduler is counted by the scheduler, or is running already.
+	e.svc.mu.Lock()
+	e.svc.active[a.ID] = func(error) {}
+	e.svc.mu.Unlock()
+	if n, err := e.svc.QueuedWaiting(ctx); err != nil || n != 1 {
+		t.Fatalf("QueuedWaiting with a job handed to the scheduler = %d, %v; want 1", n, err)
+	}
+	// A job on hold is still waiting in the job queue.
+	e.svc.mu.Lock()
+	e.svc.hold[b.ID] = e.clk.Now().Add(time.Hour)
+	e.svc.mu.Unlock()
+	if n, err := e.svc.QueuedWaiting(ctx); err != nil || n != 1 {
+		t.Fatalf("QueuedWaiting with a job on hold = %d, %v; want 1", n, err)
+	}
+	// A job that is not queued is not counted.
+	e.exec(`UPDATE sch_job SET status = 'running' WHERE id <> ?`, a.ID)
+	if n, err := e.svc.QueuedWaiting(ctx); err != nil || n != 0 {
+		t.Fatalf("QueuedWaiting with no queued job outside the worker = %d, %v; want 0", n, err)
+	}
+}
+
+func TestRetentionDeletesOldFinishedJobsOnceTheirResultIsGone(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	old, _ := e.create("c1", "k1", "old")
+	recent, _ := e.create("c1", "k1", "recent")
+	queued, _ := e.create("c1", "k1", "queued")
+	running, _ := e.create("c1", "k1", "running")
+	now := time.Now()
+	e.exec(`UPDATE sch_job SET status = 'succeeded', started_at = ?, finished_at = ? WHERE id = ?`, ms(now.Add(-3*time.Hour)), ms(now.Add(-2*time.Hour)), old.ID)
+	e.exec(`UPDATE sch_job SET status = 'cancelled', finished_at = ? WHERE id = ?`, ms(now.Add(-10*time.Minute)), recent.ID)
+	e.exec(`UPDATE sch_job SET status = 'running', started_at = ? WHERE id = ?`, ms(now.Add(-3*time.Hour)), running.ID)
+	e.exec(`INSERT INTO sch_job_result (job_id, sealed, receipt, created_at, expires_at) VALUES (?, x'00', 'r', ?, ?)`,
+		old.ID, ms(now.Add(-2*time.Hour)), ms(now.Add(time.Hour)))
+	ids := []string{old.ID, recent.ID, queued.ID, running.ID}
+	rows := func() int {
+		return e.count(`SELECT count(*) FROM sch_job WHERE id IN (?, ?, ?, ?)`, toAny(ids)...)
+	}
+
+	// The default keeps records forever.
+	if _, err := e.st.PruneOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := rows(); n != 4 || e.resultRows(old.ID) != 1 {
+		t.Fatalf("with the default retention %d jobs are left, %d results; want 4 and 1", n, e.resultRows(old.ID))
+	}
+
+	e.set(KeyRetention, "1h")
+	if _, err := e.st.PruneOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The old job is kept while its result can still be fetched.
+	if n := rows(); n != 4 || e.resultRows(old.ID) != 1 {
+		t.Fatalf("with a fetchable result %d jobs are left, %d results; want 4 and 1", n, e.resultRows(old.ID))
+	}
+	// A whole fetch or the time-to-live sweep deletes the result.
+	e.exec(`DELETE FROM sch_job_result WHERE job_id = ?`, old.ID)
+	if _, err := e.st.PruneOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := rows(); n != 3 {
+		t.Fatalf("%d jobs are left; want 3", n)
+	}
+	if n := e.count(`SELECT count(*) FROM sch_job WHERE id = ?`, old.ID); n != 0 {
+		t.Fatal("the job finished 2h ago was kept")
+	}
+	for _, id := range ids[1:] {
+		if n := e.count(`SELECT count(*) FROM sch_job WHERE id = ?`, id); n != 1 {
+			t.Fatalf("job %s was deleted", id)
+		}
+	}
+	// The key of the deleted job is free again.
+	if _, created := e.create("c1", "k1", "old"); !created {
+		t.Fatal("the Idempotency-Key of a deleted job did not start a new job")
+	}
+}
+
+func toAny(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, s := range ss {
+		out[i] = s
+	}
+	return out
 }
 
 // ---- construction ----

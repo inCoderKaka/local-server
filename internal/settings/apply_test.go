@@ -144,6 +144,28 @@ func TestApplyValidatorsRefuseTheWholeBatch(t *testing.T) {
 	}
 }
 
+// An update that leaves the effective value as it is is not a write, so the tx validator does
+// not run for it, even one that refuses every write.
+func TestApplyNoOpSkipsTxValidator(t *testing.T) {
+	ctx := context.Background()
+	s := applyStore(t)
+	if err := s.SetTxValidator("m.flag", func(_ *storage.Tx, _ string) error {
+		return errors.New("frozen")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Apply(ctx, Host, []Update{{Key: "m.flag", Value: "false"}}, nil)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("same value as the default: changes = %v, err = %v", got, err)
+	}
+	if _, err := s.Apply(ctx, Host, []Update{{Key: "m.flag", Reset: true}}, nil); err != nil {
+		t.Fatalf("reset of a default: %v", err)
+	}
+	if _, err := s.Apply(ctx, Host, []Update{{Key: "m.flag", Value: "true"}}, nil); !errors.Is(err, ErrRejected) {
+		t.Fatalf("a real change: err = %v, want ErrRejected", err)
+	}
+}
+
 // The callback is in the same unit of work: its error rolls the settings back, and its writes
 // roll back with them.
 func TestApplyCallbackSharesTheUnitOfWork(t *testing.T) {

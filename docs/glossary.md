@@ -90,6 +90,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Access key narrowing | Limits a key adds on top of its consumer's grant. They can only narrow the grant, never widen it. | — | D-25 |
 | Bound node | The tailnet node an access key is restricted to, checked through Tailscale WhoIs. | — | D-39 |
 | Lockout | An access key's source address or key prefix, or a login, blocked after repeated failures, for durations set by the host's lockout settings. A successful key check clears only its key prefix's counter. | — | D-24, D-99 |
+| Session | What a login leaves in place: the browser holds a session cookie (`ls_admin_session` on the admin API, `ls_session` for consumers) whose random token the host stores only as a hash. It ends at logout or when the session TTL setting (`admin.session_ttl` for admins) runs out. | login | D-39, D-25 |
 | Passkey ceremony | A started WebAuthn registration or login, with a ceremony id, that expires after the host's ceremony TTL setting. | — | D-13 |
 
 ## Requests and records
@@ -112,6 +113,8 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Consistency proof | A proof that a later checkpoint's ledger contains an earlier one's unchanged, so the ledger only grew between them. | — | D-27 |
 | Checkpoint origin | The first line of every checkpoint, also the checkpoint-signing key's name in the signed note. Defaults to `local-server/ledger/<host id>` and cannot change once the first checkpoint is signed. | — | D-97 |
 | Rollup | Usage totals per minute, hour or day, computed from usage records. | Usage over time | D-27 |
+| Granularity | The size of a rollup bucket: minute, hour or day. The `granularity` parameter of the usage endpoints. | Granularity | D-27, D-40 |
+| Rollup bucket | The UTC minute, hour or day that one rollup row sums, identified by its `bucket_start`. Not the storage bucket an off-host backup is sent to. | — | D-27 |
 | Outbox | The table where an event and its pending webhook deliveries are written in the same transaction, so none are lost. | — | D-29 |
 | Webhook endpoint | A URL a consumer or host registers to receive signed event notifications. | Webhook | D-29 |
 

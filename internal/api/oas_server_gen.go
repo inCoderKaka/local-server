@@ -159,6 +159,21 @@ type Handler interface {
 	//
 	// Usage rollups for every consumer, filterable by consumer, key and model.
 	//
+	// Buckets are aligned to UTC. A minute or hour bucket starts on the UTC minute or hour, and a day
+	// bucket at 00:00 UTC. There is no time-zone option.
+	//
+	// `from` and `to` select whole buckets by `bucket_start`: a bucket is returned when `from` <=
+	// `bucket_start` < `to`. A bucket that starts before `from` is left out, even when part of it lies
+	// inside the range. A bucket that starts before `to` is returned whole.
+	//
+	// The host sets how long each granularity is kept. By default that is 7 days of minute totals and 90
+	// days of hour totals, and day totals are kept forever. An older range returns no rows for that
+	// granularity even if there was usage, so ask for a coarser granularity.
+	//
+	// Usage appears after the next rollup pass, so a call can take up to the host's rollup interval (one
+	// minute by default) to show here. Only buckets with at least one call are returned: a bucket with no
+	// usage has no row, not a row of zeros.
+	//
 	// GET /admin/v1/usage
 	AdminGetUsage(ctx context.Context, params AdminGetUsageParams) (*UsageRollupList, error)
 	// AdminIssueAccessKey implements adminIssueAccessKey operation.
@@ -469,11 +484,13 @@ type Handler interface {
 	GetJob(ctx context.Context, params GetJobParams) (*Job, error)
 	// GetJobResult implements getJobResult operation.
 	//
-	// The result of a `succeeded` job, with its receipt in `LS-Receipt`. The host deletes the result only
-	// after this response body has been fully written to you, or when the consumer's job-result TTL passes
-	// (D-85). Until then it can be fetched again: if the connection drops before the body is complete,
-	// fetch again. Afterwards this returns `410`. A job that has not succeeded returns `409`. A job that
-	// does not exist, or belongs to another consumer, returns `404`. Errors use the error envelope.
+	// The result of a `succeeded` job, with its receipt in `LS-Receipt`. The host deletes the result once
+	// it has written this whole response body to the connection, or when the consumer's job-result TTL
+	// passes (D-85). If the connection fails before the host has written the whole body, the result stays
+	// and can be fetched again. The host cannot see whether your client received the last bytes, so store
+	// the result as soon as you have it: a connection lost after the host finished writing can leave it
+	// already deleted. Afterwards this returns `410`. A job that has not succeeded returns `409`. A job
+	// that does not exist, or belongs to another consumer, returns `404`. Errors use the error envelope.
 	//
 	// GET /v1/jobs/{job_id}/result
 	GetJobResult(ctx context.Context, params GetJobResultParams) (*JobResultHeaders, error)
@@ -520,6 +537,21 @@ type Handler interface {
 	// GetUsage implements getUsage operation.
 	//
 	// Usage rollups for the caller's consumer, per access key and model.
+	//
+	// Buckets are aligned to UTC. A minute or hour bucket starts on the UTC minute or hour, and a day
+	// bucket at 00:00 UTC. There is no time-zone option.
+	//
+	// `from` and `to` select whole buckets by `bucket_start`: a bucket is returned when `from` <=
+	// `bucket_start` < `to`. A bucket that starts before `from` is left out, even when part of it lies
+	// inside the range. A bucket that starts before `to` is returned whole.
+	//
+	// The host sets how long each granularity is kept. By default that is 7 days of minute totals and 90
+	// days of hour totals, and day totals are kept forever. An older range returns no rows for that
+	// granularity even if there was usage, so ask for a coarser granularity.
+	//
+	// Usage appears after the next rollup pass, so a call can take up to the host's rollup interval (one
+	// minute by default) to show here. Only buckets with at least one call are returned: a bucket with no
+	// usage has no row, not a row of zeros.
 	//
 	// GET /v1/usage
 	GetUsage(ctx context.Context, params GetUsageParams) (*UsageRollupList, error)

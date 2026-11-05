@@ -4492,8 +4492,12 @@ type Job struct {
 	ID uuid.UUID `json:"id"`
 	// The job's state. `succeeded`, `failed`, `cancelled` and `expired` are terminal.
 	Status JobStatus `json:"status"`
-	// Why a job `failed`, for example `host_restart` or `payload_minimized` (resubmit with the same
-	// Idempotency-Key to try again), or an error code such as `engine_unavailable`.
+	// Why a job `failed`. `host_restart` or `payload_minimized`: resubmit with the same Idempotency-Key to
+	// try again. `payload_unreadable` or `internal_error`: the host could not run or store the job.
+	// `engine_timeout`, `engine_error`, `model_not_found` or `invalid_request`: the model engine refused
+	// or failed the call. Otherwise the error code a synchronous call would have returned, such as
+	// `engine_unavailable`, `policy_denied`, `over_budget` or `context_too_long`. Any other failure keeps
+	// its Idempotency-Key: submit with a new key to try again.
 	FailureReason OptNilString `json:"failure_reason"`
 	// The model requested.
 	Model string `json:"model"`

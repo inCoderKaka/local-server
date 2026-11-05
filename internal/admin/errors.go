@@ -12,6 +12,7 @@ import (
 	"github.com/go-faster/jx"
 	ht "github.com/ogen-go/ogen/http"
 	"github.com/ogen-go/ogen/ogenerrors"
+	"github.com/ogen-go/ogen/validate"
 
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/audit"
@@ -193,6 +194,12 @@ func decodeError(err error) *apiError {
 			field = m[1]
 		} else if m := validateField.FindStringSubmatch(text); m != nil {
 			field = m[1]
+		} else if ve := (*validate.Error)(nil); errors.As(err, &ve) && len(ve.Fields) > 0 {
+			// A missing required field: ogen reports "invalid: <name> (field required)" without the "validate:" prefix.
+			field = ve.Fields[0].Name
+		}
+		if !safeName(field) {
+			field = ""
 		}
 		return badRequest(field, "The request body is not valid.")
 	case errors.As(err, &dp):

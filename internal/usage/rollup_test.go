@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -260,6 +261,70 @@ func TestFailedStepLeavesNothingCounted(t *testing.T) {
 	}
 	e.runOnce(t)
 	e.checkRollups(t, recs)
+}
+
+// countTel is a telemetry whose counters remember what they were told, by metric name.
+type countTel struct {
+	telemetry.Telemetry
+	mu  sync.Mutex
+	sum map[string]float64
+}
+
+func (c *countTel) Counter(name string, _ ...string) telemetry.Counter {
+	return countCounter{c, name}
+}
+
+func (c *countTel) total(name string) float64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sum[name]
+}
+
+type countCounter struct {
+	c    *countTel
+	name string
+}
+
+func (m countCounter) Inc(...string) { m.Add(1) }
+
+func (m countCounter) Add(delta float64, _ ...string) {
+	m.c.mu.Lock()
+	defer m.c.mu.Unlock()
+	m.c.sum[m.name] += delta
+}
+
+func TestRollupMetricsCountRecordsAndFailedPasses(t *testing.T) {
+	e := newEnv(t)
+	tel := &countTel{Telemetry: telemetry.Nop(), sum: map[string]float64{}}
+	var err error
+	if e.r, err = NewRollups(e.db, e.st, tel); err != nil {
+		t.Fatal(err)
+	}
+	recs := sampleRecords()
+	e.insert(t, recs...)
+	e.runOnce(t)
+	if got := tel.total("usage_rollup_records_total"); got != float64(len(recs)) {
+		t.Errorf("usage_rollup_records_total = %v, want %d", got, len(recs))
+	}
+	if got := tel.total("usage_rollup_errors_total"); got != 0 {
+		t.Errorf("usage_rollup_errors_total = %v after a good pass, want 0", got)
+	}
+	e.insert(t, recs[0])
+	if err := e.db.Write(context.Background(), func(tx *storage.Tx) error {
+		_, err := tx.Exec(`CREATE TRIGGER use_rollup_state_boom BEFORE INSERT ON use_rollup_state BEGIN SELECT RAISE(ABORT, 'boom'); END`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.r.RunOnce(context.Background()); err == nil {
+		t.Fatal("RunOnce succeeded although the watermark could not be written")
+	}
+	if got := tel.total("usage_rollup_errors_total"); got != 1 {
+		t.Errorf("usage_rollup_errors_total = %v after a failed pass, want 1", got)
+	}
+	if got := tel.total("usage_rollup_records_total"); got != float64(len(recs)) {
+		t.Errorf("usage_rollup_records_total = %v after a failed pass, want %d", got, len(recs))
+	}
 }
 
 func TestRetentionPrunesEachGranularityAtItsSetting(t *testing.T) {

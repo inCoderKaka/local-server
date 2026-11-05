@@ -2,10 +2,13 @@ package gateway_test
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -210,4 +213,52 @@ func TestUsageNeedsAKey(t *testing.T) {
 	e, _, _ := usageEnv(t)
 	statusIs(t, e.doAuth("", http.MethodGet, "/v1/usage?granularity=day", ""), http.StatusUnauthorized)
 	statusIs(t, e.doAuth("Bearer ls_nope", http.MethodGet, "/v1/usage?granularity=day", ""), http.StatusUnauthorized)
+}
+
+func TestUsageRangeSelectsWholeBucketsByStart(t *testing.T) {
+	e, _, _ := usageEnv(t)
+	hours := rows(t, e.usage("granularity=hour"))
+	if len(hours) == 0 {
+		t.Fatal("no hour rows")
+	}
+	b, err := time.Parse(time.RFC3339, hours[0]["bucket_start"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mid := url.QueryEscape(b.Add(30 * time.Minute).Format(time.RFC3339))
+	start := url.QueryEscape(b.Format(time.RFC3339))
+	// A bucket that starts before from is left out, even when part of it lies in the range.
+	for _, row := range rows(t, e.usage("granularity=hour&from="+mid)) {
+		if bs, _ := time.Parse(time.RFC3339, row["bucket_start"].(string)); bs.Equal(b) {
+			t.Fatalf("bucket %v starting before from was returned", row)
+		}
+	}
+	// A bucket that starts before to is returned whole.
+	got := rows(t, e.usage("granularity=hour&from="+start+"&to="+mid))
+	if len(got) == 0 {
+		t.Fatal("the bucket starting inside the range was not returned")
+	}
+	for _, row := range got {
+		if bs, _ := time.Parse(time.RFC3339, row["bucket_start"].(string)); !bs.Equal(b) {
+			t.Fatalf("row %v is outside the range", row)
+		}
+	}
+}
+
+func TestUsageCursorOfAnotherConsumerShowsOnlyTheCallersRows(t *testing.T) {
+	e, _, other := usageEnv(t)
+	raw, err := json.Marshal(map[string]any{"b": 0, "c": other, "k": uuid.NewString(), "m": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := base64.RawURLEncoding.EncodeToString(raw)
+	got := rows(t, e.usage("granularity=day&cursor="+url.QueryEscape(c)))
+	for _, row := range got {
+		if row["consumer_id"] != e.cons.ID {
+			t.Fatalf("row %v is not the caller's", row)
+		}
+	}
+	if want := rows(t, e.usage("granularity=day")); len(got) != len(want) {
+		t.Fatalf("%d rows with a foreign cursor, want %d", len(got), len(want))
+	}
 }

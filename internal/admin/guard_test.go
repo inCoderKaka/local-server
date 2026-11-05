@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/inCoderKaka/local-server/internal/admin"
+	"github.com/inCoderKaka/local-server/internal/settings"
 )
 
 // A request whose Host header is not a loopback name or the configured tailnet name is refused on
@@ -85,7 +86,7 @@ func TestTailnetNameSettingAppliesPerRequest(t *testing.T) {
 func TestTailnetNameValidator(t *testing.T) {
 	e := newEnv(t)
 	for _, bad := range []string{"http://x.ts.net", "x.ts.net:8485", "x/y", "a b", ".leading", "-leading", "über.ts.net", strings.Repeat("a", 254)} {
-		if err := e.st.Set(t.Context(), "host", admin.KeyTailnetName, "", bad); err == nil {
+		if err := e.st.Set(t.Context(), settings.Host, admin.KeyTailnetName, "", bad); err == nil {
 			t.Errorf("%q was accepted as a tailnet name", bad)
 		}
 	}

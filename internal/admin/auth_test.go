@@ -406,3 +406,70 @@ func TestParallelGuessesStopAtTheLockoutThreshold(t *testing.T) {
 		t.Fatalf("%d got 401 and %d got 429; want 3 and %d", unauthorized.Load(), limited.Load(), n-3)
 	}
 }
+
+// An unknown login name burns against a real admin hash, so it costs what that hash costs and not
+// what the current cost settings say. ReferenceHash is that hash: "" before any admin exists.
+func TestReferenceHashIsTheStoredAdminHash(t *testing.T) {
+	e := newEnv(t)
+	a, err := admin.NewAuthenticator(admin.AuthConfig{DB: e.db, Settings: e.st, Identity: e.ir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	got, err := a.ReferenceHash(ctx)
+	if err != nil || got != "" {
+		t.Fatalf("before setup: ReferenceHash = %q, %v; want empty", got, err)
+	}
+	e.setup()
+	var want string
+	if err := e.db.Reader().QueryRow(ctx, `SELECT secret FROM idn_credential WHERE kind='password'`).Scan(&want); err != nil {
+		t.Fatal(err)
+	}
+	got, err = a.ReferenceHash(ctx)
+	if err != nil || got == "" || got != want {
+		t.Fatalf("after setup: ReferenceHash = %q, %v; want %q", got, err, want)
+	}
+}
+
+// A reference hash that does not parse falls back to Burn: an unknown name is a plain invalid
+// login, not a server fault.
+func TestUnknownNameWithMalformedReferenceHashIsInvalidLogin(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	ctx := context.Background()
+	err := e.db.Write(ctx, func(tx *storage.Tx) error {
+		_, err := tx.Exec(`UPDATE idn_credential SET secret = 'malformed' WHERE kind = 'password'`)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := admin.NewAuthenticator(admin.AuthConfig{DB: e.db, Settings: e.st, Identity: e.ir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Authenticate(ctx, "nobody", "whatever-password", "127.0.0.1:1"); !errors.Is(err, admin.ErrInvalidLogin) {
+		t.Fatalf("Authenticate = %v; want ErrInvalidLogin", err)
+	}
+}
+
+// A revoked credential is not a reference hash.
+func TestReferenceHashSkipsRevokedCredential(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	ctx := context.Background()
+	err := e.db.Write(ctx, func(tx *storage.Tx) error {
+		_, err := tx.Exec(`UPDATE idn_credential SET revoked_at = ? WHERE kind = 'password'`, time.Now().UnixMilli())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := admin.NewAuthenticator(admin.AuthConfig{DB: e.db, Settings: e.st, Identity: e.ir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := a.ReferenceHash(ctx); err != nil || got != "" {
+		t.Fatalf("ReferenceHash = %q, %v; want empty", got, err)
+	}
+}
