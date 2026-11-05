@@ -15,9 +15,6 @@ var (
 	errExpired   = errors.New("jobs: past its deadline")
 )
 
-// defaultPollInterval is used only when the poll interval setting cannot be read.
-const defaultPollInterval = 2 * time.Second
-
 // poke wakes the worker so a new job starts without waiting a poll interval.
 func (s *Service) poke() {
 	select {
@@ -48,7 +45,7 @@ func (s *Service) Run(ctx context.Context, exec Executor) {
 		if err := s.tick(ctx, exec); err != nil && ctx.Err() == nil {
 			s.log.ErrorContext(ctx, "jobs: worker pass failed", "err", err)
 		}
-		wait := defaultPollInterval
+		wait := defaultDuration(KeyPollInterval)
 		if d, err := s.cfg.Settings.Duration(ctx, KeyPollInterval, ""); err == nil {
 			wait = d
 		}
@@ -133,27 +130,35 @@ func (s *Service) dispatch(ctx context.Context, exec Executor) error {
 	if err != nil {
 		return fmt.Errorf("jobs: read settings: %w", err)
 	}
+	now := s.now()
 	s.mu.Lock()
+	for id, until := range s.hold {
+		if !until.After(now) {
+			delete(s.hold, id)
+		}
+	}
+	nHold := len(s.hold)
 	free := int(limit) - len(s.active)
 	nHeld := len(s.active)
 	s.mu.Unlock()
 	if free <= 0 {
 		return nil
 	}
-	now := s.now()
-	// A job already held is still queued while it waits for a slot, so read past them.
+	// A job already held is still queued while it waits for a slot, and a job on hold is still
+	// admissible in the database, so read past both.
 	ids, err := queryIDs(ctx, s.cfg.DB.Reader(),
 		`SELECT id FROM sch_job WHERE status = 'queued' AND (not_before IS NULL OR not_before <= ?) ORDER BY created_at, id LIMIT ?`,
-		ms(now), free+nHeld)
+		ms(now), free+nHeld+nHold)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
 		s.mu.Lock()
 		_, held := s.active[id]
+		_, waiting := s.hold[id]
 		full := len(s.active) >= int(limit)
 		s.mu.Unlock()
-		if held {
+		if held || waiting {
 			continue
 		}
 		if full {
@@ -221,11 +226,18 @@ func (s *Service) process(jctx, parent context.Context, cancel context.CancelCau
 		return
 	}
 	defer slot.Release() // a no-op after Run; frees the slot if anything below panics
+	if jctx.Err() != nil {
+		return // cut short after the slot was granted: the job keeps its state; the deferred Release frees the slot
+	}
 	started, err := s.markRunning(wctx, j.ID)
-	if err != nil || !started {
-		if err != nil {
-			s.log.ErrorContext(jctx, "jobs: job could not be marked running", "job_id", j.ID, "err", err)
+	if err != nil {
+		s.log.ErrorContext(jctx, "jobs: job could not be marked running", "job_id", j.ID, "err", err)
+		if jctx.Err() == nil {
+			s.retryLater(wctx, jctx, j, 0, nil)
 		}
+		return
+	}
+	if !started {
 		return
 	}
 	out, err := slot.Run(jctx)
@@ -265,6 +277,7 @@ func (s *Service) admitFailed(wctx, jctx context.Context, j Job, err error) {
 	case errors.As(err, &fe):
 		s.settleFailed(wctx, j, fe.Reason, Queued)
 	case errors.As(err, &de):
+		s.log.DebugContext(jctx, "jobs: job not admissible yet; it stays queued", "job_id", j.ID, "code", de.Code)
 		s.retryLater(wctx, jctx, j, de.After, nil)
 	default:
 		s.retryLater(wctx, jctx, j, 0, err)
@@ -280,7 +293,7 @@ func (s *Service) retryLater(wctx, jctx context.Context, j Job, after time.Durat
 	if after <= 0 {
 		d, err := s.cfg.Settings.Duration(wctx, KeyRetryInterval, "")
 		if err != nil {
-			d = 30 * time.Second
+			d = defaultDuration(KeyRetryInterval)
 		}
 		after = d
 	}
@@ -290,6 +303,9 @@ func (s *Service) retryLater(wctx, jctx context.Context, j Job, after time.Durat
 	})
 	if err != nil {
 		s.log.ErrorContext(jctx, "jobs: retry time could not be stored", "job_id", j.ID, "err", err)
+		s.mu.Lock()
+		s.hold[j.ID] = s.now().Add(after)
+		s.mu.Unlock()
 	}
 }
 

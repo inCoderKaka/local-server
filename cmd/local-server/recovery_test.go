@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inCoderKaka/local-server/internal/auth/credential"
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
@@ -298,6 +299,41 @@ func TestRecoveryCodeNotShownWhenTheAuditWriteFails(t *testing.T) {
 		t.Error("the code was shown although the audit write failed")
 	}
 	contains(t, "stderr", ra.err.String(), "audit")
+}
+
+// Ctrl-C (a cancelled context) at the password prompt ends the command at once: a terminal read
+// does not watch the context, so the prompt is abandoned. Nothing is shown and nothing is audited.
+func TestRecoveryCodeInterruptedAtThePasswordPrompt(t *testing.T) {
+	ta := newTestApp(t, true)
+	code := firstRun(t, ta, true)
+	ra := recoveryApp(t, ta, true, true, [2]string{rcUser, rcPass})
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	ra.readPassword = func() (string, error) {
+		<-block
+		return "", io.EOF
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	exit := make(chan int, 1)
+	go func() { exit <- ra.run(ctx, []string{"recovery-code", "--data-dir", ra.dir}) }()
+	waitFor(t, "the password prompt", func() bool { return strings.Contains(ra.err.String(), "Password:") })
+	cancel()
+	select {
+	case got := <-exit:
+		if got != 1 {
+			t.Errorf("exit = %d, want 1; stderr:\n%s", got, ra.err.String())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the command did not stop after the context was cancelled")
+	}
+	contains(t, "stderr", ra.err.String(), "interrupted")
+	if strings.Contains(ra.err.String(), code) || strings.Contains(ra.out.String(), code) {
+		t.Error("the code was shown after an interrupt")
+	}
+	if n := auditCount(t, ta.dir, "host.recovery_code_shown"); n != 0 {
+		t.Errorf("audit rows = %d, want 0", n)
+	}
 }
 
 func TestRecoveryCodeUsage(t *testing.T) {

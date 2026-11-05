@@ -48,9 +48,9 @@ type services struct {
 // wire builds every module on d, keys and eng, in dependency order, and returns what serve
 // runs; metrics is telemetry's /metrics handler, which the admin listener serves. Constructors
 // register their own settings; registerSettings did the rest. To add a
-// module that serves or runs a worker, build it here and add its worker in startWorkers. It also
-// marks the jobs a stop interrupted failed(host_restart), before any worker or listener runs
-// (req_001 D-38, D-54).
+// module that serves or runs a worker, build it here and add its worker in startWorkers.
+// runServe marks the jobs a stop interrupted failed(host_restart) once both listeners are bound
+// (failInterrupted), before any worker or server runs (req_001 D-38, D-54).
 func wire(ctx context.Context, d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Telemetry, metrics http.Handler) (*services, error) {
 	var err error
 	db, st, log := d.db, d.st, tel.Logger()
@@ -76,11 +76,6 @@ func wire(ctx context.Context, d *database, keys *hostkeys.Keys, eng engine.Engi
 
 	if sv.jobs, err = jobs.New(jobs.Config{DB: db, Settings: st, Events: bus, Keys: keys, Telemetry: tel}); err != nil {
 		return nil, err
-	}
-	if n, err := sv.jobs.FailInterrupted(ctx); err != nil {
-		return nil, err
-	} else if n > 0 {
-		log.WarnContext(ctx, "jobs interrupted by the last stop were marked failed (host_restart); clients resubmit with their Idempotency-Key", "jobs", n)
 	}
 
 	// Adds usage records to the minute, hour and day rollups the usage endpoint reads (F-023).
@@ -120,6 +115,20 @@ func wire(ctx context.Context, d *database, keys *hostkeys.Keys, eng engine.Engi
 	}
 	sv.admin = adm.Handler()
 	return sv, nil
+}
+
+// failInterrupted marks the jobs a stop interrupted failed(host_restart) (req_001 D-38, D-54).
+// serve calls it only after both listeners are bound, so a start that fails (port taken by a
+// running instance) never touches that instance's running jobs.
+func (sv *services) failInterrupted(ctx context.Context, log *slog.Logger) error {
+	n, err := sv.jobs.FailInterrupted(ctx)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		log.WarnContext(ctx, "jobs interrupted by the last stop were marked failed (host_restart); clients resubmit with their Idempotency-Key", "jobs", n)
+	}
+	return nil
 }
 
 // startWorkers starts every background worker under sup (req_001 D-39 F9 step 5). Each is

@@ -16,6 +16,7 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
 	"github.com/inCoderKaka/local-server/internal/settings"
+	"github.com/inCoderKaka/local-server/internal/storage"
 )
 
 // loopbackAny makes both listeners take a free port.
@@ -428,6 +429,44 @@ func TestServeListenFailureNamesTheSetting(t *testing.T) {
 		t.Fatalf("exit = %d, want 1", code)
 	}
 	contains(t, "stderr", ta.err.String(), keyConsumerListen, addr)
+}
+
+// A start that cannot bind its listeners (a running instance holds the port) leaves the running
+// jobs alone: they are marked failed(host_restart) only once both listeners are bound.
+func TestServeListenFailureLeavesRunningJobs(t *testing.T) {
+	ta := newTestApp(t, true)
+	seed(t, ta.dir, loopbackAny)
+	if code := startServe(t, ta, "--engine", "fake").stop(); code != 0 {
+		t.Fatalf("first run exit = %d; stderr:\n%s", code, ta.err.String())
+	}
+	d, err := openDatabase(context.Background(), filepath.Join(ta.dir, dbFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = d.db.Write(context.Background(), func(tx *storage.Tx) error {
+		_, err := tx.Exec(`INSERT INTO sch_job (id, consumer_id, principal_id, access_key_id, grant_version_id, idempotency_key, model, identity, status, created_at)
+			VALUES ('job-1', 'c-1', 'p-1', 'k-1', 'gv-1', 'idem-1', 'm', '{}', 'running', 1)`)
+		return err
+	})
+	d.db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	busy := httptest.NewServer(http.NotFoundHandler())
+	defer busy.Close()
+	addr := strings.TrimPrefix(busy.URL, "http://")
+	seed(t, ta.dir, map[string]string{keyConsumerListen: addr})
+	ta2 := newTestApp(t, false)
+	ta2.dir, ta2.kc, ta2.keychain = ta.dir, ta.kc, ta.kc
+	code := ta2.run(context.Background(), []string{"serve", "--engine", "fake", "--data-dir", ta.dir})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stderr:\n%s", code, ta2.err.String())
+	}
+	contains(t, "stderr", ta2.err.String(), keyConsumerListen, addr)
+	if n := count(t, ta.dir, `SELECT count(*) FROM sch_job WHERE status = 'running'`); n != 1 {
+		t.Errorf("running jobs = %d after a start that failed to bind, want the 1 left alone", n)
+	}
 }
 
 // registerSettings puts the retention rules of every table with a retention setting in place

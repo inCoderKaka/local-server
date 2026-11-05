@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -222,9 +223,11 @@ func (g *Gateway) JobExecutor() jobs.Executor { return jobExecutor{g} }
 
 type jobExecutor struct{ g *Gateway }
 
-// Admit implements jobs.Executor. The key and its quota are checked again, so a key revoked while
-// the job waited does not run it, then policy with the time window (req_001 D-38 kept by D-54),
-// then the size against the caps in force now, then Scheduler.Admit.
+// Admit implements jobs.Executor. The key, the grant version's expiry and the quota are checked
+// again, so a key revoked or a grant version expired while the job waited does not run it, then
+// policy with the time window (req_001 D-38 kept by D-54), then the size against the caps in force
+// now, then Scheduler.Admit. The job runs under the grant version saved at submission, so later
+// grant changes (models, quotas, caps) are not applied to it (I-271).
 func (x jobExecutor) Admit(ctx context.Context, j jobs.Job, payload []byte) (jobs.Slot, error) {
 	g := x.g
 	var id auth.Identity
@@ -242,6 +245,13 @@ func (x jobExecutor) Admit(ctx context.Context, j jobs.Job, payload []byte) (job
 	c := call{id: &id, cfg: cfg, jobID: j.ID}
 	if err := g.cfg.Limits.Check(ctx, &id); err != nil {
 		return nil, g.jobAdmitError(ctx, err)
+	}
+	v, err := g.cfg.Grants.Versions.Get(ctx, g.cfg.DB.Reader(), id.GrantVersionID)
+	if err != nil {
+		return nil, fmt.Errorf("gateway: load grant version: %w", err)
+	}
+	if v.ExpiresAt != nil && !g.now().Before(*v.ExpiresAt) {
+		return nil, g.jobAdmitError(ctx, auth.ErrGrantExpired)
 	}
 	dec, err := g.evaluateFor(ctx, cfg, &id, p.Properties, j.Model)
 	if err != nil {

@@ -134,6 +134,13 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 		consumerLn.Close()
 		return fmt.Errorf("listen on %s (setting %s): %w", cfg.AdminListen, keyAdminListen, err)
 	}
+	// Only now, with both ports held: a start that cannot bind must not fail the running jobs of
+	// the instance that holds them.
+	if err := sv.failInterrupted(ctx, log); err != nil {
+		consumerLn.Close()
+		adminLn.Close()
+		return fmt.Errorf("mark interrupted jobs: %w", err)
+	}
 	httpLog := slog.NewLogLogger(log.Handler(), slog.LevelWarn)
 	tracker := newInflight()
 	consumer := &http.Server{Handler: tracker.wrap(sv.consumer), ReadHeaderTimeout: cfg.ReadHeaderTimeout, IdleTimeout: cfg.IdleTimeout, ErrorLog: httpLog}

@@ -74,6 +74,11 @@ func (a *app) recoveryCode(ctx context.Context, args []string) int {
 		fmt.Fprintf(a.stderr, "local-server: %v\n", err)
 		return 1
 	}
+	// ReadPassword turns echo off and restores it only when it returns; an interrupted prompt
+	// returns early, so the terminal state is restored on every way out.
+	if st, err := term.GetState(int(os.Stdin.Fd())); err == nil {
+		defer term.Restore(int(os.Stdin.Fd()), st)
+	}
 	if err := a.runRecoveryCode(ctx, dir); err != nil {
 		fmt.Fprintf(a.stderr, "local-server recovery-code: %v\n", err)
 		return 1
@@ -81,12 +86,33 @@ func (a *app) recoveryCode(ctx context.Context, args []string) int {
 	return 0
 }
 
+// promptOrCancel runs read on its own goroutine and returns its result, or ctx.Err() as soon as
+// ctx is cancelled (Ctrl-C or SIGTERM): a terminal read does not watch the context, so without
+// this Ctrl-C at a prompt does nothing until Enter.
+func promptOrCancel(ctx context.Context, read func() (string, error)) (string, error) {
+	type result struct {
+		s   string
+		err error
+	}
+	ch := make(chan result, 1) // buffered: the abandoned goroutine never blocks on send
+	go func() {
+		s, err := read()
+		ch <- result{s, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.s, r.err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
 var errRunServeFirst = errors.New("this host has no admin yet: run `local-server serve` once and create the admin first")
 
 func (a *app) runRecoveryCode(ctx context.Context, dataDir string) error {
 	dbPath := filepath.Join(dataDir, dbFileName)
 	if _, err := os.Stat(dbPath); err != nil {
-		return fmt.Errorf("no host database in %s: run `local-server serve` first", dataDir)
+		return fmt.Errorf("no host database in %s; if this host keeps its data elsewhere (a service may set LS_DATA_DIR), pass --data-dir; otherwise run `local-server serve` first", dataDir)
 	}
 	d, err := openDatabase(ctx, dbPath)
 	if err != nil {
@@ -118,14 +144,21 @@ func (a *app) runRecoveryCode(ctx context.Context, dataDir string) error {
 	var who admin.Authenticated
 	for {
 		fmt.Fprint(a.stderr, "Admin login name: ")
-		name, err := in.ReadString('\n')
+		name, err := promptOrCancel(ctx, func() (string, error) { return in.ReadString('\n') })
+		if ctx.Err() != nil {
+			fmt.Fprintln(a.stderr)
+			return errors.New("interrupted; nothing was shown")
+		}
 		if err != nil && (err != io.EOF || name == "") {
 			fmt.Fprintln(a.stderr)
 			return errors.New("no login name was entered")
 		}
 		fmt.Fprint(a.stderr, "Password: ")
-		pw, err := a.readPassword()
+		pw, err := promptOrCancel(ctx, a.readPassword)
 		fmt.Fprintln(a.stderr)
+		if ctx.Err() != nil {
+			return errors.New("interrupted; nothing was shown")
+		}
 		if err != nil {
 			return errors.New("no password was entered")
 		}

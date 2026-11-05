@@ -20,6 +20,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/identity"
 	"github.com/inCoderKaka/local-server/internal/jobs"
 	"github.com/inCoderKaka/local-server/internal/ledger"
+	"github.com/inCoderKaka/local-server/internal/policy"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/storage"
 )
@@ -667,6 +668,38 @@ func TestRevokedKeyFailsAQueuedJobAtAdmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.runJobs()
+	m := e.waitJob(id, "failed")
+	if m["failure_reason"] != "invalid_api_key" || e.eng.Calls(fake.OpChat) != 0 {
+		t.Fatalf("job = %v, engine calls %d", m, e.eng.Calls(fake.OpChat))
+	}
+}
+
+// A grant version that expires while the job waits no longer admits it: the job fails with the
+// code of a key that is not valid, and the engine is never called.
+func TestExpiredGrantVersionFailsAQueuedJobAtAdmission(t *testing.T) {
+	expires := time.Now().Add(time.Hour)
+	e := newEnv(t, func(o *envOpts) {
+		o.version = func(models []grantsModel) grantsNewVersion {
+			return grantsNewVersion{Models: models, ExpiresAt: &expires}
+		}
+	})
+	id := idOf(t, e.postJob("idem-1", jobBody)) // accepted: the version is still valid
+	// The job executor runs on a clock past the version's expiry.
+	pol, err := policy.New(e.st, gateway.NewRuleSource(e.db, e.gr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	late, err := gateway.New(gateway.Config{DB: e.db, Settings: e.st, Events: e.bus, Grants: e.gr, Auth: e.au, Limits: e.lim,
+		Policy: pol, Scheduler: e.timed, Sharing: e.share, Engine: e.eng, Ledger: e.meter, Checkpoints: e.cps,
+		Jobs: e.jobs, Telemetry: e.tel, Clock: func() time.Time { return expires.Add(time.Minute) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.set(jobs.KeyPollInterval, "5ms")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); e.jobs.Run(ctx, late.JobExecutor()) }()
+	t.Cleanup(func() { cancel(); <-done })
 	m := e.waitJob(id, "failed")
 	if m["failure_reason"] != "invalid_api_key" || e.eng.Calls(fake.OpChat) != 0 {
 		t.Fatalf("job = %v, engine calls %d", m, e.eng.Calls(fake.OpChat))

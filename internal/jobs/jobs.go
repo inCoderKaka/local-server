@@ -141,6 +141,7 @@ type Service struct {
 
 	mu     sync.Mutex
 	active map[string]context.CancelCauseFunc // jobs handed to the scheduler, or running
+	hold   map[string]time.Time               // jobs whose retry time could not be stored; not offered to the scheduler again before it
 }
 
 // New registers the job settings and returns the Service.
@@ -162,7 +163,7 @@ func New(cfg Config) (*Service, error) {
 	}
 	return &Service{cfg: cfg, now: cfg.Clock, log: cfg.Telemetry.Logger(),
 		finished: cfg.Telemetry.Counter("jobs_finished_total", "status"),
-		wake:     make(chan struct{}, 1), active: map[string]context.CancelCauseFunc{}}, nil
+		wake:     make(chan struct{}, 1), active: map[string]context.CancelCauseFunc{}, hold: map[string]time.Time{}}, nil
 }
 
 func ms(t time.Time) int64 { return t.UnixMilli() }
@@ -440,8 +441,8 @@ func (s *Service) FailInterrupted(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("jobs: mark interrupted jobs: %w", err)
 	}
-	for i := int64(0); i < n; i++ {
-		s.finished.Inc(string(Failed))
+	if n > 0 {
+		s.finished.Add(float64(n), string(Failed))
 	}
 	return int(n), nil
 }

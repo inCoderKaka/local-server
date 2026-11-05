@@ -935,6 +935,55 @@ func TestSlotIsReleasedWhenTheJobWasCancelledBeforeItStarted(t *testing.T) {
 	}
 }
 
+// A job whose retry time could not be stored is on hold in memory: the scheduler is not offered it
+// before the hold ends, and it does not crowd newer jobs out of the page.
+func TestAJobOnHoldIsNotOfferedUntilTheHoldEnds(t *testing.T) {
+	e := newEnv(t)
+	e.set(KeyMaxActive, "1")
+	held, _ := e.create("c1", "k1", "held")
+	e.clk.Advance(time.Second)
+	newer, _ := e.create("c1", "k1", "newer")
+	e.svc.mu.Lock()
+	e.svc.hold[held.ID] = e.clk.Now().Add(time.Hour)
+	e.svc.mu.Unlock()
+
+	exec := &fakeExec{}
+	ctx := context.Background()
+	if err := e.svc.dispatch(ctx, exec); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.wg.Wait()
+	if got := exec.admitted(); len(got) != 1 || got[0] != newer.ID {
+		t.Fatalf("admitted %v, want only the newer job %s", got, newer.ID)
+	}
+	if e.get("c1", held.ID).Status != Queued {
+		t.Fatal("the held job did not stay queued")
+	}
+
+	e.clk.Advance(time.Hour)
+	if err := e.svc.dispatch(ctx, exec); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.wg.Wait()
+	if got := exec.admitted(); len(got) != 2 || got[1] != held.ID {
+		t.Fatalf("admitted %v, want the held job %s offered after the hold", got, held.ID)
+	}
+	e.svc.mu.Lock()
+	n := len(e.svc.hold)
+	e.svc.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d hold entries left after the hold ended", n)
+	}
+}
+
+func TestDefaultDurationIsTheRegisteredDefault(t *testing.T) {
+	for key, want := range map[string]time.Duration{KeyPollInterval: 2 * time.Second, KeyRetryInterval: 30 * time.Second} {
+		if got := defaultDuration(key); got <= 0 || got != want {
+			t.Errorf("defaultDuration(%s) = %v, want %v", key, got, want)
+		}
+	}
+}
+
 // ---- encryption at rest ----
 
 func TestContentIsEncryptedAtRestAndBoundToTheConsumer(t *testing.T) {

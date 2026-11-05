@@ -10,13 +10,14 @@ import (
 // policy again, admission, the engine call, metering and the signed receipt. It lives behind this
 // interface because the gateway imports this package, not the other way round.
 type Executor interface {
-	// Admit checks the job again and waits for a scheduler slot: its key and quota, the policy
-	// decision with the policy's time window, and Scheduler.Admit with scheduler.Request.Job set
-	// and the background class. payload is the request content, opened. It returns a Slot, or:
+	// Admit checks the job again and waits for a scheduler slot: its key, its grant version's
+	// expiry and its quota, the policy decision with the policy's time window, and Scheduler.Admit
+	// with scheduler.Request.Job set and the background class. payload is the request content,
+	// opened. It returns a Slot, or:
 	//   - *DeferError when the job cannot run yet and stays queued (the policy window is closed,
 	//     the admission queue is full, the engine is down, the request allowance is empty);
 	//   - *FailError when the job can never run (policy denies it, it can never fit the memory
-	//     budget, the key was revoked);
+	//     budget, the key was revoked or expired, or its grant version expired);
 	//   - ctx's error when ctx ended (the job was cancelled or expired, or the host is stopping);
 	//   - any other error: the worker logs it and tries the job again after jobs.retry_interval.
 	Admit(ctx context.Context, j Job, payload []byte) (Slot, error)

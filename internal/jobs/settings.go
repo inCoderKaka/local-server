@@ -41,6 +41,18 @@ func Defs() []settings.Def {
 	}
 }
 
+// defaultDuration is the registered default of a Duration setting, used only when the store cannot be read.
+func defaultDuration(key string) time.Duration {
+	for _, d := range Defs() {
+		if d.Key == key {
+			if v, err := time.ParseDuration(d.Default); err == nil {
+				return v
+			}
+		}
+	}
+	return 0
+}
+
 func setValidators(st *settings.Store) error {
 	positive := func(_ context.Context, v string) error {
 		d, err := time.ParseDuration(v)
