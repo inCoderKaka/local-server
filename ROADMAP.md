@@ -13,7 +13,7 @@ Phase 1 is fully designed ([HLD](docs/design_docs/hld.md), [LLD](docs/design_doc
 | B5 Notifications | In-app notifications, Standard Webhooks via an outbox, desktop notifications | planned |
 | B6 Web UIs | Admin UI and consumer web page | planned |
 | B7 Transport | System Tailscale, opt-in public mode (Funnel) with mandatory protections, optional embedded tsnet | planned |
-| B8 Packaging | Background service, sleep lock, release pipeline with SLSA provenance, install and upgrade scripts | planned |
+| B8 Packaging | Background service, sleep lock, release pipeline with SLSA provenance, install and upgrade scripts | in progress: the sleep lock built (held while sharing; the Windows adapter is not yet run on Windows); the rest planned |
 | B9 Off-host data | Encrypted backups to a folder, R2 or Google Cloud Storage; signed export and import; opt-in platform sync (Postgres); sharing grants | planned |
 | B10 Docs | Host setup in the user guide; README install steps | planned |
 

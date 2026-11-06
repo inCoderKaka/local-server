@@ -4,6 +4,13 @@ Software choices the AI made that no ticket, design doc or requirement decision 
 
 | ID | Date | Kind | Ticket | Decision | Reverse-by | Status |
 |---|---|---|---|---|---|---|
+| I-342 | 2026-11-06 | copy | PLT-F-042 | The Linux inhibitor reason string is "Sharing is on", shown in `systemd-inhibit --list`. | Edit `linuxCommand` in `internal/power/process.go` (`a457ece`). | unreviewed |
+| I-341 | 2026-11-06 | design | PLT-F-042 | `app.power` is an injection seam and `wire` takes the `Power` as a parameter, so tests never start a real helper. | Revert the three `cmd/local-server` edits (`a457ece`). | unreviewed |
+| I-340 | 2026-11-06 | design | PLT-F-042 | Gauge `power_sleep_lock_held` (0 or 1) is emitted through the Telemetry port. | Remove the gauge lines in `internal/power/keeper.go` (`a457ece`). | unreviewed |
+| I-339 | 2026-11-06 | design | PLT-F-042 | The sleep-lock helpers end with local-server: macOS `caffeinate -i -w <pid>`, Linux `systemd-inhibit` running `tail --pid=<pid> -f /dev/null` (GNU coreutils assumed; best effort per D-30). | Change the argument builders in `internal/power/process.go` (`a457ece`). | unreviewed |
+| I-338 | 2026-11-06 | design | PLT-F-042 | A missing helper tool gives a lock that holds nothing, logged once; any other start error is returned and retried every interval, each distinct error logged once. | Edit `processPower.Acquire` in `internal/power/process.go` (`a457ece`). | unreviewed |
+| I-337 | 2026-11-06 | design | PLT-F-042 | A sharing state that cannot be read leaves the sleep lock as it is; an unusable quiet-hours schedule is logged and the state returned with the error is honoured. | Edit `Keeper.apply` (`a457ece`). | unreviewed |
+| I-336 | 2026-11-06 | design | PLT-F-042 | `power.check_interval` zero or less turns the sleep lock off: the worker releases the lock and rechecks every 15s for a change. | Change the setting back to a positive value, or drop the branch in `Keeper.Check` in `internal/power/keeper.go` (`a457ece`). | unreviewed |
 | I-335 | 2026-11-06 | design | PLT-F-025 | A stored key narrowing that cannot be parsed shows as no narrowing and is logged by key id (the auth service already fails closed on it); a missing model shows its id as the name. | Return an error from the view function (`4b94c59`). | unreviewed |
 | I-334 | 2026-11-06 | design | PLT-F-025 | The `/invite#` path is a constant, not a setting, since the route belongs to the consumer web page (PLT-F-027). | Add a setting (`4b94c59`). | unreviewed |
 | I-333 | 2026-11-06 | copy | PLT-F-025 | Error messages are fixed text carrying no request bytes; the revoke-invite 409 names the invite's current status. | Edit the messages in `internal/admin/consumers/errors.go` (`4b94c59`). | unreviewed |
