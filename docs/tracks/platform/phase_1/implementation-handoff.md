@@ -4,8 +4,8 @@ Only what is open. Rewritten whole at the end of each implementation session.
 
 ## Last session
 
-- 2026-11-06, passive, `2b1bb7a..` (see `previous-session-closeout.md` for the end sha).
-- Built: PLT-F-025 (admin API for consumers, access keys and invites; resumed from the rate-limited session's partial build) and PLT-F-042 (sleep lock while sharing). PLT-F-071 was built the session before. One code gate over all three ran clean after fixes (PLT-C-013, `734ae20`).
+- 2026-11-06, passive, `2b1bb7a..0179c82`.
+- Built: PLT-F-025 (admin API for consumers, access keys and invites; resumed from the rate-limited session's partial build) and PLT-F-042 (sleep lock while sharing). PLT-F-071 was built the session before. One code gate ran over all three (PLT-C-013, `734ae20`): its approved fixes are in, and the findings it deferred are listed under Leftovers.
 - Migrations: not available (the repo names no migration-status command). Nothing was pushed.
 
 ## Leftovers

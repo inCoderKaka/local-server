@@ -42,7 +42,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Redacted | The `internal/telemetry` type that wraps prompt or response content so it renders as `[redacted]` in logs, `fmt` and JSON, even inside another struct; code reads the real text only through `Reveal`. | — | D-31, D-40 |
 | Domain event | A record that something happened (request decided, host paused, job done). It is written in the same unit of work as the change, then handed to subscribers such as notifications. | — | D-29 |
 | Doctor | The `local-server doctor` command, which checks the engine version, keychain, ports and Tailscale, and shows the time of the last successful platform sync when sync is on. | Doctor | D-14, D-23, D-48, D-67 |
-| Sleep lock | local-server keeps the host machine awake while sharing is on and not paused. | Keep awake | D-30 |
+| Sleep lock | local-server keeps the host machine awake while the sharing state is *sharing*: not paused and not in quiet hours. | Keep awake | D-30, D-06, D-54 |
 | Unattributed | Host resource use local-server cannot assign to a process because the OS won't report it; shown separately, never guessed. | Unattributed | D-31 |
 | Tailnet | The private Tailscale network the host machine and its consumers' nodes share. | — | D-10, D-12 |
 | Share-budget slice | The host resources local-server's sharing is using now: the local-server process, the Ollama processes and the loaded models. Its memory is local-server's RSS plus the larger of Ollama's RSS and the loaded models' host RAM, so weights are never counted twice. It is measured, not reserved. Other apps is host use outside it. | — | D-31, D-91 |
