@@ -151,7 +151,7 @@ func (m *modelNames) view(k identity.AccessKey, now time.Time) (Key, error) {
 		}
 		nv.Quotas = n.AllQuotas(legacy)
 		grants.SortQuotas(nv.Quotas)
-		nv.Quota = quotaAlias(nv.Quotas, legacy)
+		nv.Quota = QuotaAlias(nv.Quotas, legacy)
 	}
 	for _, id := range n.ModelIDs {
 		name, err := m.name(id)
@@ -413,9 +413,9 @@ func MaySetQuotaWindows(c identity.Consumer, actor string) bool {
 	return c.Chargeable() || c.PrincipalID != actor
 }
 
-// quotaAlias derives the deprecated Quota from a list of entries: the tokens and requests entries
+// QuotaAlias derives the deprecated Quota from a list of entries: the tokens and requests entries
 // whose window is legacy. It returns nil when there are none.
-func quotaAlias(qs []grants.QuotaEntry, legacy time.Duration) *Quota {
+func QuotaAlias(qs []grants.QuotaEntry, legacy time.Duration) *Quota {
 	var out Quota
 	for _, q := range qs {
 		if q.Window != legacy {
@@ -435,8 +435,8 @@ func quotaAlias(qs []grants.QuotaEntry, legacy time.Duration) *Quota {
 	return &out
 }
 
-// quotaWarning is the warning returned when a request gives both quotas and the deprecated quota.
-const quotaWarning = "quota is deprecated and ignored because quotas is given"
+// QuotaWarning is the warning returned when a request gives both quotas and the deprecated quota.
+const QuotaWarning = "quota is deprecated and ignored because quotas is given"
 
 // narrowingFor checks a requested narrowing made by actor for consumer c and returns it in its
 // stored form (models by id), in its shown form (normalised) and any warnings. A nil or empty
@@ -462,7 +462,7 @@ func (s *Service) narrowingFor(ctx context.Context, actor string, c identity.Con
 	hasLegacy := n.Quota != nil && (n.Quota.Tokens != nil || n.Quota.Requests != nil)
 	switch {
 	case hasLegacy && len(entries) > 0:
-		warnings = append(warnings, quotaWarning)
+		warnings = append(warnings, QuotaWarning)
 	case hasLegacy:
 		for _, l := range []struct {
 			param  string
@@ -508,7 +508,7 @@ func (s *Service) narrowingFor(ctx context.Context, actor string, c identity.Con
 		if err != nil {
 			return auth.Narrowing{}, nil, nil, err
 		}
-		view.Quota = quotaAlias(entries, legacy)
+		view.Quota = QuotaAlias(entries, legacy)
 	}
 	for _, c := range []struct {
 		param string

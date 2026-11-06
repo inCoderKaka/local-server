@@ -220,3 +220,28 @@ func TestAPanicAnswersInTheEnvelopeAndLogsNoValue(t *testing.T) {
 		t.Fatal("a panic value leaked")
 	}
 }
+
+// A rule the admin deleted (soft delete, PLT-F-026) stops applying at once: the next request is
+// admitted, though the rule row and its versions are still stored.
+func TestSoftDeletedRuleNoLongerApplies(t *testing.T) {
+	e := newEnv(t, func(o *envOpts) {
+		o.version = func(models []grantsModel) grantsNewVersion {
+			allowed := `["background","purpose"]`
+			return grantsNewVersion{Models: models, AllowedProperties: &allowed}
+		}
+	})
+	rule := e.addRule("no-secret", false, 0, `{"format_version":1,"when":{"properties":{"purpose":"secret"}},"deny":true}`)
+	r := e.chat(okChat, "LS-Request-Properties", "purpose=secret")
+	statusIs(t, r, http.StatusForbidden)
+	if eb := r.errBody(); eb["code"] != "policy_denied" || eb["rule_id"] != rule.ID {
+		t.Fatalf("error = %v", eb)
+	}
+	err := e.db.Write(context.Background(), func(tx *storage.Tx) error { return e.gr.PolicyRules.Delete(tx, rule.ID) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusIs(t, e.chat(okChat, "LS-Request-Properties", "purpose=secret"), http.StatusOK)
+	if e.sqlInt(`SELECT count(*) FROM grt_policy_rule WHERE id = '`+rule.ID+`'`) != 1 {
+		t.Fatal("the rule row is gone")
+	}
+}

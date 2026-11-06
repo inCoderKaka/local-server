@@ -232,3 +232,24 @@ FROM grt_version v JOIN grt_grant g ON g.current_version_id = v.id WHERE g.id = 
 	}
 	return r.fill(ctx, rd, v)
 }
+
+// ListPage returns up to limit versions of a grant, newest first, with allowed models and quota
+// entries. before 0 starts at the newest; otherwise only versions numbered below before are
+// returned (the last number of the previous page).
+func (r *VersionRepo) ListPage(ctx context.Context, rd *storage.Reader, grantID string, before int64, limit int) ([]Version, error) {
+	rows, err := rd.Query(ctx, `SELECT `+versionCols+` FROM grt_version WHERE grant_id = ? AND (? = 0 OR version_no < ?) ORDER BY version_no DESC LIMIT ?`,
+		grantID, before, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	vs, err := collect(rows, scanVersion)
+	if err != nil {
+		return nil, err
+	}
+	for i := range vs {
+		if vs[i], err = r.fill(ctx, rd, vs[i]); err != nil {
+			return nil, err
+		}
+	}
+	return vs, nil
+}

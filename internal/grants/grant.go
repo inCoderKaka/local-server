@@ -67,3 +67,8 @@ func (r *GrantRepo) SetCurrentVersion(tx *storage.Tx, grantID, versionID string)
 	return mustChange(tx.Exec(`UPDATE grt_grant SET current_version_id = ?, updated_at = ?
 WHERE id = ? AND EXISTS (SELECT 1 FROM grt_version WHERE id = ? AND grant_id = ?)`, versionID, ms(r.now()), grantID, versionID, grantID))
 }
+
+// GetByConsumerTx is GetByConsumer inside a unit of work.
+func (r *GrantRepo) GetByConsumerTx(tx *storage.Tx, consumerID string) (Grant, error) {
+	return first[Grant](tx.Query(`SELECT `+grantCols+` FROM grt_grant WHERE consumer_id = ?`, consumerID))(scanGrant)
+}

@@ -45,6 +45,8 @@ type services struct {
 	jobExec    jobs.Executor
 	rollups    *usage.Rollups
 	power      *power.Keeper
+	// rules switches off policy rules that failed too many times (PLT-F-026).
+	rules func(ctx context.Context)
 }
 
 // wire builds every module on d, keys and eng, in dependency order, and returns what serve
@@ -115,11 +117,11 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 		return nil, err
 	}
 	adm, err := admin.New(admin.Config{DB: db, Settings: st, Identity: ir, Grants: gr, Auth: au, Events: bus, Audit: auditLog, Sharing: share, Sampler: sv.sampler,
-		Keys: keys, Engine: eng, Metrics: metrics, Version: version, Telemetry: tel})
+		Keys: keys, Engine: eng, RuleFailures: gw, Metrics: metrics, Version: version, Telemetry: tel})
 	if err != nil {
 		return nil, fmt.Errorf("admin: %w", err)
 	}
-	sv.admin = adm.Handler()
+	sv.admin, sv.rules = adm.Handler(), adm.RunRuleSweeper
 	return sv, nil
 }
 
@@ -155,4 +157,6 @@ func (sv *services) startWorkers(ctx context.Context, sup *supervisor, log *slog
 	// Takes the sleep lock while sharing and releases it when paused, in quiet hours and on stop
 	// (PLT-F-042).
 	sup.Go(ctx, "power", sv.power.Run)
+	// Switches off a policy rule without deny that failed policy.rule.max_failures times (PLT-F-026).
+	sup.Go(ctx, "policy-rule-sweeper", func(ctx context.Context) error { sv.rules(ctx); return nil })
 }

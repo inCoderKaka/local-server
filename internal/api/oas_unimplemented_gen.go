@@ -317,6 +317,16 @@ func (UnimplementedHandler) AdminListModels(ctx context.Context) (r *HostModelLi
 	return r, ht.ErrNotImplemented
 }
 
+// AdminListPolicyRuleVersions implements adminListPolicyRuleVersions operation.
+//
+// Every stored version of the rule, newest first. Each version is immutable (D-87). A deleted rule has
+// no history here.
+//
+// GET /admin/v1/policy-rules/{policy_rule_id}/versions
+func (UnimplementedHandler) AdminListPolicyRuleVersions(ctx context.Context, params AdminListPolicyRuleVersionsParams) (r *PolicyRuleList, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // AdminListPolicyRules implements adminListPolicyRules operation.
 //
 // Policy rules, global and per grant.

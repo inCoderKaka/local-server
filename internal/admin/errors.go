@@ -15,6 +15,7 @@ import (
 	"github.com/ogen-go/ogen/validate"
 
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
+	admingrants "github.com/inCoderKaka/local-server/internal/admin/grants"
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/audit"
 	"github.com/inCoderKaka/local-server/internal/usage"
@@ -130,11 +131,14 @@ func classify(err error) (e *apiError, internal bool) {
 	var le *LockedOutError
 	var mb *http.MaxBytesError
 	var ce *consumers.Error
+	var ge *admingrants.Error
 	switch {
 	case errors.As(err, &ae):
 		return ae, false
 	case errors.As(err, &ce):
 		return consumersError(ce), false
+	case errors.As(err, &ge):
+		return grantsError(ge), false
 	case errors.As(err, &le):
 		return &apiError{status: http.StatusTooManyRequests, typ: typeRequests, code: codeRateLimit,
 			message: "Too many failed login attempts. Try again later.", retryAfter: le.RetryAfter}, false
@@ -172,6 +176,22 @@ func consumersError(e *consumers.Error) *apiError {
 	}
 	if e.Kind == consumers.KindForbidden {
 		return newErr(http.StatusForbidden, typeInvalidRequest, "", param, e.Message)
+	}
+	return badRequest(param, e.Message)
+}
+
+// grantsError maps a refusal of the grants service to the envelope. Its text is fixed and holds
+// no request bytes; its param is a constant field name, and is checked anyway.
+func grantsError(e *admingrants.Error) *apiError {
+	switch e.Kind {
+	case admingrants.KindNotFound:
+		return notFoundErr(e.Message)
+	case admingrants.KindConflict:
+		return conflict(e.Message)
+	}
+	param := e.Param
+	if !safeName(param) {
+		param = ""
 	}
 	return badRequest(param, e.Message)
 }

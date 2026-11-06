@@ -22,10 +22,19 @@
 // D-54) and package admin maps its types onto the generated ones and its *consumers.Error onto
 // the envelope (400, 404, 409).
 //
-// Every other admin operation (grants, models, policy rules, resource requests, notification
-// preferences and webhook endpoints) stays on api.UnimplementedHandler and answers 501 once the
-// caller is logged in. A later ticket adds an operation by implementing its method on Admin;
-// routing, security and error mapping need no change.
+// PLT-F-026 implements the grant, model and policy rule operations: get, set and list the versions
+// of a consumer's grant; list the engine's models and configure one; list, create, get, replace,
+// delete and list the versions of policy rules. They are thin too: package admin/grants owns the
+// rules (a grant edit is always a new immutable version with its audit row and grant.changed event
+// in one unit of work, policy rules are immutable versions checked by the policy module, a broken
+// rule without deny is switched off after policy.rule.max_failures failures, req_001 D-25, D-73,
+// D-87, D-107) and package admin maps its types and its *grants.Error onto the generated ones and
+// the envelope. RunRuleSweeper is the worker that switches off broken rules.
+//
+// Every other admin operation (resource requests, notification preferences and webhook endpoints)
+// stays on api.UnimplementedHandler and answers 501 once the caller is logged in. A later ticket
+// adds an operation by implementing its method on Admin; routing, security and error mapping need
+// no change.
 //
 // # Sessions and the admin principal
 //

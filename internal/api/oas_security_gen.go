@@ -126,6 +126,7 @@ var operationRolesAdminSessionAuth = map[string][]string{
 	AdminListGrantVersionsOperation:              []string{},
 	AdminListInvitesOperation:                    []string{},
 	AdminListModelsOperation:                     []string{},
+	AdminListPolicyRuleVersionsOperation:         []string{},
 	AdminListPolicyRulesOperation:                []string{},
 	AdminListResourceRequestsOperation:           []string{},
 	AdminListWebhookEndpointsOperation:           []string{},

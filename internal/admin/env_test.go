@@ -133,8 +133,12 @@ type versionedEngine struct {
 
 func (v versionedEngine) Version(context.Context) (string, error) { return v.version, nil }
 
-// downEngine fails every Loaded call.
+// downEngine fails every Loaded and ListModels call.
 type downEngine struct{}
+
+func (downEngine) ListModels(context.Context) ([]engine.Model, error) {
+	return nil, errors.New("connection refused")
+}
 
 func (downEngine) Loaded(context.Context) ([]engine.LoadedModel, error) {
 	return nil, errors.New("connection refused")

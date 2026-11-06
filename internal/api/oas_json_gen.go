@@ -6197,11 +6197,15 @@ func (s *GrantLimits) encodeFields(e *jx.Encoder) {
 	}
 	{
 		e.FieldStart("allowed_request_properties")
-		e.ArrStart()
-		for _, elem := range s.AllowedRequestProperties {
-			e.Str(elem)
+		if s.AllowedRequestProperties == nil {
+			e.Null()
+		} else {
+			e.ArrStart()
+			for _, elem := range s.AllowedRequestProperties {
+				e.Str(elem)
+			}
+			e.ArrEnd()
 		}
-		e.ArrEnd()
 	}
 	{
 		if s.ExpiresAt.Set {
@@ -6300,18 +6304,25 @@ func (s *GrantLimits) Decode(d *jx.Decoder) error {
 		case "allowed_request_properties":
 			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
-				s.AllowedRequestProperties = make([]string, 0)
-				if err := d.Arr(func(d *jx.Decoder) error {
-					var elem string
-					v, err := d.Str()
-					elem = string(v)
-					if err != nil {
+				switch tt := d.Next(); tt {
+				case jx.Null:
+					if err := d.Skip(); err != nil {
 						return err
 					}
-					s.AllowedRequestProperties = append(s.AllowedRequestProperties, elem)
-					return nil
-				}); err != nil {
-					return err
+				default:
+					s.AllowedRequestProperties = make([]string, 0)
+					if err := d.Arr(func(d *jx.Decoder) error {
+						var elem string
+						v, err := d.Str()
+						elem = string(v)
+						if err != nil {
+							return err
+						}
+						s.AllowedRequestProperties = append(s.AllowedRequestProperties, elem)
+						return nil
+					}); err != nil {
+						return err
+					}
 				}
 				return nil
 			}(); err != nil {
@@ -6552,9 +6563,19 @@ func (s *GrantVersion) encodeFields(e *jx.Encoder) {
 		e.FieldStart("limits")
 		s.Limits.Encode(e)
 	}
+	{
+		if s.Warnings != nil {
+			e.FieldStart("warnings")
+			e.ArrStart()
+			for _, elem := range s.Warnings {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfGrantVersion = [7]string{
+var jsonFieldsNameOfGrantVersion = [8]string{
 	0: "id",
 	1: "grant_id",
 	2: "consumer_id",
@@ -6562,6 +6583,7 @@ var jsonFieldsNameOfGrantVersion = [7]string{
 	4: "created_at",
 	5: "resource_request_id",
 	6: "limits",
+	7: "warnings",
 }
 
 // Decode decodes GrantVersion from json.
@@ -6652,6 +6674,25 @@ func (s *GrantVersion) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"limits\"")
+			}
+		case "warnings":
+			if err := func() error {
+				s.Warnings = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.Warnings = append(s.Warnings, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"warnings\"")
 			}
 		default:
 			return d.Skip()
@@ -13913,6 +13954,24 @@ func (s *PolicyRule) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Name.Set {
+			e.FieldStart("name")
+			s.Name.Encode(e)
+		}
+	}
+	{
+		if s.Position.Set {
+			e.FieldStart("position")
+			s.Position.Encode(e)
+		}
+	}
+	{
+		if s.Enabled.Set {
+			e.FieldStart("enabled")
+			s.Enabled.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("version")
 		e.Int(s.Version)
 	}
@@ -13926,12 +13985,15 @@ func (s *PolicyRule) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPolicyRule = [5]string{
+var jsonFieldsNameOfPolicyRule = [8]string{
 	0: "id",
 	1: "grant_id",
-	2: "version",
-	3: "rule",
-	4: "created_at",
+	2: "name",
+	3: "position",
+	4: "enabled",
+	5: "version",
+	6: "rule",
+	7: "created_at",
 }
 
 // Decode decodes PolicyRule from json.
@@ -13965,8 +14027,38 @@ func (s *PolicyRule) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"grant_id\"")
 			}
+		case "name":
+			if err := func() error {
+				s.Name.Reset()
+				if err := s.Name.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"name\"")
+			}
+		case "position":
+			if err := func() error {
+				s.Position.Reset()
+				if err := s.Position.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"position\"")
+			}
+		case "enabled":
+			if err := func() error {
+				s.Enabled.Reset()
+				if err := s.Enabled.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"enabled\"")
+			}
 		case "version":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int()
 				s.Version = int(v)
@@ -13978,7 +14070,7 @@ func (s *PolicyRule) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"version\"")
 			}
 		case "rule":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				if err := s.Rule.Decode(d); err != nil {
 					return err
@@ -13988,7 +14080,7 @@ func (s *PolicyRule) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"rule\"")
 			}
 		case "created_at":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -14009,7 +14101,7 @@ func (s *PolicyRule) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00011101,
+		0b11100001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -14071,14 +14163,28 @@ func (s *PolicyRuleCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Name.Set {
+			e.FieldStart("name")
+			s.Name.Encode(e)
+		}
+	}
+	{
+		if s.Position.Set {
+			e.FieldStart("position")
+			s.Position.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("rule")
 		s.Rule.Encode(e)
 	}
 }
 
-var jsonFieldsNameOfPolicyRuleCreate = [2]string{
+var jsonFieldsNameOfPolicyRuleCreate = [4]string{
 	0: "grant_id",
-	1: "rule",
+	1: "name",
+	2: "position",
+	3: "rule",
 }
 
 // Decode decodes PolicyRuleCreate from json.
@@ -14100,8 +14206,28 @@ func (s *PolicyRuleCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"grant_id\"")
 			}
+		case "name":
+			if err := func() error {
+				s.Name.Reset()
+				if err := s.Name.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"name\"")
+			}
+		case "position":
+			if err := func() error {
+				s.Position.Reset()
+				if err := s.Position.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"position\"")
+			}
 		case "rule":
-			requiredBitSet[0] |= 1 << 1
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				if err := s.Rule.Decode(d); err != nil {
 					return err
@@ -14120,7 +14246,7 @@ func (s *PolicyRuleCreate) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000010,
+		0b00001000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -14398,13 +14524,34 @@ func (s *PolicyRuleUpdate) Encode(e *jx.Encoder) {
 // encodeFields encodes fields.
 func (s *PolicyRuleUpdate) encodeFields(e *jx.Encoder) {
 	{
+		if s.Name.Set {
+			e.FieldStart("name")
+			s.Name.Encode(e)
+		}
+	}
+	{
+		if s.Position.Set {
+			e.FieldStart("position")
+			s.Position.Encode(e)
+		}
+	}
+	{
+		if s.Enabled.Set {
+			e.FieldStart("enabled")
+			s.Enabled.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("rule")
 		s.Rule.Encode(e)
 	}
 }
 
-var jsonFieldsNameOfPolicyRuleUpdate = [1]string{
-	0: "rule",
+var jsonFieldsNameOfPolicyRuleUpdate = [4]string{
+	0: "name",
+	1: "position",
+	2: "enabled",
+	3: "rule",
 }
 
 // Decode decodes PolicyRuleUpdate from json.
@@ -14416,8 +14563,38 @@ func (s *PolicyRuleUpdate) Decode(d *jx.Decoder) error {
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
+		case "name":
+			if err := func() error {
+				s.Name.Reset()
+				if err := s.Name.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"name\"")
+			}
+		case "position":
+			if err := func() error {
+				s.Position.Reset()
+				if err := s.Position.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"position\"")
+			}
+		case "enabled":
+			if err := func() error {
+				s.Enabled.Reset()
+				if err := s.Enabled.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"enabled\"")
+			}
 		case "rule":
-			requiredBitSet[0] |= 1 << 0
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				if err := s.Rule.Decode(d); err != nil {
 					return err
@@ -14436,7 +14613,7 @@ func (s *PolicyRuleUpdate) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000001,
+		0b00001000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

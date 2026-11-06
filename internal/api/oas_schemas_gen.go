@@ -3117,9 +3117,10 @@ type GrantLimits struct {
 	// Most requests at once.
 	Concurrency       int             `json:"concurrency"`
 	OnContextOverflow ContextOverflow `json:"on_context_overflow"`
-	// Request property names the consumer may send.
+	// Request property names the consumer may send. `null` allows any request property; an empty list
+	// allows none.
 	AllowedRequestProperties []string `json:"allowed_request_properties"`
-	// When the grant expires, if ever.
+	// When the grant expires, if ever. A time that is not in the future is refused when the grant is set.
 	ExpiresAt OptNilDateTime `json:"expires_at"`
 }
 
@@ -3250,6 +3251,9 @@ type GrantVersion struct {
 	// The resource request whose approval created it, if any.
 	ResourceRequestID OptNilUUID  `json:"resource_request_id"`
 	Limits            GrantLimits `json:"limits"`
+	// What the host ignored in the request that made this version, for example the deprecated `quota` when
+	// `quotas` was given too. Absent on a read.
+	Warnings []string `json:"warnings"`
 }
 
 // GetID returns the value of ID.
@@ -3287,6 +3291,11 @@ func (s *GrantVersion) GetLimits() GrantLimits {
 	return s.Limits
 }
 
+// GetWarnings returns the value of Warnings.
+func (s *GrantVersion) GetWarnings() []string {
+	return s.Warnings
+}
+
 // SetID sets the value of ID.
 func (s *GrantVersion) SetID(val uuid.UUID) {
 	s.ID = val
@@ -3320,6 +3329,11 @@ func (s *GrantVersion) SetResourceRequestID(val OptNilUUID) {
 // SetLimits sets the value of Limits.
 func (s *GrantVersion) SetLimits(val GrantLimits) {
 	s.Limits = val
+}
+
+// SetWarnings sets the value of Warnings.
+func (s *GrantVersion) SetWarnings(val []string) {
+	s.Warnings = val
 }
 
 // A page of grant versions.
@@ -7591,6 +7605,13 @@ type PolicyRule struct {
 	ID uuid.UUID `json:"id"`
 	// The grant it applies to; null for the whole host.
 	GrantID OptNilUUID `json:"grant_id"`
+	// The name the host gave the rule in this version.
+	Name OptString `json:"name"`
+	// Evaluation order, lowest first.
+	Position OptInt `json:"position"`
+	// Whether the rule applies. Switching it on or off does not make a new version. A rule that does not
+	// parse and has no `deny` is switched off by the host after it fails too many times.
+	Enabled OptBool `json:"enabled"`
 	// 1 for the first version, then up by one.
 	Version int `json:"version"`
 	// The rule document (request properties, time windows, priority class, caps), with its format version.
@@ -7607,6 +7628,21 @@ func (s *PolicyRule) GetID() uuid.UUID {
 // GetGrantID returns the value of GrantID.
 func (s *PolicyRule) GetGrantID() OptNilUUID {
 	return s.GrantID
+}
+
+// GetName returns the value of Name.
+func (s *PolicyRule) GetName() OptString {
+	return s.Name
+}
+
+// GetPosition returns the value of Position.
+func (s *PolicyRule) GetPosition() OptInt {
+	return s.Position
+}
+
+// GetEnabled returns the value of Enabled.
+func (s *PolicyRule) GetEnabled() OptBool {
+	return s.Enabled
 }
 
 // GetVersion returns the value of Version.
@@ -7634,6 +7670,21 @@ func (s *PolicyRule) SetGrantID(val OptNilUUID) {
 	s.GrantID = val
 }
 
+// SetName sets the value of Name.
+func (s *PolicyRule) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetPosition sets the value of Position.
+func (s *PolicyRule) SetPosition(val OptInt) {
+	s.Position = val
+}
+
+// SetEnabled sets the value of Enabled.
+func (s *PolicyRule) SetEnabled(val OptBool) {
+	s.Enabled = val
+}
+
 // SetVersion sets the value of Version.
 func (s *PolicyRule) SetVersion(val int) {
 	s.Version = val
@@ -7654,6 +7705,10 @@ func (s *PolicyRule) SetCreatedAt(val time.Time) {
 type PolicyRuleCreate struct {
 	// The grant it applies to; null or absent for the whole host.
 	GrantID OptNilUUID `json:"grant_id"`
+	// A name for the rule, 1 to 120 characters. Absent gives the rule a name made from its id.
+	Name OptString `json:"name"`
+	// Evaluation order, lowest first. Absent means 0.
+	Position OptInt `json:"position"`
 	// The rule document.
 	Rule PolicyRuleCreateRule `json:"rule"`
 }
@@ -7661,6 +7716,16 @@ type PolicyRuleCreate struct {
 // GetGrantID returns the value of GrantID.
 func (s *PolicyRuleCreate) GetGrantID() OptNilUUID {
 	return s.GrantID
+}
+
+// GetName returns the value of Name.
+func (s *PolicyRuleCreate) GetName() OptString {
+	return s.Name
+}
+
+// GetPosition returns the value of Position.
+func (s *PolicyRuleCreate) GetPosition() OptInt {
+	return s.Position
 }
 
 // GetRule returns the value of Rule.
@@ -7671,6 +7736,16 @@ func (s *PolicyRuleCreate) GetRule() PolicyRuleCreateRule {
 // SetGrantID sets the value of GrantID.
 func (s *PolicyRuleCreate) SetGrantID(val OptNilUUID) {
 	s.GrantID = val
+}
+
+// SetName sets the value of Name.
+func (s *PolicyRuleCreate) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetPosition sets the value of Position.
+func (s *PolicyRuleCreate) SetPosition(val OptInt) {
+	s.Position = val
 }
 
 // SetRule sets the value of Rule.
@@ -7719,16 +7794,52 @@ func (s *PolicyRuleRule) init() PolicyRuleRule {
 	return m
 }
 
-// A new version of a policy rule.
+// A new version of a policy rule. Fields left out keep their current value.
 // Ref: #/components/schemas/PolicyRuleUpdate
 type PolicyRuleUpdate struct {
+	// The rule's name, 1 to 120 characters.
+	Name OptString `json:"name"`
+	// Evaluation order, lowest first.
+	Position OptInt `json:"position"`
+	// Switches the rule on or off. This does not by itself make a new version.
+	Enabled OptBool `json:"enabled"`
 	// The rule document.
 	Rule PolicyRuleUpdateRule `json:"rule"`
+}
+
+// GetName returns the value of Name.
+func (s *PolicyRuleUpdate) GetName() OptString {
+	return s.Name
+}
+
+// GetPosition returns the value of Position.
+func (s *PolicyRuleUpdate) GetPosition() OptInt {
+	return s.Position
+}
+
+// GetEnabled returns the value of Enabled.
+func (s *PolicyRuleUpdate) GetEnabled() OptBool {
+	return s.Enabled
 }
 
 // GetRule returns the value of Rule.
 func (s *PolicyRuleUpdate) GetRule() PolicyRuleUpdateRule {
 	return s.Rule
+}
+
+// SetName sets the value of Name.
+func (s *PolicyRuleUpdate) SetName(val OptString) {
+	s.Name = val
+}
+
+// SetPosition sets the value of Position.
+func (s *PolicyRuleUpdate) SetPosition(val OptInt) {
+	s.Position = val
+}
+
+// SetEnabled sets the value of Enabled.
+func (s *PolicyRuleUpdate) SetEnabled(val OptBool) {
+	s.Enabled = val
 }
 
 // SetRule sets the value of Rule.

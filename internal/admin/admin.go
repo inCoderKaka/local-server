@@ -12,6 +12,7 @@ import (
 	"github.com/ogen-go/ogen/ogenerrors"
 
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
+	admingrants "github.com/inCoderKaka/local-server/internal/admin/grants"
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/audit"
 	"github.com/inCoderKaka/local-server/internal/auth/credential"
@@ -47,12 +48,18 @@ type HostKeys interface {
 	HostID() string
 }
 
-// Engine is the part of the engine port the admin API uses: whether it answers. An engine that
-// also has `Version(ctx) (string, error)` (the Ollama adapter does) has its version shown; the
-// engine port itself does not carry one.
+// Engine is the part of the engine port the admin API uses: whether it answers, and which models
+// it has. An engine that also has `Version(ctx) (string, error)` (the Ollama adapter does) has its
+// version shown; the engine port itself does not carry one.
 type Engine interface {
 	Loaded(ctx context.Context) ([]engine.LoadedModel, error)
+	ListModels(ctx context.Context) ([]engine.Model, error)
 }
+
+// RuleFailures is the part of the gateway the policy rule operations use: how many evaluations a
+// rule has failed by not parsing, and forgetting them (*gateway.Gateway). The admin module does
+// not import the gateway.
+type RuleFailures = admingrants.RuleFailures
 
 // Config is what New needs. All fields except Telemetry, Version and Clock are required.
 type Config struct {
@@ -74,6 +81,10 @@ type Config struct {
 	Sampler Sampler
 	Keys    HostKeys
 	Engine  Engine
+	// RuleFailures lets the host switch off a broken policy rule after
+	// policy.rule.max_failures failed evaluations (req_001 D-73); nil leaves that off. Pass the
+	// *gateway.Gateway.
+	RuleFailures RuleFailures
 	// Metrics serves GET /metrics (telemetry.MetricsHandler), behind the same guard as the API.
 	Metrics http.Handler
 	// Version is the software version shown in /admin/v1/host. Empty means "dev".
@@ -94,6 +105,7 @@ type Admin struct {
 	log  *slog.Logger
 	auth *Authenticator
 	cons *consumers.Service
+	grs  *admingrants.Service
 	srv  http.Handler
 }
 
@@ -129,7 +141,12 @@ func New(cfg Config) (*Admin, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &Admin{cfg: cfg, now: cfg.Clock, log: cfg.Telemetry.Logger(), auth: au, cons: cons}
+	grs, err := admingrants.New(admingrants.Config{DB: cfg.DB, Settings: cfg.Settings, Identity: cfg.Identity, Grants: cfg.Grants,
+		Auth: cfg.Auth, Events: cfg.Events, Engine: cfg.Engine, RuleFailures: cfg.RuleFailures, Clock: cfg.Clock, Logger: cfg.Telemetry.Logger()})
+	if err != nil {
+		return nil, err
+	}
+	a := &Admin{cfg: cfg, now: cfg.Clock, log: cfg.Telemetry.Logger(), auth: au, cons: cons, grs: grs}
 	srv, err := api.NewServer(a, a,
 		api.WithErrorHandler(a.errorHandler),
 		api.WithNotFound(a.notFound),
@@ -141,6 +158,11 @@ func New(cfg Config) (*Admin, error) {
 	a.srv = srv
 	return a, nil
 }
+
+// RunRuleSweeper switches off policy rules that failed too many times, every
+// policy.rule.check_interval, until ctx is done (req_001 D-73). It does nothing useful without
+// Config.RuleFailures. Run it as a background worker.
+func (a *Admin) RunRuleSweeper(ctx context.Context) { a.grs.RunRuleSweeper(ctx) }
 
 // Authenticate checks a login name and password with the login lockout (req_001 D-54). See
 // Authenticator.Authenticate.

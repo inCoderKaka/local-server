@@ -2170,6 +2170,28 @@ paths:
           description: Deleted.
         default:
           $ref: '#/components/responses/Error'
+  /admin/v1/policy-rules/{policy_rule_id}/versions:
+    get:
+      operationId: adminListPolicyRuleVersions
+      tags: [admin-grants]
+      summary: A policy rule's history
+      description: Every stored version of the rule, newest first. Each version is immutable (D-87). A deleted rule has no history here.
+      security:
+        - adminSessionAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PolicyRuleId'
+      responses:
+        '200':
+          description: The rule's versions, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyRuleList'
+              examples:
+                default:
+                  $ref: '#/components/examples/PolicyRuleList'
+        default:
+          $ref: '#/components/responses/Error'
 
   # ---------------------------------------------------------------- admin: resource requests
   /admin/v1/resource-requests:
@@ -3924,6 +3946,9 @@ components:
       value:
         id: '0192e5a0-000d-7000-8000-00000000000d'
         grant_id: null
+        name: Background work is capped
+        position: 0
+        enabled: true
         version: 1
         rule:
           format_version: 1
@@ -3941,6 +3966,9 @@ components:
         data:
           - id: '0192e5a0-000d-7000-8000-00000000000d'
             grant_id: null
+            name: Background work is capped
+            position: 0
+            enabled: true
             version: 1
             rule:
               format_version: 1
@@ -3956,6 +3984,8 @@ components:
       description: Policy rule create, with placeholder values only.
       value:
         grant_id: '0192e5a0-0004-7000-8000-000000000004'
+        name: Background work is capped
+        position: 0
         rule:
           format_version: 1
           when:
@@ -3968,6 +3998,9 @@ components:
       summary: Policy rule update
       description: Policy rule update, with placeholder values only.
       value:
+        name: Background work is capped
+        position: 0
+        enabled: true
         rule:
           format_version: 1
           when:
@@ -6650,15 +6683,15 @@ components:
           $ref: '#/components/schemas/ContextOverflow'
           example: refuse
         allowed_request_properties:
-          type: array
-          description: Request property names the consumer may send.
+          type: [array, 'null']
+          description: Request property names the consumer may send. `null` allows any request property; an empty list allows none.
           items:
             type: string
           example:
           - background
         expires_at:
           type: [string, 'null']
-          description: When the grant expires, if ever.
+          description: When the grant expires, if ever. A time that is not in the future is refused when the grant is set.
           format: date-time
           example: null
     GrantVersion:
@@ -6698,6 +6731,13 @@ components:
           example: null
         limits:
           $ref: '#/components/schemas/GrantLimits'
+        warnings:
+          type: array
+          description: What the host ignored in the request that made this version, for example the deprecated `quota` when `quotas` was given too. Absent on a read.
+          items:
+            type: string
+          example:
+            - quota is deprecated and ignored because quotas is given
     GrantVersionList:
       type: object
       description: A page of grant versions.
@@ -7163,6 +7203,19 @@ components:
           description: The grant it applies to; null for the whole host.
           format: uuid
           example: null
+        name:
+          type: string
+          description: The name the host gave the rule in this version.
+          example: Background work is capped
+        position:
+          type: integer
+          description: Evaluation order, lowest first.
+          minimum: 0
+          example: 0
+        enabled:
+          type: boolean
+          description: Whether the rule applies. Switching it on or off does not make a new version. A rule that does not parse and has no `deny` is switched off by the host after it fails too many times.
+          example: true
         version:
           type: integer
           description: 1 for the first version, then up by one.
@@ -7198,6 +7251,9 @@ components:
           example:
             - id: '0192e5a0-000d-7000-8000-00000000000d'
               grant_id: null
+              name: Background work is capped
+              position: 0
+              enabled: true
               version: 1
               rule:
                 format_version: 1
@@ -7218,6 +7274,17 @@ components:
           description: The grant it applies to; null or absent for the whole host.
           format: uuid
           example: '0192e5a0-0004-7000-8000-000000000004'
+        name:
+          type: string
+          description: A name for the rule, 1 to 120 characters. Absent gives the rule a name made from its id.
+          minLength: 1
+          maxLength: 120
+          example: Background work is capped
+        position:
+          type: integer
+          description: Evaluation order, lowest first. Absent means 0.
+          minimum: 0
+          example: 0
         rule:
           type: object
           description: The rule document.
@@ -7232,9 +7299,24 @@ components:
               max_output_tokens: 512
     PolicyRuleUpdate:
       type: object
-      description: A new version of a policy rule.
+      description: A new version of a policy rule. Fields left out keep their current value.
       required: [rule]
       properties:
+        name:
+          type: string
+          description: The rule's name, 1 to 120 characters.
+          minLength: 1
+          maxLength: 120
+          example: Background work is capped
+        position:
+          type: integer
+          description: Evaluation order, lowest first.
+          minimum: 0
+          example: 0
+        enabled:
+          type: boolean
+          description: Switches the rule on or off. This does not by itself make a new version.
+          example: true
         rule:
           type: object
           description: The rule document.

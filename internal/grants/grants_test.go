@@ -180,6 +180,20 @@ func TestGrantRestrictAndRules(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// Delete is soft: the rule stops applying and is not listed, but the row and its versions stay.
+	if rules, _ = gr.PolicyRules.List(ctx, db.Reader(), &g.ID); len(rules) != 1 {
+		t.Fatalf("rules after delete = %d, want 1", len(rules))
+	}
+	got, err := gr.PolicyRules.Get(ctx, db.Reader(), rule.ID)
+	if err != nil || got.DeletedAt == nil || got.VersionNo != 2 {
+		t.Fatalf("deleted rule = %+v, %v", got, err)
+	}
+	if vs, _ := gr.PolicyRules.Versions(ctx, db.Reader(), rule.ID); len(vs) != 2 || vs[0].VersionNo != 2 {
+		t.Fatalf("versions = %+v", vs)
+	}
+	if err := db.Write(ctx, func(tx *storage.Tx) error { return gr.PolicyRules.Delete(tx, rule.ID) }); err != grants.ErrNotFound {
+		t.Fatalf("second delete = %v, want ErrNotFound", err)
+	}
 }
 
 // TestVersionQuotas covers the windowed quota entries of a version (req_001 D-107): they are stored

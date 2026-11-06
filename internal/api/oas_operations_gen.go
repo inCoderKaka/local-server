@@ -37,6 +37,7 @@ const (
 	AdminListGrantVersionsOperation              OperationName = "AdminListGrantVersions"
 	AdminListInvitesOperation                    OperationName = "AdminListInvites"
 	AdminListModelsOperation                     OperationName = "AdminListModels"
+	AdminListPolicyRuleVersionsOperation         OperationName = "AdminListPolicyRuleVersions"
 	AdminListPolicyRulesOperation                OperationName = "AdminListPolicyRules"
 	AdminListResourceRequestsOperation           OperationName = "AdminListResourceRequests"
 	AdminListWebhookEndpointsOperation           OperationName = "AdminListWebhookEndpoints"
