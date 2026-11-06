@@ -3,7 +3,7 @@
 The persisted id → big|small map for every feature and chore ticket in `backlog.md`. Bugs are counted apart and are not in it. Convention: `docs/tracks/README.md` (Per-phase file set). Read by `ops/bin/ticket-drift`.
 
 **Map date:** 2026-11-06
-**Covers ids up to:** PLT-F-097, PLT-C-013
+**Covers ids up to:** PLT-F-101, PLT-C-015
 
 **Rule.** *big* = the ticket touches 3 or more files across 2 or more directories, or changes a shared contract (`api/openapi.yaml`, the storage unit of work and migration layout, the event catalog, the module-boundary config). *small* = anything else. Test files and tracking docs do not count as files. Only the orchestrate session edits this file (the plan call adds a row for each new ticket and moves the two header lines above); builders, reviewers and docs sessions do not. A ticket with an id above the header's "Covers ids up to" is reported by `ticket-drift` as a warning (`WARN-unsized`) until the next plan call adds it; an older open ticket without a row is a finding.
 
@@ -26,6 +26,8 @@ The persisted id → big|small map for every feature and chore ticket in `backlo
 | PLT-C-011 | small | Classified by the rule (not in the plan call): runs an existing test against a real Ollama, no code change. |
 | PLT-C-012 | big | Closed. By the rule from build commits ebd5245, b1d7f4f: 31 non-test file(s) in 11 directories; changes `api/openapi.yaml`. |
 | PLT-C-013 | big | Closed. By the rule from build commits 734ae20, dbf79cf: 14 non-test file(s) in 8 directories; changes `api/openapi.yaml`. |
+| PLT-C-014 | small | Closed. Sized small by the session's call (build commit 3879f98): stdlib scripts under `ops/bin/` and `ops/README.md`, no shared contract. |
+| PLT-C-015 | small | Closed. Sized small by the session's call (build commit 3879f98): this file, no code and no shared contract. |
 | PLT-F-001 | big | Closed. By the rule from build commit f00fa8a: 21 non-test file(s) in 4 directories; changes `api/openapi.yaml`. |
 | PLT-F-002 | big | Closed. By the rule from build commit 6839035: 10 non-test file(s) in 4 directories. |
 | PLT-F-003 | big | Closed. By the rule from build commit ef86df3: 6 non-test file(s) in 3 directories. |
@@ -123,3 +125,7 @@ The persisted id → big|small map for every feature and chore ticket in `backlo
 | PLT-F-095 | small | Seeded from the 2026-11-06 plan call: Effort Quick win. Artifact cites `cmd/local-server/recovery.go`. |
 | PLT-F-096 | big | Windowed quota list, billing mode, persisted counters: migration, openapi change, regenerated `internal/api`, limits and usage modules (D-107). |
 | PLT-F-097 | small | Purge of soft-deleted consumers after a retention setting (D-106); one module. |
+| PLT-F-098 | small | Idea captured 2026-11-06 (P3); one module and one endpoint, no shared contract expected. |
+| PLT-F-099 | small | Idea captured 2026-11-06 (P3); one module and one endpoint, no shared contract expected. |
+| PLT-F-100 | small | Idea captured 2026-11-06 (P3); one module and one endpoint, no shared contract expected. |
+| PLT-F-101 | small | Idea captured 2026-11-06 (P3); one module and one endpoint, no shared contract expected. |

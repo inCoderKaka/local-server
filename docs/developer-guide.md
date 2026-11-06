@@ -132,6 +132,7 @@ Deliveries follow [Standard Webhooks](https://www.standardwebhooks.com/): the `w
 
 - The major version is in the path (`/v1`). Within a major version, changes are additive only.
 - Deprecations are announced with the `Deprecation` and `Sunset` headers.
+- **Unknown fields (planned):** today the admin API refuses a request body that holds a field it does not know (400). It is planned to ignore the field and return a `warnings` entry instead, so a newer client keeps working against an older host.
 
 ## Part 2 — building local-server
 

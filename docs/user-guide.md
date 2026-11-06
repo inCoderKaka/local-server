@@ -74,7 +74,7 @@ Every answer comes with a signed **usage receipt**. Your app can keep them. Late
 
 - **Your messages are not saved.** local-server never writes prompts or answers to disk or logs. The only exception is background jobs: those are stored encrypted while they wait, and deleted once you have fetched the whole result (or after a day). If a fetch is cut off midway, fetch again.
 - **The host's computer runs the AI.** Your messages are processed in its memory. Only use hosts you trust, as you would with any computer you send data to.
-- **Your personal details are erased** if your account is deleted. The usage records stay, without your personal details, so the host's accounting stays correct.
+- **Your personal details are erased** if your account is deleted. The usage records stay, without your personal details, so the host's accounting stays correct. Removing the deleted account's record completely after a retention period the host sets is planned.
 - **Nothing is shared with anyone else** unless the host approves a specific, time-limited **sharing grant**. Even then, your messages are never part of it. If the host turns on platform sync, an encrypted copy of your account details (name and email) and usage is kept by the platform, which cannot read it without such a grant.
 
 ## Host setup
