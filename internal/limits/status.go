@@ -1,15 +1,19 @@
 package limits
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/inCoderKaka/local-server/internal/auth"
 )
 
-// QuotaStatus is one scope's quotas and what is left of them in the current window. A nil
-// Tokens or Requests means no quota of that unit applies in the scope.
+// QuotaStatus is one scope's quotas for one window length and what is left of them in the
+// current window of that length. A scope with entries of several window lengths has one
+// QuotaStatus per length, shortest first. A nil Tokens or Requests means no quota of that unit
+// applies in the scope and window.
 type QuotaStatus struct {
 	Scope    string // ScopeGrant or ScopeAccessKey
 	Window   time.Duration
@@ -38,8 +42,8 @@ type Status struct {
 }
 
 // StatusOf reports id's limits and remaining quota without counting a request or consuming rate
-// allowance (req_001 D-05, D-25, D-98). Quotas are the key's own narrowing and the grant
-// version's figure, read separately, as Check does.
+// allowance (req_001 D-05, D-25, D-107). Quotas are the key's own narrowing and the grant
+// version's entries, read separately, as Check does.
 func (l *Limiter) StatusOf(ctx context.Context, id *auth.Identity) (Status, error) {
 	var out Status
 	rd := l.cfg.DB.Reader()
@@ -56,15 +60,19 @@ func (l *Limiter) StatusOf(ctx context.Context, id *auth.Identity) (Status, erro
 	if err != nil {
 		return out, err
 	}
+	// One QuotaStatus per scope and window, grouping that window's token and request entries.
 	for _, scope := range []string{ScopeGrant, ScopeAccessKey} {
-		var s *QuotaStatus
+		var group []*QuotaStatus
 		for _, q := range qs {
 			if q.scope != scope {
 				continue
 			}
-			if s == nil {
-				s = &QuotaStatus{Scope: scope, Window: q.window, ResetsAt: q.end}
+			i := slices.IndexFunc(group, func(s *QuotaStatus) bool { return s.Window == q.window })
+			if i < 0 {
+				group = append(group, &QuotaStatus{Scope: scope, Window: q.window, ResetsAt: q.end})
+				i = len(group) - 1
 			}
+			s := group[i]
 			limit, used, left := q.limit, q.used, max(q.limit-q.used, 0)
 			if q.unit == UnitTokens {
 				s.Tokens, s.UsedTokens, s.RemainingTokens = &limit, &used, &left
@@ -72,7 +80,8 @@ func (l *Limiter) StatusOf(ctx context.Context, id *auth.Identity) (Status, erro
 				s.Requests, s.UsedRequests, s.RemainingReqs = &limit, &used, &left
 			}
 		}
-		if s != nil {
+		slices.SortStableFunc(group, func(a, b *QuotaStatus) int { return cmp.Compare(a.Window, b.Window) })
+		for _, s := range group {
 			out.Quotas = append(out.Quotas, *s)
 		}
 	}

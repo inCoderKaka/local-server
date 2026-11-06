@@ -11,6 +11,9 @@ const (
 	KindNotFound
 	// KindConflict is a request the current state of the resource does not allow (HTTP 409).
 	KindConflict
+	// KindForbidden is a change the caller may not make, although the request is well formed
+	// (HTTP 403): a consumer that is not chargeable setting quota windows on its own keys.
+	KindForbidden
 )
 
 // Error is a refusal with fixed text. Param names the request field at fault, or is empty.
@@ -25,6 +28,10 @@ func (e *Error) Error() string { return "consumers: " + e.Message }
 
 func invalid(param, message string) *Error {
 	return &Error{Kind: KindInvalid, Param: param, Message: message}
+}
+
+func forbidden(param, message string) *Error {
+	return &Error{Kind: KindForbidden, Param: param, Message: message}
 }
 
 func conflict(message string) *Error { return &Error{Kind: KindConflict, Message: message} }

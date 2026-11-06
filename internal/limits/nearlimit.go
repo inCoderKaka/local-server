@@ -12,9 +12,9 @@ import (
 )
 
 // Record is called after a call's usage record has been committed. It raises quota.near_limit
-// when a quota's use has reached limits.near_limit_percent of the limit, once per quota subject
-// (the key, or the grant) per window. A window is the quota window of Check. The mark is kept in
-// memory, so a restart can raise one more event for a window that already raised one. A failure
+// when a token quota entry's use has reached limits.near_limit_percent of the limit, once per
+// quota subject (the key, or the grant), window length and window. A window is the quota window
+// of Check. The mark is kept in memory, so a restart can raise one more event for a window that already raised one. A failure
 // to emit is logged and the event is tried again by the next Record; the returned error is only
 // for failing to read state, and the caller logs it: the call itself has already succeeded.
 func (l *Limiter) Record(ctx context.Context, id *auth.Identity) error {
@@ -38,7 +38,7 @@ func (l *Limiter) Record(ctx context.Context, id *auth.Identity) error {
 		if q.limit <= 0 || float64(q.used)*100 < float64(q.limit)*float64(pct) {
 			continue
 		}
-		nk := noteKey{q.scope, q.subject}
+		nk := noteKey{q.scope, q.subject, q.window}
 		start := q.start.UnixMilli()
 		l.mu.Lock()
 		done := l.noted[nk] == start

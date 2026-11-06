@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/identity"
+	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
 )
@@ -22,9 +24,9 @@ const (
 	KeyRevoked = "revoked"
 )
 
-// Quota is a per-key limit per quota window, counted on this key's own use. The consumer's grant
-// quota still applies, so a key quota can only narrow it. A nil number sets no key limit; 0 allows
-// none. The window is the host's setting, not the caller's (req_001 D-98).
+// Quota is the deprecated single-figure form of a key's quota: one token limit and one request
+// limit, both for the window limits.quota_window. It is an alias of two quota entries (req_001
+// D-107). A nil number sets no limit; 0 allows none.
 type Quota struct {
 	Tokens   *int64
 	Requests *int64
@@ -32,8 +34,16 @@ type Quota struct {
 
 // Narrowing is what a key adds on top of its consumer's grant, with models by name. It can only
 // narrow the grant (req_001 D-25).
+//
+// Quotas are the key's windowed quota entries, counted on this key's own use; the consumer's grant
+// quotas still apply, so an entry can only narrow the grant's entry of the same metric and window
+// (req_001 D-107). Quota is the deprecated alias. On input, give either: when Quotas is not empty,
+// Quota is ignored and the result carries a warning; otherwise Quota becomes up to two entries
+// with the window limits.quota_window. On output, Quotas holds every entry and Quota the tokens
+// and requests entries whose window is limits.quota_window now, or nil when there is none.
 type Narrowing struct {
 	Models          []string
+	Quotas          []grants.QuotaEntry
 	Quota           *Quota
 	ContextLimit    *int64
 	MaxOutputTokens *int64
@@ -52,6 +62,9 @@ type Key struct {
 	CreatedAt  time.Time
 	ExpiresAt  *time.Time
 	RevokedAt  *time.Time
+	// Warnings are set by IssueAccessKey and UpdateAccessKey only: input they accepted but did
+	// not use, for example the deprecated quota given beside quotas.
+	Warnings []string
 }
 
 // NewKey is a key to issue.
@@ -131,8 +144,14 @@ func (m *modelNames) view(k identity.AccessKey, now time.Time) (Key, error) {
 		return out, nil
 	}
 	nv := &Narrowing{ContextLimit: n.ContextCap, MaxOutputTokens: n.MaxOutputTokens, Concurrency: n.MaxConcurrency}
-	if n.QuotaTokensPerDay != nil || n.QuotaRequestsPerDay != nil {
-		nv.Quota = &Quota{Tokens: n.QuotaTokensPerDay, Requests: n.QuotaRequestsPerDay}
+	if len(n.Quotas) > 0 || n.QuotaTokensPerDay != nil || n.QuotaRequestsPerDay != nil {
+		legacy, err := limits.LegacyWindow(m.ctx, m.s.cfg.Settings)
+		if err != nil {
+			return Key{}, err
+		}
+		nv.Quotas = n.AllQuotas(legacy)
+		grants.SortQuotas(nv.Quotas)
+		nv.Quota = quotaAlias(nv.Quotas, legacy)
 	}
 	for _, id := range n.ModelIDs {
 		name, err := m.name(id)
@@ -199,10 +218,11 @@ func (s *Service) IssueAccessKey(ctx context.Context, actor, consumerID string, 
 	if err := s.checkKeyFields(in.Name, in.ExpiresAt, in.BoundNode); err != nil {
 		return IssuedKey{}, err
 	}
-	if _, err := s.GetConsumer(ctx, consumerID); err != nil {
+	cons, err := s.GetConsumer(ctx, consumerID)
+	if err != nil {
 		return IssuedKey{}, err
 	}
-	nar, view, err := s.narrowingFor(ctx, consumerID, in.Narrowing)
+	nar, view, warnings, err := s.narrowingFor(ctx, actor, cons.Consumer, in.Narrowing)
 	if err != nil {
 		return IssuedKey{}, err
 	}
@@ -225,7 +245,7 @@ func (s *Service) IssueAccessKey(ctx context.Context, actor, consumerID string, 
 		}
 		k := is.AccessKey
 		out = IssuedKey{Secret: is.Key, Key: Key{ID: k.ID, ConsumerID: k.ConsumerID, Prefix: k.Prefix, Name: k.Label, Status: keyStatus(k, s.now()),
-			Narrowing: view, BoundNode: k.BoundNode, CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt}}
+			Narrowing: view, BoundNode: k.BoundNode, CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, Warnings: warnings}}
 		return nil
 	})
 	if err != nil {
@@ -263,8 +283,13 @@ func (s *Service) UpdateAccessKey(ctx context.Context, actor, keyID string, ch K
 		return Key{}, err
 	}
 	var nar auth.Narrowing
+	var warnings []string
 	if ch.Narrowing.Set && !ch.Narrowing.Null {
-		if nar, _, err = s.narrowingFor(ctx, cur.ConsumerID, &ch.Narrowing.Value); err != nil {
+		cons, err := s.GetConsumer(ctx, cur.ConsumerID)
+		if err != nil {
+			return Key{}, err
+		}
+		if nar, _, warnings, err = s.narrowingFor(ctx, actor, cons.Consumer, &ch.Narrowing.Value); err != nil {
 			return Key{}, err
 		}
 	}
@@ -338,7 +363,9 @@ func (s *Service) UpdateAccessKey(ctx context.Context, actor, keyID string, ch K
 	if changed {
 		s.cfg.Auth.Invalidate() // a key update emits no event the key cache listens to
 	}
-	return s.modelNames(ctx).view(out, s.now())
+	v, err := s.modelNames(ctx).view(out, s.now())
+	v.Warnings = warnings
+	return v, err
 }
 
 func sameTime(a, b *time.Time) bool {
@@ -377,18 +404,111 @@ func (s *Service) RevokeAccessKey(ctx context.Context, actor, keyID string) (Key
 	return s.modelNames(ctx).view(out, s.now())
 }
 
-// narrowingFor checks a requested narrowing and returns it in its stored form (models by id) and
-// in its shown form (normalised). A nil or empty narrowing is none. A model must be known to the
-// host; when the consumer has a current grant version, a narrowing wider than it is refused:
-// a model the grant does not allow, or a number above the grant's own (req_001 D-25). A consumer
-// without a grant yet gets only the checks that need no grant.
-func (s *Service) narrowingFor(ctx context.Context, consumerID string, n *Narrowing) (auth.Narrowing, *Narrowing, error) {
-	if n == nil {
-		return auth.Narrowing{}, nil, nil
+// MaySetQuotaWindows reports whether actor, a principal id, may put quota entries, each with its
+// own window, on the access keys of consumer c. Only a chargeable consumer (prepaid or postpaid)
+// may do it on its own keys; the host sets them for every other consumer, and the host admin acting
+// through the admin API is never the consumer's own principal (req_001 D-107). The resource-request
+// ask uses the same rule.
+func MaySetQuotaWindows(c identity.Consumer, actor string) bool {
+	return c.Chargeable() || c.PrincipalID != actor
+}
+
+// quotaAlias derives the deprecated Quota from a list of entries: the tokens and requests entries
+// whose window is legacy. It returns nil when there are none.
+func quotaAlias(qs []grants.QuotaEntry, legacy time.Duration) *Quota {
+	var out Quota
+	for _, q := range qs {
+		if q.Window != legacy {
+			continue
+		}
+		limit := q.Limit
+		switch q.Metric {
+		case grants.MetricTokens:
+			out.Tokens = &limit
+		case grants.MetricRequests:
+			out.Requests = &limit
+		}
 	}
+	if out.Tokens == nil && out.Requests == nil {
+		return nil
+	}
+	return &out
+}
+
+// quotaWarning is the warning returned when a request gives both quotas and the deprecated quota.
+const quotaWarning = "quota is deprecated and ignored because quotas is given"
+
+// narrowingFor checks a requested narrowing made by actor for consumer c and returns it in its
+// stored form (models by id), in its shown form (normalised) and any warnings. A nil or empty
+// narrowing is none. A model must be known to the host; when the consumer has a current grant
+// version, a narrowing wider than it is refused: a model the grant does not allow, or a number
+// above the grant's own (req_001 D-25). A consumer without a grant yet gets only the checks that
+// need no grant. Quota entries are checked for what storage cannot hold (grants.ValidateQuotas)
+// and for a window outside limits.quota_window_min and limits.quota_window_max; the deprecated
+// Quota is expanded to entries with the window limits.quota_window and not checked against the
+// bounds, because that window is the host's own (req_001 D-107). A key entry is wider than the
+// grant only when the grant has an entry of the same metric and window with a smaller limit; entries of
+// different windows are not comparable and both apply.
+func (s *Service) narrowingFor(ctx context.Context, actor string, c identity.Consumer, n *Narrowing) (auth.Narrowing, *Narrowing, []string, error) {
+	if n == nil {
+		return auth.Narrowing{}, nil, nil, nil
+	}
+	var warnings []string
+	entries := slices.Clone(n.Quotas)
+	params := make([]string, len(entries)) // the request field of each entry, for refusals
+	for i := range params {
+		params[i] = "narrowing.quotas." + strconv.Itoa(i)
+	}
+	hasLegacy := n.Quota != nil && (n.Quota.Tokens != nil || n.Quota.Requests != nil)
+	switch {
+	case hasLegacy && len(entries) > 0:
+		warnings = append(warnings, quotaWarning)
+	case hasLegacy:
+		for _, l := range []struct {
+			param  string
+			metric string
+			limit  *int64
+		}{{"narrowing.quota.tokens", grants.MetricTokens, n.Quota.Tokens}, {"narrowing.quota.requests", grants.MetricRequests, n.Quota.Requests}} {
+			if l.limit == nil {
+				continue
+			}
+			if *l.limit < 0 {
+				return auth.Narrowing{}, nil, nil, invalid(l.param, "The value is below the lowest allowed.")
+			}
+			w, err := limits.LegacyWindow(ctx, s.cfg.Settings)
+			if err != nil {
+				return auth.Narrowing{}, nil, nil, err
+			}
+			entries = append(entries, grants.QuotaEntry{Metric: l.metric, Limit: *l.limit, Window: w})
+			params = append(params, l.param)
+		}
+	}
+	if len(entries) > 0 && !MaySetQuotaWindows(c, actor) {
+		return auth.Narrowing{}, nil, nil, forbidden("narrowing.quotas", "Only a prepaid or postpaid consumer may set quota windows on its own keys. Ask the host.")
+	}
+	if len(n.Quotas) > 0 {
+		if p := grants.ValidateQuotas(n.Quotas); p != nil {
+			return auth.Narrowing{}, nil, nil, invalid("narrowing.quotas."+strconv.Itoa(p.Index)+"."+p.Field, p.Reason)
+		}
+		for i, q := range n.Quotas {
+			if err := limits.CheckWindow(ctx, s.cfg.Settings, q.Window); err != nil {
+				var we *limits.WindowError
+				if errors.As(err, &we) {
+					return auth.Narrowing{}, nil, nil, invalid(params[i]+".window_seconds", we.Reason)
+				}
+				return auth.Narrowing{}, nil, nil, err
+			}
+		}
+	}
+	grants.SortQuotas(entries)
 	view := &Narrowing{ContextLimit: n.ContextLimit, MaxOutputTokens: n.MaxOutputTokens, Concurrency: n.Concurrency}
-	if n.Quota != nil && (n.Quota.Tokens != nil || n.Quota.Requests != nil) {
-		view.Quota = &Quota{Tokens: n.Quota.Tokens, Requests: n.Quota.Requests}
+	if len(entries) > 0 {
+		view.Quotas = entries
+		legacy, err := limits.LegacyWindow(ctx, s.cfg.Settings)
+		if err != nil {
+			return auth.Narrowing{}, nil, nil, err
+		}
+		view.Quota = quotaAlias(entries, legacy)
 	}
 	for _, c := range []struct {
 		param string
@@ -398,76 +518,77 @@ func (s *Service) narrowingFor(ctx context.Context, consumerID string, n *Narrow
 		{"narrowing.context_limit", view.ContextLimit, 1},
 		{"narrowing.max_output_tokens", view.MaxOutputTokens, 1},
 		{"narrowing.concurrency", view.Concurrency, 1},
-		{"narrowing.quota.tokens", quotaPart(view.Quota, true), 0},
-		{"narrowing.quota.requests", quotaPart(view.Quota, false), 0},
 	} {
 		if c.v != nil && *c.v < c.min {
-			return auth.Narrowing{}, nil, invalid(c.param, "The value is below the lowest allowed.")
+			return auth.Narrowing{}, nil, nil, invalid(c.param, "The value is below the lowest allowed.")
 		}
 	}
 	rd := s.cfg.DB.Reader()
-	st := auth.Narrowing{QuotaTokensPerDay: quotaPart(view.Quota, true), QuotaRequestsPerDay: quotaPart(view.Quota, false),
-		MaxConcurrency: view.Concurrency, ContextCap: view.ContextLimit, MaxOutputTokens: view.MaxOutputTokens}
+	st := auth.Narrowing{Quotas: entries, MaxConcurrency: view.Concurrency, ContextCap: view.ContextLimit, MaxOutputTokens: view.MaxOutputTokens}
 	for _, name := range n.Models {
 		if strings.TrimSpace(name) == "" {
-			return auth.Narrowing{}, nil, invalid("narrowing.models", "A model name must not be empty.")
+			return auth.Narrowing{}, nil, nil, invalid("narrowing.models", "A model name must not be empty.")
 		}
 		if slices.Contains(view.Models, name) {
 			continue
 		}
 		m, err := s.cfg.Grants.Models.GetByName(ctx, rd, name)
 		if errors.Is(err, grants.ErrNotFound) {
-			return auth.Narrowing{}, nil, invalid("narrowing.models", "A model in the narrowing is not known to this host.")
+			return auth.Narrowing{}, nil, nil, invalid("narrowing.models", "A model in the narrowing is not known to this host.")
 		}
 		if err != nil {
-			return auth.Narrowing{}, nil, err
+			return auth.Narrowing{}, nil, nil, err
 		}
 		view.Models = append(view.Models, name)
 		st.ModelIDs = append(st.ModelIDs, m.ID)
 	}
-	g, err := s.cfg.Grants.Grants.GetByConsumer(ctx, rd, consumerID)
+	g, err := s.cfg.Grants.Grants.GetByConsumer(ctx, rd, c.ID)
 	if err == nil {
 		var v grants.Version
 		if v, err = s.cfg.Grants.Versions.Current(ctx, rd, g.ID); err == nil {
-			if e := widerThan(v, st); e != nil {
-				return auth.Narrowing{}, nil, e
+			legacy, lerr := limits.LegacyWindow(ctx, s.cfg.Settings)
+			if lerr != nil {
+				return auth.Narrowing{}, nil, nil, lerr
+			}
+			if e := widerThan(v, st, entries, params, legacy); e != nil {
+				return auth.Narrowing{}, nil, nil, e
 			}
 		}
 	}
 	if err != nil && !errors.Is(err, grants.ErrNotFound) {
-		return auth.Narrowing{}, nil, err
+		return auth.Narrowing{}, nil, nil, err
 	}
-	if view.Quota == nil && view.ContextLimit == nil && view.MaxOutputTokens == nil && view.Concurrency == nil && len(view.Models) == 0 {
-		return auth.Narrowing{}, nil, nil
+	if len(view.Quotas) == 0 && view.ContextLimit == nil && view.MaxOutputTokens == nil && view.Concurrency == nil && len(view.Models) == 0 {
+		return auth.Narrowing{}, nil, warnings, nil
 	}
-	return st, view, nil
-}
-
-func quotaPart(q *Quota, tokens bool) *int64 {
-	switch {
-	case q == nil:
-		return nil
-	case tokens:
-		return q.Tokens
-	}
-	return q.Requests
+	return st, view, warnings, nil
 }
 
 // widerThan reports the first part of n that is wider than the grant version v, or nil. A number
 // is wider when the grant has a figure and n's is above it; a per-model cap is wider only when
-// every model of the grant has a cap and n's is above the largest.
-func widerThan(v grants.Version, n auth.Narrowing) *Error {
+// every model of the grant has a cap and n's is above the largest. A quota entry is compared with
+// the grant's entry of the same metric and window only, including a deprecated grant figure as an
+// entry with the window legacy; params names the request field of each of entries.
+func widerThan(v grants.Version, n auth.Narrowing, entries []grants.QuotaEntry, params []string, legacy time.Duration) *Error {
 	for _, id := range n.ModelIDs {
 		if !slices.ContainsFunc(v.Models, func(m grants.VersionModel) bool { return m.ModelID == id }) {
 			return invalid("narrowing.models", "A model in the narrowing is not allowed by the consumer's grant.")
+		}
+	}
+	grantQuotas := v.AllQuotas(legacy)
+	for i, q := range entries {
+		if j := slices.IndexFunc(grantQuotas, func(g grants.QuotaEntry) bool { return g.Metric == q.Metric && g.Window == q.Window }); j >= 0 && q.Limit > grantQuotas[j].Limit {
+			param := params[i]
+			if strings.HasPrefix(param, "narrowing.quotas.") {
+				param += ".limit"
+			}
+			return invalid(param, "The value is wider than the consumer's grant allows.")
 		}
 	}
 	for _, c := range []struct {
 		param      string
 		key, grant *int64
 	}{
-		{"narrowing.quota.tokens", n.QuotaTokensPerDay, v.QuotaTokensPerDay},
-		{"narrowing.quota.requests", n.QuotaRequestsPerDay, v.QuotaRequestsPerDay},
 		{"narrowing.concurrency", n.MaxConcurrency, v.MaxConcurrency},
 		{"narrowing.context_limit", n.ContextCap, largestCap(v, func(m grants.VersionModel) *int64 { return m.ContextCap })},
 		{"narrowing.max_output_tokens", n.MaxOutputTokens, largestCap(v, func(m grants.VersionModel) *int64 { return m.MaxOutputTokens })},

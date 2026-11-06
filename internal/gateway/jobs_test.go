@@ -709,7 +709,7 @@ func TestExpiredGrantVersionFailsAQueuedJobAtAdmission(t *testing.T) {
 func TestUsedUpQuotaStopsNewJobsButNotReadingThem(t *testing.T) {
 	e := newEnv(t, func(o *envOpts) {
 		o.version = func(models []grantsModel) grantsNewVersion {
-			return grantsNewVersion{Models: models, QuotaTokensPerDay: i64(20)}
+			return grantsNewVersion{Models: models, Quotas: dayQuotas(grants.MetricTokens, 20)}
 		}
 	})
 	id := idOf(t, e.postJob("idem-1", jobBody))
@@ -727,7 +727,7 @@ func TestUsedUpQuotaStopsNewJobsButNotReadingThem(t *testing.T) {
 func TestUsedUpQuotaStillReturnsTheJobOfADuplicateIdempotencyKey(t *testing.T) {
 	e := newEnv(t, func(o *envOpts) {
 		o.version = func(models []grantsModel) grantsNewVersion {
-			return grantsNewVersion{Models: models, QuotaTokensPerDay: i64(20)}
+			return grantsNewVersion{Models: models, Quotas: dayQuotas(grants.MetricTokens, 20)}
 		}
 	})
 	first := e.postJob("idem-1", jobBody)
@@ -753,7 +753,7 @@ func TestUsedUpQuotaStillReturnsTheJobOfADuplicateIdempotencyKey(t *testing.T) {
 func TestUsedUpQuotaRefusesAReleasedIdempotencyKey(t *testing.T) {
 	e := newEnv(t, func(o *envOpts) {
 		o.version = func(models []grantsModel) grantsNewVersion {
-			return grantsNewVersion{Models: models, QuotaTokensPerDay: i64(20)}
+			return grantsNewVersion{Models: models, Quotas: dayQuotas(grants.MetricTokens, 20)}
 		}
 	})
 	first := e.postJob("idem-1", jobBody)

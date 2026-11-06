@@ -9,6 +9,7 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/gateway"
+	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/ledger"
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
@@ -102,7 +103,7 @@ func TestMeteringRetriesInMemoryBeforeGivingUp(t *testing.T) {
 func TestMeteredCallsAreInTheLedgerAndTheNearLimitCheckRuns(t *testing.T) {
 	e := newEnv(t, func(o *envOpts) {
 		o.version = func(models []grantsModel) grantsNewVersion {
-			return grantsNewVersion{Models: models, QuotaTokensPerDay: i64(100)}
+			return grantsNewVersion{Models: models, Quotas: dayQuotas(grants.MetricTokens, 100)}
 		}
 	})
 	e.set(limits.KeyNearLimitPercent, "30")

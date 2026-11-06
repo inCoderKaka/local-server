@@ -214,10 +214,10 @@ func TestJobResultMatchesChatCompletion(t *testing.T) {
 	}
 }
 
-// The input schemas for a quota hold what storage holds (D-25, D-98): one token figure and one
-// request figure, with the window length a host setting, not a client choice. Only the read-only
-// QuotaStatus reports the window and when it resets.
-func TestQuotaInputShapeMatchesStorage(t *testing.T) {
+// A quota is a list of windowed entries (D-107). The old single-figure Quota object stays as a
+// deprecated alias beside the list, because /v1 and /admin/v1 change additively only (D-105).
+// Only the read-only QuotaStatus reports when a window resets.
+func TestQuotaInputShapeHoldsWindowedEntries(t *testing.T) {
 	b, err := os.ReadFile("../../api/openapi.yaml")
 	if err != nil {
 		t.Fatal(err)
@@ -228,15 +228,31 @@ func TestQuotaInputShapeMatchesStorage(t *testing.T) {
 	}
 	schemas := spec.Components.Schemas
 
+	entry := schemas["QuotaEntry"]
+	if entry == nil {
+		t.Fatal("QuotaEntry missing from the spec")
+	}
+	for _, name := range []string{"metric", "limit", "window_seconds"} {
+		if _, ok := findProperty(entry, name); !ok {
+			t.Errorf("QuotaEntry has no %s property", name)
+		}
+		if !slices.Contains(entry.Required, name) {
+			t.Errorf("QuotaEntry does not require %s", name)
+		}
+	}
+	if w, _ := findProperty(entry, "window_seconds"); w == nil || string(w.Minimum) != "1" {
+		t.Error("QuotaEntry window_seconds has no minimum of 1")
+	}
+
 	quota := schemas["Quota"]
 	if quota == nil {
 		t.Fatal("Quota missing from the spec")
 	}
-	if _, ok := findProperty(quota, "window_seconds"); ok {
-		t.Error("Quota has a window_seconds property; the window is the host setting limits.quota_window")
+	if !quota.Deprecated {
+		t.Error("Quota is not deprecated")
 	}
-	if slices.Contains(quota.Required, "window_seconds") {
-		t.Error("Quota requires window_seconds")
+	if _, ok := findProperty(quota, "window_seconds"); ok {
+		t.Error("Quota has a window_seconds property; the alias has the host's quota_window")
 	}
 	for _, name := range []string{"tokens", "requests"} {
 		if _, ok := findProperty(quota, name); !ok {
@@ -244,29 +260,47 @@ func TestQuotaInputShapeMatchesStorage(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"Quota", "GrantLimits", "AccessKeyNarrowing", "ResourceRequestAsk"} {
+	for _, name := range []string{"Quota", "QuotaEntry", "GrantLimits", "AccessKeyNarrowing", "ResourceRequestAsk"} {
 		s := schemas[name]
 		if s == nil {
 			t.Errorf("%s missing from the spec", name)
 			continue
 		}
 		if ap := s.AdditionalProperties; ap == nil || ap.Bool == nil || *ap.Bool {
-			t.Errorf("%s is not strict (additionalProperties: false); an unknown field such as the old quotas or window_seconds would be dropped silently (D-32)", name)
+			t.Errorf("%s is not strict (additionalProperties: false); that changes only with PLT-B-053 (D-105)", name)
 		}
-		if name == "Quota" {
+		if name == "Quota" || name == "QuotaEntry" {
 			continue
 		}
-		if _, ok := findProperty(s, "quota"); !ok {
-			t.Errorf("%s has no quota property", name)
+		q, ok := findProperty(s, "quota")
+		if !ok {
+			t.Errorf("%s dropped the deprecated quota property; removing a field is not additive (D-105)", name)
+		} else if !q.Deprecated {
+			t.Errorf("%s quota is not marked deprecated", name)
 		}
-		if _, ok := findProperty(s, "quotas"); ok {
-			t.Errorf("%s still has a quotas list; storage holds one quota", name)
+		l, ok := findProperty(s, "quotas")
+		if !ok || l.Type != "array" {
+			t.Errorf("%s has no quotas list", name)
+		}
+		if slices.Contains(s.Required, "quotas") {
+			t.Errorf("%s requires quotas; an older client that sends only quota must keep working", name)
 		}
 	}
+	// Loosened, never tightened (D-105): a client that sends only quotas is a valid grant body.
+	if slices.Contains(schemas["GrantLimits"].Required, "quota") {
+		t.Error("GrantLimits requires the deprecated quota")
+	}
 
-	// I-314: a grant version always states its quota, even when it is null for none.
-	if !slices.Contains(schemas["GrantLimits"].Required, "quota") {
-		t.Error("GrantLimits does not require quota")
+	if props, ok := findProperty(schemas["AccessKey"], "warnings"); !ok || props.Type != "array" {
+		t.Error("AccessKey has no warnings list")
+	}
+	for _, name := range []string{"Consumer", "ConsumerCreate", "ConsumerUpdate"} {
+		if _, ok := findProperty(schemas[name], "billing_mode"); !ok {
+			t.Errorf("%s has no billing_mode", name)
+		}
+	}
+	if bm := schemas["BillingMode"]; bm == nil || len(bm.Enum) != 3 {
+		t.Error("BillingMode is not none, prepaid or postpaid")
 	}
 
 	status := schemas["QuotaStatus"]
@@ -292,20 +326,37 @@ func findProperty(s *ogen.Schema, name string) (*ogen.Schema, bool) {
 	return nil, false
 }
 
-// A body that still carries the old quotas list is refused, not decoded with the list dropped
-// (D-32: explicit rejection over silent dropping).
-func TestQuotaRequestBodiesRejectOldQuotasList(t *testing.T) {
+// A body may carry the deprecated quota, the quotas list or both (the host decides which wins and
+// warns); an entry needs its three fields, and a window below one second is refused (D-107).
+func TestQuotaRequestBodiesDecode(t *testing.T) {
+	entry := `{"metric":"tokens","limit":5,"window_seconds":60}`
+
 	var ask ResourceRequestAsk
-	if err := ask.Decode(jx.DecodeStr(`{"quotas":[{"tokens":5}]}`)); err == nil {
-		t.Error("ResourceRequestAsk decoded a body with quotas; want an error")
+	if err := ask.Decode(jx.DecodeStr(`{"quota":{"tokens":5},"quotas":[` + entry + `]}`)); err != nil {
+		t.Errorf("ResourceRequestAsk refused quota beside quotas: %v", err)
+	}
+	if len(ask.Quotas) != 1 || ask.Quotas[0].WindowSeconds != 60 {
+		t.Errorf("ask quotas = %+v", ask.Quotas)
+	}
+	for _, bad := range []string{`{"quotas":[{"tokens":5}]}`, `{"quotas":[{"metric":"tokens","limit":5,"window_seconds":0}]}`,
+		`{"quotas":[{"metric":"jobs","limit":5,"window_seconds":60}]}`, `{"quotas":[{"metric":"tokens","limit":-1,"window_seconds":60}]}`} {
+		var a ResourceRequestAsk
+		err := a.Decode(jx.DecodeStr(bad))
+		if err == nil {
+			err = a.Validate()
+		}
+		if err == nil {
+			t.Errorf("ResourceRequestAsk accepted %s", bad)
+		}
 	}
 
 	var limits GrantLimits
-	body := `{"models":[],"quota":null,"concurrency":1,"on_context_overflow":"refuse","allowed_request_properties":[],"quotas":[]}`
-	if err := limits.Decode(jx.DecodeStr(body)); err == nil {
-		t.Error("GrantLimits decoded a body with quotas; want an error")
+	body := `{"models":[],"concurrency":1,"on_context_overflow":"refuse","allowed_request_properties":[],"quotas":[` + entry + `]}`
+	if err := limits.Decode(jx.DecodeStr(body)); err != nil {
+		t.Errorf("GrantLimits refused a body with only quotas: %v", err)
 	}
-	if err := limits.Decode(jx.DecodeStr(strings.Replace(body, `,"quotas":[]`, "", 1))); err != nil {
-		t.Errorf("GrantLimits refused a valid body: %v", err)
+	old := `{"models":[],"quota":null,"concurrency":1,"on_context_overflow":"refuse","allowed_request_properties":[]}`
+	if err := new(GrantLimits).Decode(jx.DecodeStr(old)); err != nil {
+		t.Errorf("GrantLimits refused an older client's body: %v", err)
 	}
 }

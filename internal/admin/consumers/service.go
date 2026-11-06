@@ -17,6 +17,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/identity"
+	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
@@ -82,6 +83,12 @@ func New(cfg Config) (*Service, error) {
 	}
 	if s.log == nil {
 		s.log = slog.Default()
+	}
+	// Quota entries are checked against limits.quota_window_min, limits.quota_window_max and
+	// limits.quota_window, which the limits module owns. Registering the same definitions is
+	// allowed, so this works in whichever order the modules are built.
+	if err := cfg.Settings.Register(limits.Defs()...); err != nil {
+		return nil, err
 	}
 	if err := registerSettings(cfg.Settings); err != nil {
 		return nil, err

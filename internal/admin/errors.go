@@ -170,6 +170,9 @@ func consumersError(e *consumers.Error) *apiError {
 	if !safeName(param) {
 		param = ""
 	}
+	if e.Kind == consumers.KindForbidden {
+		return newErr(http.StatusForbidden, typeInvalidRequest, "", param, e.Message)
+	}
 	return badRequest(param, e.Message)
 }
 

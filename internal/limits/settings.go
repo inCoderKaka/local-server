@@ -13,6 +13,9 @@ import (
 // moment of use, so a change applies to the next decision.
 const (
 	KeyQuotaWindow       = "limits.quota_window"
+	KeyQuotaWindowMin    = "limits.quota_window_min"
+	KeyQuotaWindowMax    = "limits.quota_window_max"
+	KeyCounterRetention  = "limits.counter_retention"
 	KeyNearLimitPercent  = "limits.near_limit_percent"
 	KeyRateEnabled       = "limits.rate_enabled"
 	KeyRateCapacity      = "limits.rate_capacity"
@@ -32,7 +35,13 @@ func Defs() []settings.Def {
 	h := settings.Host
 	return []settings.Def{
 		{Key: KeyQuotaWindow, Kind: settings.Duration, Default: "24h", Owner: h,
-			Description: "Length of the window a token or request quota counts over. Windows are fixed: each starts at a whole multiple of this length counted from 0001-01-01 00:00 UTC, so a length that divides 24h starts a window at every midnight UTC, and 168h starts one every Monday at midnight UTC. The quotas of keys and grants are stored per day; changing this changes what they mean."},
+			Description: "Length of the window the deprecated single-figure quotas count over (the quota_tokens_per_day and quota_requests_per_day aliases, and the deprecated quota object of the admin API), rounded down to whole seconds, at least one. Quota entries carry their own window and ignore this setting. Windows are fixed: each starts at a whole multiple of its length counted from 0001-01-01 00:00 UTC, so a length that divides 24h starts a window at every midnight UTC, and 168h starts one every Monday at midnight UTC. A call counts in the window that contains the moment it was admitted."},
+		{Key: KeyQuotaWindowMin, Kind: settings.Duration, Default: "1m", Owner: h,
+			Description: "Shortest window a quota entry may have. A window must be a whole number of seconds. A change applies to quota entries written after it; entries already stored keep working. Must be at least 1s."},
+		{Key: KeyQuotaWindowMax, Kind: settings.Duration, Default: "720h", Owner: h,
+			Description: "Longest window a quota entry may have. A change applies to quota entries written after it; entries already stored keep working. Must be at least 1s, and at least limits.quota_window_min or no window is allowed."},
+		{Key: KeyCounterRetention, Kind: settings.Duration, Default: "168h", Owner: h,
+			Description: "How long the request counter of a quota window is kept after the window ended. The counter of a window that is still running is never removed. Must be greater than 0."},
 		{Key: KeyNearLimitPercent, Kind: settings.Int, Default: "80", Owner: h,
 			Description: "Percent of a quota used at which one quota.near_limit notification is raised for that window. 0 turns the notification off."},
 		{Key: KeyRateEnabled, Kind: settings.Bool, Default: "true", Owner: h,
@@ -91,7 +100,8 @@ func setValidators(st *settings.Store) error {
 		min time.Duration // the value must be at least min; 0 means greater than 0
 	}{
 		{KeyRateWindow, 0}, {KeyLockoutWindow, 0}, {KeyLockoutDuration, 0}, {KeyTrackerIdleTTL, 0},
-		{KeyQuotaWindow, time.Second},
+		{KeyCounterRetention, 0},
+		{KeyQuotaWindow, time.Second}, {KeyQuotaWindowMin, time.Second}, {KeyQuotaWindowMax, time.Second},
 	}
 	for _, k := range durations {
 		min := k.min
@@ -114,3 +124,47 @@ func setValidators(st *settings.Store) error {
 	}
 	return nil
 }
+
+// LegacyWindow returns the window of the deprecated single-figure quotas: the setting
+// limits.quota_window rounded down to whole seconds, at least one second (req_001 D-107). Quota
+// entries written from a deprecated field get this window when they are written; the limiter
+// gives it to a stored deprecated figure when it checks.
+func LegacyWindow(ctx context.Context, st *settings.Store) (time.Duration, error) {
+	w, err := st.Duration(ctx, KeyQuotaWindow, "")
+	if err != nil {
+		return 0, err
+	}
+	return max(w.Truncate(time.Second), time.Second), nil
+}
+
+// CheckWindow reports why a quota entry may not have window w. It returns a *WindowError for a
+// window the host refuses, nil when it is fine, and any other error when the bounds could not be
+// read. It is for the admin layer that writes quota entries: w must be a positive whole number of
+// seconds within the host's limits.quota_window_min and limits.quota_window_max, read now
+// (req_001 D-107, D-38). A stored entry is never rechecked: a later change of the bounds only
+// affects what is written after it.
+func CheckWindow(ctx context.Context, st *settings.Store, w time.Duration) error {
+	if w < time.Second || w%time.Second != 0 {
+		return &WindowError{Reason: "The window must be a whole number of seconds, at least 1."}
+	}
+	lo, err := st.Duration(ctx, KeyQuotaWindowMin, "")
+	if err != nil {
+		return err
+	}
+	hi, err := st.Duration(ctx, KeyQuotaWindowMax, "")
+	if err != nil {
+		return err
+	}
+	switch {
+	case w < lo:
+		return &WindowError{Reason: fmt.Sprintf("The window is shorter than this host allows (at least %s).", lo)}
+	case w > hi:
+		return &WindowError{Reason: fmt.Sprintf("The window is longer than this host allows (at most %s).", hi)}
+	}
+	return nil
+}
+
+// WindowError says why a window is refused. Reason is fixed text and the host's own bounds.
+type WindowError struct{ Reason string }
+
+func (e *WindowError) Error() string { return "limits: " + e.Reason }

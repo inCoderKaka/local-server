@@ -2,12 +2,14 @@ package admin
 
 import (
 	"context"
+	"math"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	"github.com/inCoderKaka/local-server/internal/api"
+	"github.com/inCoderKaka/local-server/internal/grants"
 )
 
 // AdminListAccessKeys implements GET /admin/v1/consumers/{consumer_id}/access-keys: by prefix,
@@ -30,7 +32,8 @@ func (a *Admin) AdminListAccessKeys(ctx context.Context, params api.AdminListAcc
 
 // AdminIssueAccessKey implements POST /admin/v1/consumers/{consumer_id}/access-keys: 201 with
 // the whole key, which no later answer repeats. This is the one place the secret is revealed.
-func (a *Admin) AdminIssueAccessKey(ctx context.Context, req *api.AccessKeyCreate, params api.AdminIssueAccessKeyParams) (*api.AccessKeyIssued, error) {
+// A consumer that may not set quota windows on its own keys is 403 (req_001 D-107).
+func (a *Admin) AdminIssueAccessKey(ctx context.Context, req *api.AccessKeyCreate, params api.AdminIssueAccessKeyParams) (api.AdminIssueAccessKeyRes, error) {
 	var in consumers.NewKey
 	if v, ok := req.Name.Get(); ok {
 		in.Name = &v
@@ -56,8 +59,8 @@ func (a *Admin) AdminIssueAccessKey(ctx context.Context, req *api.AccessKeyCreat
 }
 
 // AdminUpdateAccessKey implements PATCH /admin/v1/access-keys/{access_key_id}. A revoked or
-// expired key is 409.
-func (a *Admin) AdminUpdateAccessKey(ctx context.Context, req *api.AccessKeyUpdate, params api.AdminUpdateAccessKeyParams) (*api.AccessKey, error) {
+// expired key is 409, and a narrowing the consumer may not set is 403.
+func (a *Admin) AdminUpdateAccessKey(ctx context.Context, req *api.AccessKeyUpdate, params api.AdminUpdateAccessKeyParams) (api.AdminUpdateAccessKeyRes, error) {
 	ch := consumers.KeyChange{Name: nilString(req.Name), BoundNode: nilString(req.BoundNode)}
 	switch {
 	case !req.ExpiresAt.Set:
@@ -77,7 +80,11 @@ func (a *Admin) AdminUpdateAccessKey(ctx context.Context, req *api.AccessKeyUpda
 	if err != nil {
 		return nil, err
 	}
-	return keyOut(k)
+	v, err := toAccessKey(k)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
 }
 
 // AdminRevokeAccessKey implements POST /admin/v1/access-keys/{access_key_id}/revoke.
@@ -107,7 +114,8 @@ func toAccessKey(k consumers.Key) (api.AccessKey, error) {
 		return api.AccessKey{}, err
 	}
 	out := api.AccessKey{ID: id, ConsumerID: cid, Prefix: k.Prefix, Name: optNil(k.Name), Status: api.AccessKeyStatus(k.Status),
-		BoundNode: optNil(k.BoundNode), CreatedAt: k.CreatedAt, ExpiresAt: optNilTime(k.ExpiresAt), RevokedAt: optNilTime(k.RevokedAt)}
+		BoundNode: optNil(k.BoundNode), CreatedAt: k.CreatedAt, ExpiresAt: optNilTime(k.ExpiresAt), RevokedAt: optNilTime(k.RevokedAt),
+		Warnings: k.Warnings}
 	if k.Narrowing == nil {
 		out.Narrowing.SetToNull()
 	} else {
@@ -125,10 +133,11 @@ func optNilTime(t *time.Time) api.OptNilDateTime {
 	return api.NewOptNilDateTime(t.UTC())
 }
 
-// narrowingIn reads the narrowing of a request. A quota given as null, or without a number,
-// adds no quota.
+// narrowingIn reads the narrowing of a request. The deprecated quota given as null, or without a
+// number, adds no quota. Both quotas and the deprecated quota may be given; the service decides
+// which wins and warns (req_001 D-107).
 func narrowingIn(n api.AccessKeyNarrowing) *consumers.Narrowing {
-	out := &consumers.Narrowing{Models: n.Models}
+	out := &consumers.Narrowing{Models: n.Models, Quotas: quotaEntriesIn(n.Quotas)}
 	if q, ok := n.Quota.Get(); ok {
 		out.Quota = &consumers.Quota{Tokens: optInt64(q.Tokens), Requests: optInt64(q.Requests)}
 	}
@@ -138,8 +147,36 @@ func narrowingIn(n api.AccessKeyNarrowing) *consumers.Narrowing {
 	return out
 }
 
+// quotaEntriesIn reads the quota entries of a request. A window too long to hold as a duration
+// becomes the longest whole-second one, which the host's limits.quota_window_max refuses.
+func quotaEntriesIn(in []api.QuotaEntry) []grants.QuotaEntry {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]grants.QuotaEntry, len(in))
+	for i, e := range in {
+		secs := e.WindowSeconds
+		if secs > math.MaxInt64/int64(time.Second) {
+			secs = math.MaxInt64 / int64(time.Second)
+		}
+		out[i] = grants.QuotaEntry{Metric: string(e.Metric), Limit: e.Limit, Window: time.Duration(secs) * time.Second}
+	}
+	return out
+}
+
+func quotaEntriesOut(in []grants.QuotaEntry) []api.QuotaEntry {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]api.QuotaEntry, len(in))
+	for i, e := range in {
+		out[i] = api.QuotaEntry{Metric: api.QuotaEntryMetric(e.Metric), Limit: e.Limit, WindowSeconds: int64(e.Window / time.Second)}
+	}
+	return out
+}
+
 func narrowingOut(n consumers.Narrowing) api.AccessKeyNarrowing {
-	out := api.AccessKeyNarrowing{Models: n.Models}
+	out := api.AccessKeyNarrowing{Models: n.Models, Quotas: quotaEntriesOut(n.Quotas)}
 	if n.Quota != nil {
 		q := api.Quota{}
 		if n.Quota.Tokens != nil {

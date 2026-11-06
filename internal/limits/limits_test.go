@@ -30,8 +30,15 @@ import (
 
 func i64(v int64) *int64 { return &v }
 
+// keyDay is a key narrowing with one entry over 24 hours.
+func keyDay(metric string, limit int64) auth.Narrowing {
+	return auth.Narrowing{Quotas: []grants.QuotaEntry{day(metric, limit)}}
+}
+
 type env struct {
 	t    *testing.T
+	path string
+	gr   *grants.Repos
 	db   *storage.DB
 	bus  *events.Bus
 	st   *settings.Store
@@ -69,17 +76,68 @@ func (w *lockedWriter) Write(p []byte) (int, error) {
 	return w.e.logs.Write(p)
 }
 
+// day is a quota entry over the default window of 24 hours.
+func day(metric string, limit int64) grants.QuotaEntry {
+	return grants.QuotaEntry{Metric: metric, Limit: limit, Window: 24 * time.Hour}
+}
+
+// dayQuotas turns the pair of optional day limits into the grant's entries.
+func dayQuotas(tokens, requests *int64) []grants.QuotaEntry {
+	var out []grants.QuotaEntry
+	if tokens != nil {
+		out = append(out, day(grants.MetricTokens, *tokens))
+	}
+	if requests != nil {
+		out = append(out, day(grants.MetricRequests, *requests))
+	}
+	return out
+}
+
+// setup makes a consumer whose grant has a token quota per day (none when nil).
 func setup(t *testing.T, grantQuota *int64) *env { return setupGrant(t, grantQuota, nil) }
 
 func setupGrant(t *testing.T, grantQuota, grantRequests *int64) *env {
 	t.Helper()
-	db, err := storage.Open(context.Background(), storage.DefaultConfig(filepath.Join(t.TempDir(), "t.db"),
+	return setupVersion(t, grants.NewVersion{Quotas: dayQuotas(grantQuota, grantRequests)})
+}
+
+// setupLegacy makes a consumer whose only grant version is one made before the quota entries: the
+// deprecated alias columns hold the figures and the version has no entry.
+func setupLegacy(t *testing.T, tokens, requests *int64) *env {
+	t.Helper()
+	return setupWith(t, func(tx *storage.Tx, gr *grants.Repos, grantID, modelID string) error {
+		_, err := tx.Exec(`INSERT INTO grt_version (id, grant_id, version_no, quota_tokens_per_day, quota_requests_per_day, created_at) VALUES ('legacy-version', ?, 1, ?, ?, 1)`,
+			grantID, tokens, requests)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`INSERT INTO grt_version_model (version_id, model_id) VALUES ('legacy-version', ?)`, modelID); err != nil {
+			return err
+		}
+		_, err = tx.Exec(`UPDATE grt_grant SET current_version_id = 'legacy-version' WHERE id = ?`, grantID)
+		return err
+	})
+}
+
+func setupVersion(t *testing.T, v grants.NewVersion) *env {
+	t.Helper()
+	return setupWith(t, func(tx *storage.Tx, gr *grants.Repos, grantID, modelID string) error {
+		v.Models = []grants.VersionModel{{ModelID: modelID}}
+		_, err := gr.Versions.Create(tx, grantID, v)
+		return err
+	})
+}
+
+func setupWith(t *testing.T, makeVersion func(tx *storage.Tx, gr *grants.Repos, grantID, modelID string) error) *env {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "t.db")
+	db, err := storage.Open(context.Background(), storage.DefaultConfig(path,
 		settings.Module(), identity.Module(), grants.Module(), audit.Module(), events.Module(), usage.Module()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	e := &env{t: t, db: db, bus: events.New(), st: settings.New(db), ir: identity.NewRepos(nil),
+	e := &env{t: t, path: path, gr: grants.NewRepos(nil), db: db, bus: events.New(), st: settings.New(db), ir: identity.NewRepos(nil),
 		now: time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC)}
 	gr := grants.NewRepos(nil)
 	e.auth, err = auth.New(auth.Config{DB: db, Identity: e.ir, Grants: gr, Events: e.bus, Settings: e.st, Clock: e.clock})
@@ -115,9 +173,7 @@ func setupGrant(t *testing.T, grantQuota, grantRequests *int64) *env {
 		if err != nil {
 			return err
 		}
-		_, err = gr.Versions.Create(tx, g.ID, grants.NewVersion{QuotaTokensPerDay: grantQuota, QuotaRequestsPerDay: grantRequests,
-			Models: []grants.VersionModel{{ModelID: m.ID}}})
-		return err
+		return makeVersion(tx, gr, g.ID, m.ID)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +228,34 @@ VALUES (?, ?, ?, ?, 'chat.completions', 'm1', 'completed', 0, ?, ?, 1, ?, ?, 'ki
 	}
 }
 
+// useAt inserts a usage record admitted (started) at one time and finished at another.
+func (e *env) useAt(k key, tokens int64, started, finished time.Time) {
+	e.t.Helper()
+	id := "u" + string(rune('a'+e.seq.Add(1)))
+	err := e.db.Write(ctx(), func(tx *storage.Tx) error {
+		_, err := tx.Exec(`INSERT INTO use_record (id, consumer_id, access_key_id, grant_version_id, operation, model, outcome,
+prompt_tokens, completion_tokens, total_tokens, latency_ms, started_at, finished_at, receipt_kid, receipt_signature, created_at)
+VALUES (?, ?, ?, ?, 'chat.completions', 'm1', 'completed', 0, ?, ?, 1, ?, ?, 'kid', x'00', ?)`,
+			id, k.id.ConsumerID, k.id.KeyID, k.id.GrantVersionID, tokens, tokens, started.UnixMilli(), finished.UnixMilli(), finished.UnixMilli())
+		return err
+	})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// admit is what the gateway does for one call that is let in: Check, then CountAdmitted.
+func (e *env) admit(k key) error {
+	e.t.Helper()
+	if err := e.lim.Check(ctx(), k.id); err != nil {
+		return err
+	}
+	if err := e.lim.CountAdmitted(ctx(), k.id); err != nil {
+		e.t.Fatal(err)
+	}
+	return nil
+}
+
 func (e *env) events() []events.Event {
 	e.evMu.Lock()
 	defer e.evMu.Unlock()
@@ -182,7 +266,7 @@ func ctx() context.Context { return context.Background() }
 
 func TestOverQuotaKeyGetsQuotaExceededWithRetryAfter(t *testing.T) {
 	e := setup(t, i64(1000))
-	k := e.issue(auth.Narrowing{QuotaTokensPerDay: i64(100)})
+	k := e.issue(keyDay(grants.MetricTokens, 100))
 	e.use(k, 99)
 	if err := e.lim.Check(ctx(), k.id); err != nil {
 		t.Fatalf("under quota: %v", err)
@@ -219,7 +303,7 @@ func TestGrantQuotaCountsAllKeysOfConsumer(t *testing.T) {
 
 func TestKeyNarrowingLimitsOnlyThatKey(t *testing.T) {
 	e := setup(t, i64(1000))
-	a, b := e.issue(auth.Narrowing{QuotaTokensPerDay: i64(10)}), e.issue(auth.Narrowing{})
+	a, b := e.issue(keyDay(grants.MetricTokens, 10)), e.issue(auth.Narrowing{})
 	e.use(a, 10)
 	if err := e.lim.Check(ctx(), b.id); err != nil {
 		t.Fatalf("other key must be unaffected: %v", err)
@@ -229,16 +313,15 @@ func TestKeyNarrowingLimitsOnlyThatKey(t *testing.T) {
 	}
 }
 
-// quota_requests_per_day counts calls in the same window as the token quota (req_001 D-98).
+// A request entry counts the calls admitted in its window (req_001 D-107).
 func TestRequestQuotaNPlusOne(t *testing.T) {
 	e := setup(t, nil)
-	k := e.issue(auth.Narrowing{QuotaRequestsPerDay: i64(3)})
-	other := e.issue(auth.Narrowing{QuotaRequestsPerDay: i64(3)})
+	k := e.issue(keyDay(grants.MetricRequests, 3))
+	other := e.issue(keyDay(grants.MetricRequests, 3))
 	for i := 1; i <= 3; i++ {
-		if err := e.lim.Check(ctx(), k.id); err != nil {
+		if err := e.admit(k); err != nil {
 			t.Fatalf("request %d: %v", i, err)
 		}
-		e.use(k, 0) // a zero-token call still counts as a request
 	}
 	err := e.lim.Check(ctx(), k.id)
 	var qe *limits.QuotaError
@@ -261,21 +344,22 @@ func TestRequestQuotaNPlusOne(t *testing.T) {
 func TestGrantRequestQuotaCountsAllKeysOfConsumer(t *testing.T) {
 	e := setupGrant(t, nil, i64(2))
 	a, b := e.issue(auth.Narrowing{}), e.issue(auth.Narrowing{})
-	e.use(a, 1)
-	if err := e.lim.Check(ctx(), b.id); err != nil {
+	if err := e.admit(a); err != nil {
+		t.Fatalf("request 1: %v", err)
+	}
+	if err := e.admit(b); err != nil {
 		t.Fatalf("request 2: %v", err)
 	}
-	e.use(b, 1)
 	var qe *limits.QuotaError
 	if err := e.lim.Check(ctx(), a.id); !errors.As(err, &qe) || qe.Scope != limits.ScopeGrant || qe.Unit != limits.UnitRequests {
 		t.Fatalf("request 3: %v", err)
 	}
 }
 
-// req_001 D-100: the request quota counts every admitted call, metered or not.
+// req_001 D-107, held from D-100: the request quota counts every admitted call, metered or not.
 func TestRequestQuotaCountsUnmeteredAdmittedCalls(t *testing.T) {
 	e := setup(t, nil)
-	k := e.issue(auth.Narrowing{QuotaRequestsPerDay: i64(3)})
+	k := e.issue(keyDay(grants.MetricRequests, 3))
 	other := e.issue(auth.Narrowing{})
 	for i := 1; i <= 3; i++ {
 		if err := e.lim.Check(ctx(), k.id); err != nil {
@@ -301,26 +385,24 @@ func TestRequestQuotaCountsUnmeteredAdmittedCalls(t *testing.T) {
 	}
 }
 
-// A counter starts from the metered records on record (the restart floor), and a metered record
-// is not counted twice.
-func TestRequestCounterIsSeededFromMeteredRecords(t *testing.T) {
+// Metered records are not a source of the request count: only CountAdmitted raises it, so a record
+// written for a call that was admitted is not counted a second time.
+func TestRequestCountIsTheCounterNotTheRecords(t *testing.T) {
 	e := setup(t, nil)
-	k := e.issue(auth.Narrowing{QuotaRequestsPerDay: i64(4)})
+	k := e.issue(keyDay(grants.MetricRequests, 2))
 	e.use(k, 1)
-	e.use(k, 1) // two metered calls before this process admitted anything
-	if err := e.lim.CountAdmitted(ctx(), k.id); err != nil {
-		t.Fatal(err)
-	}
-	e.use(k, 1) // the admitted call is then metered: still one call, not two
-	var qe *limits.QuotaError
+	e.use(k, 1)
+	e.use(k, 1) // three records, no admission counted
 	if err := e.lim.Check(ctx(), k.id); err != nil {
-		t.Fatalf("3 calls of 4: %v", err)
+		t.Fatalf("records alone must not use the request quota: %v", err)
 	}
-	if err := e.lim.CountAdmitted(ctx(), k.id); err != nil {
+	if err := e.admit(k); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.lim.Check(ctx(), k.id); !errors.As(err, &qe) || qe.Used != 4 {
-		t.Fatalf("4 calls of 4: %v", err)
+	e.use(k, 1) // the admitted call is then metered: still one call
+	st, err := e.lim.StatusOf(ctx(), k.id)
+	if err != nil || len(st.Quotas) != 1 || *st.Quotas[0].UsedRequests != 1 {
+		t.Fatalf("status = %+v, %v; want 1 request used", st, err)
 	}
 }
 
@@ -384,7 +466,7 @@ func TestRateLimitNPlusOne(t *testing.T) {
 func TestNearLimitEmitsExactlyOncePerWindow(t *testing.T) {
 	e := setup(t, nil)
 	e.set(limits.KeyNearLimitPercent, "80")
-	k := e.issue(auth.Narrowing{QuotaTokensPerDay: i64(100)})
+	k := e.issue(keyDay(grants.MetricTokens, 100))
 	rec := func() {
 		t.Helper()
 		if err := e.lim.Record(ctx(), k.id); err != nil {
@@ -436,7 +518,7 @@ func TestNearLimitEmitsExactlyOncePerWindow(t *testing.T) {
 
 func TestNearLimitConcurrentRecordEmitsOnce(t *testing.T) {
 	e := setup(t, nil)
-	k := e.issue(auth.Narrowing{QuotaTokensPerDay: i64(100)})
+	k := e.issue(keyDay(grants.MetricTokens, 100))
 	e.use(k, 90)
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
@@ -710,7 +792,7 @@ func TestInactiveSubjectsAreNotQuotaSubjects(t *testing.T) {
 func TestConcurrentUse(t *testing.T) {
 	e := setup(t, i64(1_000_000))
 	e.set(limits.KeyRateCapacity, "1000")
-	k := e.issue(auth.Narrowing{QuotaTokensPerDay: i64(500_000)})
+	k := e.issue(keyDay(grants.MetricTokens, 500_000))
 	var wg sync.WaitGroup
 	for g := 0; g < 8; g++ {
 		wg.Add(1)
@@ -775,15 +857,15 @@ func TestDefsAllHostOwnedWithDefaults(t *testing.T) {
 	}
 }
 
-// The quota queries must use the use_record indexes of PLT-B-023, not scan the table.
+// The token quota query must use the started_at indexes of usage migration 4, not scan the table.
 func TestQuotaQueriesUseIndexes(t *testing.T) {
 	e := setup(t, nil)
 	for _, c := range []struct{ col, index string }{
-		{"access_key_id", "use_record_key_finished"},
-		{"consumer_id", "use_record_consumer_finished"},
+		{"access_key_id", "use_record_key_started"},
+		{"consumer_id", "use_record_consumer_started"},
 	} {
-		rows, err := e.db.Reader().Query(ctx(), `EXPLAIN QUERY PLAN SELECT COALESCE(SUM(total_tokens), 0), COUNT(*) FROM use_record WHERE `+
-			c.col+` = ? AND finished_at >= ? AND finished_at < ?`, "x", 0, 1)
+		rows, err := e.db.Reader().Query(ctx(), `EXPLAIN QUERY PLAN SELECT COALESCE(SUM(total_tokens), 0) FROM use_record WHERE `+
+			c.col+` = ? AND started_at >= ? AND started_at < ?`, "x", 0, 1)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -809,6 +891,9 @@ func TestSettingsRejectUnusableValues(t *testing.T) {
 		{limits.KeyLockoutFailures, "0"},
 		{limits.KeyRateWindow, "0s"},
 		{limits.KeyMaxBodyBytes, "-1"},
+		{limits.KeyCounterRetention, "0s"},
+		{limits.KeyQuotaWindowMin, "500ms"},
+		{limits.KeyQuotaWindowMax, "0s"},
 	} {
 		if err := e.st.Set(ctx(), settings.Host, c.key, "", c.val); !errors.Is(err, settings.ErrRejected) {
 			t.Fatalf("Set(%s, %s) = %v, want ErrRejected", c.key, c.val, err)

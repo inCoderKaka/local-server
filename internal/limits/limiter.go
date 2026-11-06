@@ -36,22 +36,25 @@ type Limiter struct {
 	now func() time.Time
 	log *slog.Logger
 
-	rate   *buckets
-	fails  *tracker
-	admits *admitted
+	rate  *buckets
+	fails *tracker
 
-	mu    sync.Mutex
-	noted map[noteKey]int64 // quota.near_limit already raised: window start (ms) per subject
+	mu         sync.Mutex
+	noted      map[noteKey]int64 // quota.near_limit already raised: window start (ms) per subject and window length
+	lastPruned time.Time         // when the request counters were last pruned by CountAdmitted
 }
 
-type noteKey struct{ scope, subject string }
+type noteKey struct {
+	scope, subject string
+	window         time.Duration
+}
 
 // New builds the limiter and registers its settings.
 func New(cfg Config) (*Limiter, error) {
 	if cfg.DB == nil || cfg.Identity == nil || cfg.Grants == nil || cfg.Events == nil || cfg.Settings == nil {
 		return nil, errors.New("limits: DB, Identity, Grants, Events and Settings are required")
 	}
-	l := &Limiter{cfg: cfg, now: cfg.Clock, log: cfg.Logger, rate: newBuckets(), fails: newTracker(), admits: newAdmitted(), noted: map[noteKey]int64{}}
+	l := &Limiter{cfg: cfg, now: cfg.Clock, log: cfg.Logger, rate: newBuckets(), fails: newTracker(), noted: map[noteKey]int64{}}
 	if l.now == nil {
 		l.now = time.Now
 	}
@@ -103,8 +106,8 @@ func (l *Limiter) ProtectionsEnabled(ctx context.Context) (Protections, error) {
 //   - auth.ErrRevoked, auth.ErrExpired or auth.ErrConsumerNotActive when the key or its
 //     consumer stopped being usable since auth cached the identity: such a subject never gets
 //     quota treatment;
-//   - *QuotaError when the key's or the grant's token quota, or request quota
-//     (quota_requests_per_day), for the current window is used up (req_001 D-98).
+//   - *QuotaError when any quota entry of the key or of the grant, token or request, is used up
+//     in the window that contains now (req_001 D-107).
 //
 // Any other error is a failure to read state; the caller answers 5xx, not a limit.
 func (l *Limiter) Check(ctx context.Context, id *auth.Identity) error {
@@ -164,7 +167,7 @@ func (l *Limiter) checkRate(ctx context.Context, keyID string, now time.Time) er
 	return nil
 }
 
-// quota is one quota and its use in the current window.
+// quota is one quota entry that applies to a call and its use in the current window.
 type quota struct {
 	scope, subject string
 	unit           string // UnitTokens or UnitRequests
@@ -173,81 +176,92 @@ type quota struct {
 	start, end     time.Time
 }
 
-// quotas returns the quotas that apply to id, each with its use in the current window. The
-// key's own narrowing and the grant version's figure are read separately, because
-// auth.Identity.Limits holds only the smaller of the two. Request quotas count admitted calls
-// in the same fixed window as token quotas (req_001 D-98, D-100).
-func (l *Limiter) quotas(ctx context.Context, id *auth.Identity, key identity.AccessKey, now time.Time) ([]quota, error) {
-	var keyLimit, keyReqLimit *int64
+// entry is a quota entry with the scope it applies in and whose use it counts.
+type entry struct {
+	scope, subject string // ScopeGrant with the grant id, or ScopeAccessKey with the key id
+	by             usage.By
+	byID           string // the consumer id (grant scope) or the access key id (key scope)
+	grants.QuotaEntry
+}
+
+// entries returns the quota entries that apply to id: the grant version's, whose use is the
+// consumer's across all its keys (a consumer has one grant), and the key narrowing's, whose use is
+// that key's. Order: the grant's entries, then the key's. A deprecated single figure (the
+// quota_tokens_per_day and quota_requests_per_day aliases) becomes one entry with the window
+// limits.quota_window when its scope has no entry of that metric; the list wins (req_001 D-107).
+func (l *Limiter) entries(ctx context.Context, id *auth.Identity, key identity.AccessKey) ([]entry, error) {
+	var nar auth.Narrowing
 	if key.NarrowingJSON != nil {
-		n, err := auth.ParseNarrowing(*key.NarrowingJSON)
-		if err != nil {
+		var err error
+		if nar, err = auth.ParseNarrowing(*key.NarrowingJSON); err != nil {
 			return nil, fmt.Errorf("limits: key %s: %w", key.ID, err) // fail closed, as auth does
 		}
-		keyLimit, keyReqLimit = n.QuotaTokensPerDay, n.QuotaRequestsPerDay
 	}
 	v, err := l.cfg.Grants.Versions.Get(ctx, l.cfg.DB.Reader(), id.GrantVersionID)
 	if err != nil {
 		return nil, fmt.Errorf("limits: load grant version: %w", err)
 	}
-	if keyLimit == nil && v.QuotaTokensPerDay == nil && keyReqLimit == nil && v.QuotaRequestsPerDay == nil {
-		return nil, nil
-	}
-	window, start, end, err := l.quotaWindow(ctx, now)
+	legacy, err := LegacyWindow(ctx, l.cfg.Settings)
 	if err != nil {
 		return nil, err
 	}
-	var out []quota
-	add := func(scope, subject, unit string, by usage.By, value string, limit *int64) error {
-		if limit == nil {
-			return nil
-		}
-		used, err := l.used(ctx, unit, by, value, start, end)
-		if err != nil {
-			return err
-		}
-		out = append(out, quota{scope: scope, subject: subject, unit: unit, limit: *limit, used: used, window: window, start: start, end: end})
-		return nil
-	}
-	// A consumer has one grant, so the grant's use is the consumer's use across all its keys.
-	for _, a := range []struct {
-		scope, subject, unit string
-		by                   usage.By
-		value                string
-		limit                *int64
+	var out []entry
+	for _, s := range []struct {
+		scope, subject string
+		by             usage.By
+		byID           string
+		list           []grants.QuotaEntry
 	}{
-		{ScopeGrant, id.GrantID, UnitTokens, usage.ByConsumer, id.ConsumerID, v.QuotaTokensPerDay},
-		{ScopeAccessKey, id.KeyID, UnitTokens, usage.ByAccessKey, id.KeyID, keyLimit},
-		{ScopeGrant, id.GrantID, UnitRequests, usage.ByConsumer, id.ConsumerID, v.QuotaRequestsPerDay},
-		{ScopeAccessKey, id.KeyID, UnitRequests, usage.ByAccessKey, id.KeyID, keyReqLimit},
+		{ScopeGrant, id.GrantID, usage.ByConsumer, id.ConsumerID, v.AllQuotas(legacy)},
+		{ScopeAccessKey, id.KeyID, usage.ByAccessKey, id.KeyID, nar.AllQuotas(legacy)},
 	} {
-		if err := add(a.scope, a.subject, a.unit, a.by, a.value, a.limit); err != nil {
-			return nil, err
+		for _, q := range s.list {
+			out = append(out, entry{scope: s.scope, subject: s.subject, by: s.by, byID: s.byID, QuotaEntry: q})
 		}
 	}
 	return out, nil
 }
 
-// quotaWindow returns the quota window length and the fixed window that contains now. The
-// length is the setting limits.quota_window, at least one second.
-func (l *Limiter) quotaWindow(ctx context.Context, now time.Time) (window time.Duration, start, end time.Time, err error) {
-	window, err = l.cfg.Settings.Duration(ctx, KeyQuotaWindow, "")
-	if err != nil {
-		return 0, time.Time{}, time.Time{}, err
-	}
-	window = max(window, time.Second)
-	start = now.UTC().Truncate(window)
-	return window, start, start.Add(window), nil
+// windowOf returns the fixed window of length w that contains now. Windows are aligned to whole
+// multiples of w counted from 0001-01-01 00:00 UTC, which is what time.Time.Truncate does. A
+// window is [start, end): an instant exactly at end belongs to the next window.
+func windowOf(now time.Time, w time.Duration) (start, end time.Time) {
+	start = now.UTC().Truncate(w)
+	return start, start.Add(w)
 }
 
-// used returns the tokens (UnitTokens) or the number of calls (UnitRequests) that finished in
-// [from, to), read through the usage module. Calls count every call the gateway admitted
-// (req_001 D-100), metered or not, and at least the metered records.
-func (l *Limiter) used(ctx context.Context, unit string, by usage.By, value string, from, to time.Time) (int64, error) {
-	if unit == UnitRequests {
-		return l.requestsUsed(ctx, by, value, from, to)
+// quotas returns the quota entries that apply to id, each with its use in the window that
+// contains now (req_001 D-107). Token use is the sum of use_record rows admitted in the window
+// (started_at); request use is the persisted request counter of the window, raised by
+// CountAdmitted when a call is admitted. A call is therefore charged to the window it was
+// admitted in, even if it finishes in a later one.
+func (l *Limiter) quotas(ctx context.Context, id *auth.Identity, key identity.AccessKey, now time.Time) ([]quota, error) {
+	es, err := l.entries(ctx, id, key)
+	if err != nil {
+		return nil, err
 	}
-	n, err := usage.Tokens(ctx, l.cfg.DB.Reader(), by, value, from, to)
+	out := make([]quota, 0, len(es))
+	for _, e := range es {
+		start, end := windowOf(now, e.Window)
+		used, err := l.used(ctx, e, start, end)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, quota{scope: e.scope, subject: e.subject, unit: e.Metric, limit: e.Limit, used: used, window: e.Window, start: start, end: end})
+	}
+	return out, nil
+}
+
+// used returns the tokens (UnitTokens) admitted in [start, end) or the calls the request counter
+// holds for that window (UnitRequests).
+func (l *Limiter) used(ctx context.Context, e entry, start, end time.Time) (int64, error) {
+	var n int64
+	var err error
+	if e.Metric == UnitRequests {
+		n, err = usage.RequestCount(ctx, l.cfg.DB.Reader(), e.by, e.byID, e.Window, start)
+	} else {
+		n, err = usage.TokensStartedIn(ctx, l.cfg.DB.Reader(), e.by, e.byID, start, end)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("limits: read usage: %w", err)
 	}

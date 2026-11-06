@@ -73,19 +73,30 @@ func (s *AccessKey) encodeFields(e *jx.Encoder) {
 			s.RevokedAt.Encode(e, json.EncodeDateTime)
 		}
 	}
+	{
+		if s.Warnings != nil {
+			e.FieldStart("warnings")
+			e.ArrStart()
+			for _, elem := range s.Warnings {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfAccessKey = [10]string{
-	0: "id",
-	1: "consumer_id",
-	2: "prefix",
-	3: "name",
-	4: "status",
-	5: "narrowing",
-	6: "bound_node",
-	7: "created_at",
-	8: "expires_at",
-	9: "revoked_at",
+var jsonFieldsNameOfAccessKey = [11]string{
+	0:  "id",
+	1:  "consumer_id",
+	2:  "prefix",
+	3:  "name",
+	4:  "status",
+	5:  "narrowing",
+	6:  "bound_node",
+	7:  "created_at",
+	8:  "expires_at",
+	9:  "revoked_at",
+	10: "warnings",
 }
 
 // Decode decodes AccessKey from json.
@@ -204,6 +215,25 @@ func (s *AccessKey) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"revoked_at\"")
+			}
+		case "warnings":
+			if err := func() error {
+				s.Warnings = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.Warnings = append(s.Warnings, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"warnings\"")
 			}
 		default:
 			return d.Skip()
@@ -619,6 +649,16 @@ func (s *AccessKeyNarrowing) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Quotas != nil {
+			e.FieldStart("quotas")
+			e.ArrStart()
+			for _, elem := range s.Quotas {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		if s.ContextLimit.Set {
 			e.FieldStart("context_limit")
 			s.ContextLimit.Encode(e)
@@ -638,12 +678,13 @@ func (s *AccessKeyNarrowing) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAccessKeyNarrowing = [5]string{
+var jsonFieldsNameOfAccessKeyNarrowing = [6]string{
 	0: "models",
 	1: "quota",
-	2: "context_limit",
-	3: "max_output_tokens",
-	4: "concurrency",
+	2: "quotas",
+	3: "context_limit",
+	4: "max_output_tokens",
+	5: "concurrency",
 }
 
 // Decode decodes AccessKeyNarrowing from json.
@@ -682,6 +723,23 @@ func (s *AccessKeyNarrowing) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"quota\"")
+			}
+		case "quotas":
+			if err := func() error {
+				s.Quotas = make([]QuotaEntry, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem QuotaEntry
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Quotas = append(s.Quotas, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"quotas\"")
 			}
 		case "context_limit":
 			if err := func() error {
@@ -1848,6 +1906,48 @@ func (s *AuditEventList) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *AuditEventList) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes BillingMode as json.
+func (s BillingMode) Encode(e *jx.Encoder) {
+	e.Str(string(s))
+}
+
+// Decode decodes BillingMode from json.
+func (s *BillingMode) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode BillingMode to nil")
+	}
+	v, err := d.StrBytes()
+	if err != nil {
+		return err
+	}
+	// Try to use constant string.
+	switch BillingMode(v) {
+	case BillingModeNone:
+		*s = BillingModeNone
+	case BillingModePrepaid:
+		*s = BillingModePrepaid
+	case BillingModePostpaid:
+		*s = BillingModePostpaid
+	default:
+		*s = BillingMode(v)
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s BillingMode) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *BillingMode) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -4012,6 +4112,12 @@ func (s *Consumer) encodeFields(e *jx.Encoder) {
 		e.Bool(s.HasLogin)
 	}
 	{
+		if s.BillingMode.Set {
+			e.FieldStart("billing_mode")
+			s.BillingMode.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("created_at")
 		json.EncodeDateTime(e, s.CreatedAt)
 	}
@@ -4023,7 +4129,7 @@ func (s *Consumer) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfConsumer = [9]string{
+var jsonFieldsNameOfConsumer = [10]string{
 	0: "id",
 	1: "kind",
 	2: "status",
@@ -4031,8 +4137,9 @@ var jsonFieldsNameOfConsumer = [9]string{
 	4: "username",
 	5: "email",
 	6: "has_login",
-	7: "created_at",
-	8: "deleted_at",
+	7: "billing_mode",
+	8: "created_at",
+	9: "deleted_at",
 }
 
 // Decode decodes Consumer from json.
@@ -4041,6 +4148,7 @@ func (s *Consumer) Decode(d *jx.Decoder) error {
 		return errors.New("invalid: unable to decode Consumer to nil")
 	}
 	var requiredBitSet [2]uint8
+	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -4118,8 +4226,18 @@ func (s *Consumer) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"has_login\"")
 			}
+		case "billing_mode":
+			if err := func() error {
+				s.BillingMode.Reset()
+				if err := s.BillingMode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"billing_mode\"")
+			}
 		case "created_at":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -4150,8 +4268,8 @@ func (s *Consumer) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b11000111,
-		0b00000000,
+		0b01000111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -4220,12 +4338,19 @@ func (s *ConsumerCreate) encodeFields(e *jx.Encoder) {
 			s.Email.Encode(e)
 		}
 	}
+	{
+		if s.BillingMode.Set {
+			e.FieldStart("billing_mode")
+			s.BillingMode.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfConsumerCreate = [3]string{
+var jsonFieldsNameOfConsumerCreate = [4]string{
 	0: "kind",
 	1: "display_name",
 	2: "email",
+	3: "billing_mode",
 }
 
 // Decode decodes ConsumerCreate from json.
@@ -4234,6 +4359,7 @@ func (s *ConsumerCreate) Decode(d *jx.Decoder) error {
 		return errors.New("invalid: unable to decode ConsumerCreate to nil")
 	}
 	var requiredBitSet [1]uint8
+	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -4268,6 +4394,16 @@ func (s *ConsumerCreate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"email\"")
+			}
+		case "billing_mode":
+			if err := func() error {
+				s.BillingMode.Reset()
+				if err := s.BillingMode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"billing_mode\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -4589,11 +4725,18 @@ func (s *ConsumerUpdate) encodeFields(e *jx.Encoder) {
 			s.Email.Encode(e)
 		}
 	}
+	{
+		if s.BillingMode.Set {
+			e.FieldStart("billing_mode")
+			s.BillingMode.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfConsumerUpdate = [2]string{
+var jsonFieldsNameOfConsumerUpdate = [3]string{
 	0: "display_name",
 	1: "email",
+	2: "billing_mode",
 }
 
 // Decode decodes ConsumerUpdate from json.
@@ -4601,6 +4744,7 @@ func (s *ConsumerUpdate) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode ConsumerUpdate to nil")
 	}
+	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -4623,6 +4767,16 @@ func (s *ConsumerUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"email\"")
+			}
+		case "billing_mode":
+			if err := func() error {
+				s.BillingMode.Reset()
+				if err := s.BillingMode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"billing_mode\"")
 			}
 		default:
 			return errors.Errorf("unexpected field %q", k)
@@ -6018,8 +6172,20 @@ func (s *GrantLimits) encodeFields(e *jx.Encoder) {
 		e.ArrEnd()
 	}
 	{
-		e.FieldStart("quota")
-		s.Quota.Encode(e)
+		if s.Quota.Set {
+			e.FieldStart("quota")
+			s.Quota.Encode(e)
+		}
+	}
+	{
+		if s.Quotas != nil {
+			e.FieldStart("quotas")
+			e.ArrStart()
+			for _, elem := range s.Quotas {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
 	}
 	{
 		e.FieldStart("concurrency")
@@ -6045,13 +6211,14 @@ func (s *GrantLimits) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfGrantLimits = [6]string{
+var jsonFieldsNameOfGrantLimits = [7]string{
 	0: "models",
 	1: "quota",
-	2: "concurrency",
-	3: "on_context_overflow",
-	4: "allowed_request_properties",
-	5: "expires_at",
+	2: "quotas",
+	3: "concurrency",
+	4: "on_context_overflow",
+	5: "allowed_request_properties",
+	6: "expires_at",
 }
 
 // Decode decodes GrantLimits from json.
@@ -6082,8 +6249,8 @@ func (s *GrantLimits) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"models\"")
 			}
 		case "quota":
-			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
+				s.Quota.Reset()
 				if err := s.Quota.Decode(d); err != nil {
 					return err
 				}
@@ -6091,8 +6258,25 @@ func (s *GrantLimits) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"quota\"")
 			}
+		case "quotas":
+			if err := func() error {
+				s.Quotas = make([]QuotaEntry, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem QuotaEntry
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Quotas = append(s.Quotas, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"quotas\"")
+			}
 		case "concurrency":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Int()
 				s.Concurrency = int(v)
@@ -6104,7 +6288,7 @@ func (s *GrantLimits) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"concurrency\"")
 			}
 		case "on_context_overflow":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				if err := s.OnContextOverflow.Decode(d); err != nil {
 					return err
@@ -6114,7 +6298,7 @@ func (s *GrantLimits) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"on_context_overflow\"")
 			}
 		case "allowed_request_properties":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				s.AllowedRequestProperties = make([]string, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -6153,7 +6337,7 @@ func (s *GrantLimits) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00011111,
+		0b00111001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -11540,50 +11724,6 @@ func (s *NilNextCursor) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
-// Encode encodes Quota as json.
-func (o NilQuota) Encode(e *jx.Encoder) {
-	if o.Null {
-		e.Null()
-		return
-	}
-	o.Value.Encode(e)
-}
-
-// Decode decodes Quota from json.
-func (o *NilQuota) Decode(d *jx.Decoder) error {
-	if o == nil {
-		return errors.New("invalid: unable to decode NilQuota to nil")
-	}
-	if d.Next() == jx.Null {
-		if err := d.Null(); err != nil {
-			return err
-		}
-
-		var v Quota
-		o.Value = v
-		o.Null = true
-		return nil
-	}
-	o.Null = false
-	if err := o.Value.Decode(d); err != nil {
-		return err
-	}
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s NilQuota) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *NilQuota) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
 // Encode encodes string as json.
 func (o NilString) Encode(e *jx.Encoder) {
 	if o.Null {
@@ -11945,6 +12085,39 @@ func (s OptAssistantMessageContent) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptAssistantMessageContent) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes BillingMode as json.
+func (o OptBillingMode) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	e.Str(string(o.Value))
+}
+
+// Decode decodes BillingMode from json.
+func (o *OptBillingMode) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptBillingMode to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptBillingMode) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptBillingMode) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -14618,6 +14791,174 @@ func (s *Quota) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *QuotaEntry) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *QuotaEntry) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("metric")
+		s.Metric.Encode(e)
+	}
+	{
+		e.FieldStart("limit")
+		e.Int64(s.Limit)
+	}
+	{
+		e.FieldStart("window_seconds")
+		e.Int64(s.WindowSeconds)
+	}
+}
+
+var jsonFieldsNameOfQuotaEntry = [3]string{
+	0: "metric",
+	1: "limit",
+	2: "window_seconds",
+}
+
+// Decode decodes QuotaEntry from json.
+func (s *QuotaEntry) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode QuotaEntry to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "metric":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				if err := s.Metric.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"metric\"")
+			}
+		case "limit":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int64()
+				s.Limit = int64(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"limit\"")
+			}
+		case "window_seconds":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Int64()
+				s.WindowSeconds = int64(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"window_seconds\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode QuotaEntry")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfQuotaEntry) {
+					name = jsonFieldsNameOfQuotaEntry[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *QuotaEntry) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *QuotaEntry) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes QuotaEntryMetric as json.
+func (s QuotaEntryMetric) Encode(e *jx.Encoder) {
+	e.Str(string(s))
+}
+
+// Decode decodes QuotaEntryMetric from json.
+func (s *QuotaEntryMetric) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode QuotaEntryMetric to nil")
+	}
+	v, err := d.StrBytes()
+	if err != nil {
+		return err
+	}
+	// Try to use constant string.
+	switch QuotaEntryMetric(v) {
+	case QuotaEntryMetricTokens:
+		*s = QuotaEntryMetricTokens
+	case QuotaEntryMetricRequests:
+		*s = QuotaEntryMetricRequests
+	default:
+		*s = QuotaEntryMetric(v)
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s QuotaEntryMetric) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *QuotaEntryMetric) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *QuotaNearLimitEvent) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -15525,6 +15866,16 @@ func (s *ResourceRequestAsk) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Quotas != nil {
+			e.FieldStart("quotas")
+			e.ArrStart()
+			for _, elem := range s.Quotas {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		if s.ContextLimit.Set {
 			e.FieldStart("context_limit")
 			s.ContextLimit.Encode(e)
@@ -15554,13 +15905,14 @@ func (s *ResourceRequestAsk) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfResourceRequestAsk = [6]string{
+var jsonFieldsNameOfResourceRequestAsk = [7]string{
 	0: "models",
 	1: "quota",
-	2: "context_limit",
-	3: "max_output_tokens",
-	4: "concurrency",
-	5: "request_properties",
+	2: "quotas",
+	3: "context_limit",
+	4: "max_output_tokens",
+	5: "concurrency",
+	6: "request_properties",
 }
 
 // Decode decodes ResourceRequestAsk from json.
@@ -15599,6 +15951,23 @@ func (s *ResourceRequestAsk) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"quota\"")
+			}
+		case "quotas":
+			if err := func() error {
+				s.Quotas = make([]QuotaEntry, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem QuotaEntry
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Quotas = append(s.Quotas, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"quotas\"")
 			}
 		case "context_limit":
 			if err := func() error {

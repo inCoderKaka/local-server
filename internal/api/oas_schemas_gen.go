@@ -40,6 +40,9 @@ type AccessKey struct {
 	ExpiresAt OptNilDateTime `json:"expires_at"`
 	// When it was revoked.
 	RevokedAt OptNilDateTime `json:"revoked_at"`
+	// Only an issue or a change fills it. Each entry names a field that was ignored or is deprecated, for
+	// example the deprecated `narrowing.quota` sent beside `narrowing.quotas`.
+	Warnings []string `json:"warnings"`
 }
 
 // GetID returns the value of ID.
@@ -92,6 +95,11 @@ func (s *AccessKey) GetRevokedAt() OptNilDateTime {
 	return s.RevokedAt
 }
 
+// GetWarnings returns the value of Warnings.
+func (s *AccessKey) GetWarnings() []string {
+	return s.Warnings
+}
+
 // SetID sets the value of ID.
 func (s *AccessKey) SetID(val uuid.UUID) {
 	s.ID = val
@@ -141,6 +149,13 @@ func (s *AccessKey) SetExpiresAt(val OptNilDateTime) {
 func (s *AccessKey) SetRevokedAt(val OptNilDateTime) {
 	s.RevokedAt = val
 }
+
+// SetWarnings sets the value of Warnings.
+func (s *AccessKey) SetWarnings(val []string) {
+	s.Warnings = val
+}
+
+func (*AccessKey) adminUpdateAccessKeyRes() {}
 
 type AccessKeyAuth struct {
 	Token string
@@ -247,6 +262,8 @@ func (s *AccessKeyIssued) SetSecret(val string) {
 	s.Secret = val
 }
 
+func (*AccessKeyIssued) adminIssueAccessKeyRes() {}
+
 // Access keys.
 // Ref: #/components/schemas/AccessKeyList
 type AccessKeyList struct {
@@ -269,8 +286,17 @@ func (s *AccessKeyList) SetData(val []AccessKey) {
 type AccessKeyNarrowing struct {
 	// Only these of the grant's models. Left out or empty, the key may use every model of the grant.
 	Models []string `json:"models"`
-	// A limit per quota window on this key's own use, within the grant's quota, or null for none.
+	// Deprecated alias for `quotas`: a limit per default quota window on this key's own use, within the
+	// grant's quota, or null for none. When `quotas` is given as well, `quotas` wins and the response
+	// carries a warning.
+	//
+	// Deprecated: schema marks this property as deprecated.
 	Quota OptNilQuota `json:"quota"`
+	// Windowed limits on this key's own use. An entry can only narrow the grant's entry of the same metric
+	// and window; entries for other windows are enforced beside it. Only a consumer whose `billing_mode`
+	// is `prepaid` or `postpaid` may set windows on its own keys; the host sets them for every other
+	// consumer (D-107). The list replaces the stored one as a whole.
+	Quotas []QuotaEntry `json:"quotas"`
 	// A lower context limit for every model.
 	ContextLimit OptInt `json:"context_limit"`
 	// A lower output limit for every model.
@@ -287,6 +313,11 @@ func (s *AccessKeyNarrowing) GetModels() []string {
 // GetQuota returns the value of Quota.
 func (s *AccessKeyNarrowing) GetQuota() OptNilQuota {
 	return s.Quota
+}
+
+// GetQuotas returns the value of Quotas.
+func (s *AccessKeyNarrowing) GetQuotas() []QuotaEntry {
+	return s.Quotas
 }
 
 // GetContextLimit returns the value of ContextLimit.
@@ -312,6 +343,11 @@ func (s *AccessKeyNarrowing) SetModels(val []string) {
 // SetQuota sets the value of Quota.
 func (s *AccessKeyNarrowing) SetQuota(val OptNilQuota) {
 	s.Quota = val
+}
+
+// SetQuotas sets the value of Quotas.
+func (s *AccessKeyNarrowing) SetQuotas(val []QuotaEntry) {
+	s.Quotas = val
 }
 
 // SetContextLimit sets the value of ContextLimit.
@@ -892,6 +928,58 @@ func (s *AuditEventList) SetData(val []AuditEvent) {
 // SetNextCursor sets the value of NextCursor.
 func (s *AuditEventList) SetNextCursor(val NilNextCursor) {
 	s.NextCursor = val
+}
+
+// Set by the host admin only. A consumer with a billing mode other than `none` (`prepaid` or
+// `postpaid`) may set its own quota windows on its keys; for a consumer with `none` the host sets them
+// (D-107). No balances, invoices or prices exist in this version (D-02).
+// Ref: #/components/schemas/BillingMode
+type BillingMode string
+
+const (
+	BillingModeNone     BillingMode = "none"
+	BillingModePrepaid  BillingMode = "prepaid"
+	BillingModePostpaid BillingMode = "postpaid"
+)
+
+// AllValues returns all BillingMode values.
+func (BillingMode) AllValues() []BillingMode {
+	return []BillingMode{
+		BillingModeNone,
+		BillingModePrepaid,
+		BillingModePostpaid,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s BillingMode) MarshalText() ([]byte, error) {
+	switch s {
+	case BillingModeNone:
+		return []byte(s), nil
+	case BillingModePrepaid:
+		return []byte(s), nil
+	case BillingModePostpaid:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *BillingMode) UnmarshalText(data []byte) error {
+	switch BillingMode(data) {
+	case BillingModeNone:
+		*s = BillingModeNone
+		return nil
+	case BillingModePrepaid:
+		*s = BillingModePrepaid
+		return nil
+	case BillingModePostpaid:
+		*s = BillingModePostpaid
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
 }
 
 type CancelJobConflict Job
@@ -1847,7 +1935,8 @@ type Consumer struct {
 	// Optional contact email.
 	Email OptNilString `json:"email"`
 	// Whether the consumer has a password or passkey; false for a key-only consumer.
-	HasLogin bool `json:"has_login"`
+	HasLogin    bool           `json:"has_login"`
+	BillingMode OptBillingMode `json:"billing_mode"`
 	// When the account was created.
 	CreatedAt time.Time `json:"created_at"`
 	// When the account was deleted.
@@ -1887,6 +1976,11 @@ func (s *Consumer) GetEmail() OptNilString {
 // GetHasLogin returns the value of HasLogin.
 func (s *Consumer) GetHasLogin() bool {
 	return s.HasLogin
+}
+
+// GetBillingMode returns the value of BillingMode.
+func (s *Consumer) GetBillingMode() OptBillingMode {
+	return s.BillingMode
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -1934,6 +2028,11 @@ func (s *Consumer) SetHasLogin(val bool) {
 	s.HasLogin = val
 }
 
+// SetBillingMode sets the value of BillingMode.
+func (s *Consumer) SetBillingMode(val OptBillingMode) {
+	s.BillingMode = val
+}
+
 // SetCreatedAt sets the value of CreatedAt.
 func (s *Consumer) SetCreatedAt(val time.Time) {
 	s.CreatedAt = val
@@ -1952,7 +2051,8 @@ type ConsumerCreate struct {
 	// The name shown in the UIs.
 	DisplayName string `json:"display_name"`
 	// Optional contact email.
-	Email OptString `json:"email"`
+	Email       OptString      `json:"email"`
+	BillingMode OptBillingMode `json:"billing_mode"`
 }
 
 // GetKind returns the value of Kind.
@@ -1970,6 +2070,11 @@ func (s *ConsumerCreate) GetEmail() OptString {
 	return s.Email
 }
 
+// GetBillingMode returns the value of BillingMode.
+func (s *ConsumerCreate) GetBillingMode() OptBillingMode {
+	return s.BillingMode
+}
+
 // SetKind sets the value of Kind.
 func (s *ConsumerCreate) SetKind(val ConsumerCreateKind) {
 	s.Kind = val
@@ -1983,6 +2088,11 @@ func (s *ConsumerCreate) SetDisplayName(val string) {
 // SetEmail sets the value of Email.
 func (s *ConsumerCreate) SetEmail(val OptString) {
 	s.Email = val
+}
+
+// SetBillingMode sets the value of BillingMode.
+func (s *ConsumerCreate) SetBillingMode(val OptBillingMode) {
+	s.BillingMode = val
 }
 
 // `individual` or `application`.
@@ -2204,7 +2314,8 @@ type ConsumerUpdate struct {
 	// The name shown in the UIs.
 	DisplayName OptString `json:"display_name"`
 	// Contact email; null removes it.
-	Email OptNilString `json:"email"`
+	Email       OptNilString   `json:"email"`
+	BillingMode OptBillingMode `json:"billing_mode"`
 }
 
 // GetDisplayName returns the value of DisplayName.
@@ -2217,6 +2328,11 @@ func (s *ConsumerUpdate) GetEmail() OptNilString {
 	return s.Email
 }
 
+// GetBillingMode returns the value of BillingMode.
+func (s *ConsumerUpdate) GetBillingMode() OptBillingMode {
+	return s.BillingMode
+}
+
 // SetDisplayName sets the value of DisplayName.
 func (s *ConsumerUpdate) SetDisplayName(val OptString) {
 	s.DisplayName = val
@@ -2225,6 +2341,11 @@ func (s *ConsumerUpdate) SetDisplayName(val OptString) {
 // SetEmail sets the value of Email.
 func (s *ConsumerUpdate) SetEmail(val OptNilString) {
 	s.Email = val
+}
+
+// SetBillingMode sets the value of BillingMode.
+func (s *ConsumerUpdate) SetBillingMode(val OptBillingMode) {
+	s.BillingMode = val
 }
 
 // What happens when a prompt is longer than the context limit (D-48). `refuse` (the default) returns
@@ -2741,6 +2862,9 @@ func (s *Error) SetError(val ErrorDetail) {
 	s.Error = val
 }
 
+func (*Error) adminIssueAccessKeyRes()  {}
+func (*Error) adminUpdateAccessKeyRes() {}
+
 // The error itself.
 // Ref: #/components/schemas/ErrorDetail
 type ErrorDetail struct {
@@ -2981,8 +3105,15 @@ func (s *FunctionDefinitionParameters) init() FunctionDefinitionParameters {
 type GrantLimits struct {
 	// The models allowed, with their limits.
 	Models []GrantModelLimit `json:"models"`
-	// The token and request allowance per quota window, or null for no quota.
-	Quota NilQuota `json:"quota"`
+	// Deprecated alias for `quotas`: the token and request allowance per default quota window, or null for
+	// none. A newer client may leave it out, and the host still states it on every read. When `quotas` is
+	// given as well, `quotas` wins.
+	//
+	// Deprecated: schema marks this property as deprecated.
+	Quota OptNilQuota `json:"quota"`
+	// The windowed quota entries of the grant version, at most one per metric and window; none means no
+	// quota.
+	Quotas []QuotaEntry `json:"quotas"`
 	// Most requests at once.
 	Concurrency       int             `json:"concurrency"`
 	OnContextOverflow ContextOverflow `json:"on_context_overflow"`
@@ -2998,8 +3129,13 @@ func (s *GrantLimits) GetModels() []GrantModelLimit {
 }
 
 // GetQuota returns the value of Quota.
-func (s *GrantLimits) GetQuota() NilQuota {
+func (s *GrantLimits) GetQuota() OptNilQuota {
 	return s.Quota
+}
+
+// GetQuotas returns the value of Quotas.
+func (s *GrantLimits) GetQuotas() []QuotaEntry {
+	return s.Quotas
 }
 
 // GetConcurrency returns the value of Concurrency.
@@ -3028,8 +3164,13 @@ func (s *GrantLimits) SetModels(val []GrantModelLimit) {
 }
 
 // SetQuota sets the value of Quota.
-func (s *GrantLimits) SetQuota(val NilQuota) {
+func (s *GrantLimits) SetQuota(val OptNilQuota) {
 	s.Quota = val
+}
+
+// SetQuotas sets the value of Quotas.
+func (s *GrantLimits) SetQuotas(val []QuotaEntry) {
+	s.Quotas = val
 }
 
 // SetConcurrency sets the value of Concurrency.
@@ -5291,51 +5432,6 @@ func (o NilNextCursor) Or(d NextCursor) NextCursor {
 	return d
 }
 
-// NewNilQuota returns new NilQuota with value set to v.
-func NewNilQuota(v Quota) NilQuota {
-	return NilQuota{
-		Value: v,
-	}
-}
-
-// NilQuota is nullable Quota.
-type NilQuota struct {
-	Value Quota
-	Null  bool
-}
-
-// SetTo sets value to v.
-func (o *NilQuota) SetTo(v Quota) {
-	o.Null = false
-	o.Value = v
-}
-
-// IsNull returns true if value is Null.
-func (o NilQuota) IsNull() bool { return o.Null }
-
-// SetToNull sets value to null.
-func (o *NilQuota) SetToNull() {
-	o.Null = true
-	var v Quota
-	o.Value = v
-}
-
-// Get returns value and boolean that denotes whether value was set.
-func (o NilQuota) Get() (v Quota, ok bool) {
-	if o.Null {
-		return v, false
-	}
-	return o.Value, true
-}
-
-// Or returns value if set, or given parameter if does not.
-func (o NilQuota) Or(d Quota) Quota {
-	if v, ok := o.Get(); ok {
-		return v
-	}
-	return d
-}
-
 // NewNilString returns new NilString with value set to v.
 func NewNilString(v string) NilString {
 	return NilString{
@@ -5538,6 +5634,52 @@ func (o OptAssistantMessageContent) Get() (v AssistantMessageContent, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAssistantMessageContent) Or(d AssistantMessageContent) AssistantMessageContent {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptBillingMode returns new OptBillingMode with value set to v.
+func NewOptBillingMode(v BillingMode) OptBillingMode {
+	return OptBillingMode{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptBillingMode is optional BillingMode.
+type OptBillingMode struct {
+	Value BillingMode
+	Set   bool
+}
+
+// IsSet returns true if OptBillingMode was set.
+func (o OptBillingMode) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptBillingMode) Reset() {
+	var v BillingMode
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptBillingMode) SetTo(v BillingMode) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptBillingMode) Get() (v BillingMode, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptBillingMode) Or(d BillingMode) BillingMode {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -7696,9 +7838,13 @@ func (s *PrincipalRefKind) UnmarshalText(data []byte) error {
 	}
 }
 
-// A token and request allowance per quota window. The window length is the host setting
-// `limits.quota_window` (one day by default), not set by the client (D-25, D-98, D-38). Leave out
-// `tokens` or `requests` for no limit on it; `0` allows none.
+// Deprecated alias for `quotas` (D-107): a token and request allowance for one window, the host
+// setting `limits.quota_window` (one day by default). On input it stands for a `tokens` entry and a
+// `requests` entry with that window; leave out `tokens` or `requests` for no limit on it; `0` allows
+// none. When `quotas` is sent as well, `quotas` wins and `warnings` says so. On output it holds the
+// entries whose window is `limits.quota_window`, and is null when there are none.
+//
+// Deprecated: schema marks this type as deprecated.
 // Ref: #/components/schemas/Quota
 type Quota struct {
 	// Tokens allowed per quota window; absent means no token limit, 0 allows none.
@@ -7725,6 +7871,96 @@ func (s *Quota) SetTokens(val OptInt64) {
 // SetRequests sets the value of Requests.
 func (s *Quota) SetRequests(val OptInt64) {
 	s.Requests = val
+}
+
+// One quota: at most `limit` of the `metric` in each fixed window of `window_seconds`. Windows are
+// fixed and aligned to whole multiples of their length counted from 0001-01-01 00:00 UTC (a length
+// that divides 24 hours starts a window at every midnight UTC), and a call is charged to the window
+// that holds the moment the host admitted it. A list holds at most one entry per metric and window;
+// `0` allows none. The window is whole seconds within the host's `limits.quota_window_min` and
+// `limits.quota_window_max` settings. A client picks the window of a key's entry only when the
+// consumer's `billing_mode` is `prepaid` or `postpaid`; for every other consumer the host sets it
+// (D-107).
+// Ref: #/components/schemas/QuotaEntry
+type QuotaEntry struct {
+	// What is counted. `requests` counts every admitted call, metered or not; no content is stored (D-31).
+	Metric QuotaEntryMetric `json:"metric"`
+	// The most of the metric allowed in one window; 0 allows none.
+	Limit int64 `json:"limit"`
+	// The window's length in whole seconds.
+	WindowSeconds int64 `json:"window_seconds"`
+}
+
+// GetMetric returns the value of Metric.
+func (s *QuotaEntry) GetMetric() QuotaEntryMetric {
+	return s.Metric
+}
+
+// GetLimit returns the value of Limit.
+func (s *QuotaEntry) GetLimit() int64 {
+	return s.Limit
+}
+
+// GetWindowSeconds returns the value of WindowSeconds.
+func (s *QuotaEntry) GetWindowSeconds() int64 {
+	return s.WindowSeconds
+}
+
+// SetMetric sets the value of Metric.
+func (s *QuotaEntry) SetMetric(val QuotaEntryMetric) {
+	s.Metric = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *QuotaEntry) SetLimit(val int64) {
+	s.Limit = val
+}
+
+// SetWindowSeconds sets the value of WindowSeconds.
+func (s *QuotaEntry) SetWindowSeconds(val int64) {
+	s.WindowSeconds = val
+}
+
+// What is counted. `requests` counts every admitted call, metered or not; no content is stored (D-31).
+type QuotaEntryMetric string
+
+const (
+	QuotaEntryMetricTokens   QuotaEntryMetric = "tokens"
+	QuotaEntryMetricRequests QuotaEntryMetric = "requests"
+)
+
+// AllValues returns all QuotaEntryMetric values.
+func (QuotaEntryMetric) AllValues() []QuotaEntryMetric {
+	return []QuotaEntryMetric{
+		QuotaEntryMetricTokens,
+		QuotaEntryMetricRequests,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s QuotaEntryMetric) MarshalText() ([]byte, error) {
+	switch s {
+	case QuotaEntryMetricTokens:
+		return []byte(s), nil
+	case QuotaEntryMetricRequests:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *QuotaEntryMetric) UnmarshalText(data []byte) error {
+	switch QuotaEntryMetric(data) {
+	case QuotaEntryMetricTokens:
+		*s = QuotaEntryMetricTokens
+		return nil
+	case QuotaEntryMetricRequests:
+		*s = QuotaEntryMetricRequests
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
 }
 
 // Standard Webhooks payload for `quota.near_limit`.
@@ -8110,8 +8346,14 @@ func (s *ResourceRequestApproval) SetComment(val OptString) {
 type ResourceRequestAsk struct {
 	// Models to add.
 	Models []string `json:"models"`
-	// The allowance per quota window wanted, or null for none.
+	// Deprecated alias for `quotas`: the allowance per default quota window wanted, or null for none.
+	// Ignored when `quotas` is given.
+	//
+	// Deprecated: schema marks this property as deprecated.
 	Quota OptNilQuota `json:"quota"`
+	// The windowed quota entries wanted. A window other than the host's default is honoured only for a
+	// consumer whose `billing_mode` is `prepaid` or `postpaid`; the host decides the resulting limits.
+	Quotas []QuotaEntry `json:"quotas"`
 	// Context limit wanted.
 	ContextLimit OptInt `json:"context_limit"`
 	// Output limit wanted.
@@ -8130,6 +8372,11 @@ func (s *ResourceRequestAsk) GetModels() []string {
 // GetQuota returns the value of Quota.
 func (s *ResourceRequestAsk) GetQuota() OptNilQuota {
 	return s.Quota
+}
+
+// GetQuotas returns the value of Quotas.
+func (s *ResourceRequestAsk) GetQuotas() []QuotaEntry {
+	return s.Quotas
 }
 
 // GetContextLimit returns the value of ContextLimit.
@@ -8160,6 +8407,11 @@ func (s *ResourceRequestAsk) SetModels(val []string) {
 // SetQuota sets the value of Quota.
 func (s *ResourceRequestAsk) SetQuota(val OptNilQuota) {
 	s.Quota = val
+}
+
+// SetQuotas sets the value of Quotas.
+func (s *ResourceRequestAsk) SetQuotas(val []QuotaEntry) {
+	s.Quotas = val
 }
 
 // SetContextLimit sets the value of ContextLimit.

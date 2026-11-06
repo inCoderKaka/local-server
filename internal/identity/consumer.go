@@ -15,6 +15,19 @@ const (
 	ConsumerApplication = "application"
 )
 
+// Billing modes of a consumer (req_001 D-107). The mode is a label: Phase 1 keeps no balances,
+// invoices or prices (req_001 D-02).
+const (
+	BillingNone     = "none"
+	BillingPrepaid  = "prepaid"
+	BillingPostpaid = "postpaid"
+)
+
+// ValidBillingMode reports whether m is none, prepaid or postpaid.
+func ValidBillingMode(m string) bool {
+	return m == BillingNone || m == BillingPrepaid || m == BillingPostpaid
+}
+
 // ConsumerDataset is the syn_change dataset of consumer rows (the "consumer directory", D-40).
 const ConsumerDataset = "consumer_directory"
 
@@ -25,21 +38,29 @@ type Consumer struct {
 	Kind        string
 	DisplayName *string
 	Email       *string
+	// BillingMode is BillingNone, BillingPrepaid or BillingPostpaid. Only a chargeable
+	// consumer may set quota windows on its own keys (req_001 D-107).
+	BillingMode string
 	RowVersion  int64
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+// Chargeable reports whether the consumer is prepaid or postpaid.
+func (c Consumer) Chargeable() bool {
+	return c.BillingMode == BillingPrepaid || c.BillingMode == BillingPostpaid
 }
 
 // ConsumerRepo reads and writes idn_consumer. Every write records the row in syn_change
 // through Tx.Capture, in the same unit of work (D-40).
 type ConsumerRepo struct{ now Clock }
 
-const consumerCols = `id, principal_id, kind, display_name, email, row_version, created_at, updated_at`
+const consumerCols = `id, principal_id, kind, display_name, email, billing_mode, row_version, created_at, updated_at`
 
 func scanConsumer(r storage.Row) (Consumer, error) {
 	var c Consumer
 	var cr, up int64
-	err := r.Scan(&c.ID, &c.PrincipalID, &c.Kind, &c.DisplayName, &c.Email, &c.RowVersion, &cr, &up)
+	err := r.Scan(&c.ID, &c.PrincipalID, &c.Kind, &c.DisplayName, &c.Email, &c.BillingMode, &c.RowVersion, &cr, &up)
 	c.CreatedAt, c.UpdatedAt = tm(cr), tm(up)
 	return c, err
 }
@@ -52,19 +73,24 @@ func capture(tx *storage.Tx, c Consumer, op string) error {
 	return tx.Capture(storage.Change{Dataset: ConsumerDataset, Table: "idn_consumer", PK: c.ID, Version: c.RowVersion, Op: op, Payload: b})
 }
 
-// Create inserts the consumer of an existing principal. It fails if the principal does not
-// exist or already has a consumer row (principal_id is UNIQUE, D-53).
+// Create inserts the consumer of an existing principal with billing mode none. It fails if the
+// principal does not exist or already has a consumer row (principal_id is UNIQUE, D-53).
 func (r *ConsumerRepo) Create(tx *storage.Tx, principalID, kind string, displayName, email *string) (Consumer, error) {
+	return r.CreateWithBilling(tx, principalID, kind, BillingNone, displayName, email)
+}
+
+// CreateWithBilling is Create with a billing mode: BillingNone, BillingPrepaid or BillingPostpaid.
+func (r *ConsumerRepo) CreateWithBilling(tx *storage.Tx, principalID, kind, billingMode string, displayName, email *string) (Consumer, error) {
 	id, err := newID()
 	if err != nil {
 		return Consumer{}, err
 	}
 	now := ms(r.now())
-	if _, err := tx.Exec(`INSERT INTO idn_consumer (id, principal_id, kind, display_name, email, row_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-		id, principalID, kind, displayName, email, now, now); err != nil {
+	if _, err := tx.Exec(`INSERT INTO idn_consumer (id, principal_id, kind, display_name, email, billing_mode, row_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+		id, principalID, kind, displayName, email, billingMode, now, now); err != nil {
 		return Consumer{}, fmt.Errorf("identity: create consumer: %w", err)
 	}
-	c := Consumer{ID: id, PrincipalID: principalID, Kind: kind, DisplayName: displayName, Email: email, RowVersion: 1, CreatedAt: tm(now), UpdatedAt: tm(now)}
+	c := Consumer{ID: id, PrincipalID: principalID, Kind: kind, DisplayName: displayName, Email: email, BillingMode: billingMode, RowVersion: 1, CreatedAt: tm(now), UpdatedAt: tm(now)}
 	return c, capture(tx, c, "insert")
 }
 
@@ -80,7 +106,7 @@ func (r *ConsumerRepo) GetByPrincipal(ctx context.Context, rd *storage.Reader, p
 
 // List returns consumers whose principal has the given status (any status if empty), oldest first.
 func (r *ConsumerRepo) List(ctx context.Context, rd *storage.Reader, status string) ([]Consumer, error) {
-	rows, err := rd.Query(ctx, `SELECT c.id, c.principal_id, c.kind, c.display_name, c.email, c.row_version, c.created_at, c.updated_at
+	rows, err := rd.Query(ctx, `SELECT c.id, c.principal_id, c.kind, c.display_name, c.email, c.billing_mode, c.row_version, c.created_at, c.updated_at
 FROM idn_consumer c JOIN idn_principal p ON p.id = c.principal_id WHERE (? = '' OR p.status = ?) ORDER BY c.created_at, c.id`, status, status)
 	if err != nil {
 		return nil, err
@@ -92,6 +118,16 @@ FROM idn_consumer c JOIN idn_principal p ON p.id = c.principal_id WHERE (? = '' 
 func (r *ConsumerRepo) Update(tx *storage.Tx, id string, displayName, email *string) error {
 	if err := mustChange(tx.Exec(`UPDATE idn_consumer SET display_name = ?, email = ?, row_version = row_version + 1, updated_at = ? WHERE id = ?`,
 		displayName, email, ms(r.now()), id)); err != nil {
+		return err
+	}
+	return r.captureCurrent(tx, id, "update")
+}
+
+// SetBillingMode changes the billing mode (BillingNone, BillingPrepaid or BillingPostpaid) and
+// records the row in syn_change like any consumer edit.
+func (r *ConsumerRepo) SetBillingMode(tx *storage.Tx, id, mode string) error {
+	if err := mustChange(tx.Exec(`UPDATE idn_consumer SET billing_mode = ?, row_version = row_version + 1, updated_at = ? WHERE id = ?`,
+		mode, ms(r.now()), id)); err != nil {
 		return err
 	}
 	return r.captureCurrent(tx, id, "update")
@@ -136,7 +172,7 @@ type ConsumerAccount struct {
 	HasLogin bool
 }
 
-const accountSelect = `SELECT c.id, c.principal_id, c.kind, c.display_name, c.email, c.row_version, c.created_at, c.updated_at,
+const accountSelect = `SELECT c.id, c.principal_id, c.kind, c.display_name, c.email, c.billing_mode, c.row_version, c.created_at, c.updated_at,
 p.status, p.updated_at,
 (SELECT k.identifier FROM idn_credential k WHERE k.principal_id = p.id AND k.kind = 'password' AND k.revoked_at IS NULL ORDER BY k.created_at, k.id LIMIT 1),
 EXISTS (SELECT 1 FROM idn_credential k WHERE k.principal_id = p.id AND k.revoked_at IS NULL)
@@ -145,7 +181,7 @@ FROM idn_consumer c JOIN idn_principal p ON p.id = c.principal_id`
 func scanAccount(r storage.Row) (ConsumerAccount, error) {
 	var a ConsumerAccount
 	var cr, up, st int64
-	err := r.Scan(&a.ID, &a.PrincipalID, &a.Kind, &a.DisplayName, &a.Email, &a.RowVersion, &cr, &up,
+	err := r.Scan(&a.ID, &a.PrincipalID, &a.Kind, &a.DisplayName, &a.Email, &a.BillingMode, &a.RowVersion, &cr, &up,
 		&a.Status, &st, &a.Username, &a.HasLogin)
 	a.CreatedAt, a.UpdatedAt, a.StatusChangedAt = tm(cr), tm(up), tm(st)
 	return a, err

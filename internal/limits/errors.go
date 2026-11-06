@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/inCoderKaka/local-server/internal/grants"
 )
 
 // Sentinels that the typed errors match with errors.Is.
@@ -26,17 +28,17 @@ const (
 	ScopeAccessKey = "access_key"
 )
 
-// Units a quota is counted in.
+// Units a quota is counted in: the metrics of a quota entry (req_001 D-107).
 const (
-	UnitTokens   = "tokens"
-	UnitRequests = "requests"
+	UnitTokens   = grants.MetricTokens
+	UnitRequests = grants.MetricRequests
 )
 
 // QuotaError means a token or request quota is used up. The gateway answers 429 quota_exceeded with
 // RetryAfter, rounded up to whole seconds, in the Retry-After header.
 type QuotaError struct {
 	Scope      string // ScopeGrant or ScopeAccessKey
-	Unit       string // UnitTokens or UnitRequests (req_001 D-98)
+	Unit       string // UnitTokens or UnitRequests (req_001 D-107)
 	Limit      int64
 	Used       int64
 	Window     time.Duration

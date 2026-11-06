@@ -27,7 +27,7 @@ You run one command in a terminal. It downloads local-server, checks it against 
 
 Open the admin page in your browser. It only opens on your own computer, unless you turn on remote admin for your private network. Then you:
 - **Set a share budget,** how much of your computer local-server may use for sharing: memory, how many requests run at once, and the models you allow. Every page shows three numbers: what your other apps use, what local-server uses, and your share budget.
-- **Pick the models** you allow, and for each person or app, how long their messages may be (the **context limit**) and how much they may use (**quotas**).
+- **Pick the models** you allow, and for each person or app, how long their messages may be (the **context limit**) and how much they may use (**quotas**: a limit on tokens or requests for a time window you choose, such as an hour or a day; a person or app can have several). A person or app marked **prepaid** or **postpaid** may choose the windows of its own keys; for everyone else you choose them. No money is handled yet.
 - **Choose when.** Pause sharing at any time with one switch, set **quiet hours**, or allow heavy background work only at night (**background-work hours**).
 
 ### Invite people and apps
@@ -59,7 +59,7 @@ Turn on backups to a folder or to a storage bucket you own (Cloudflare R2 or Goo
 ### What you can see
 
 - Which models you may use, and your limits.
-- How much of your quota is left.
+- How much of your quota is left, for each time window.
 - Whether the host is online, busy or paused.
 
 ### Asking for more

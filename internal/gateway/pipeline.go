@@ -97,7 +97,7 @@ func (g *Gateway) admit(ctx context.Context, c call, model string, dec policy.De
 		return nil, d, err
 	}
 	if err := g.cfg.Limits.CountAdmitted(ctx, c.id); err != nil {
-		g.log.WarnContext(ctx, "gateway: request counter could not be seeded", "err", err)
+		g.log.WarnContext(ctx, "gateway: request counter could not be raised", "err", err)
 	}
 	return tk, d, nil
 }

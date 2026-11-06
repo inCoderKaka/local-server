@@ -81,7 +81,7 @@ func setup(t *testing.T) *env {
 		if e.model, err = e.gr.Models.Create(tx, "m1"); err != nil {
 			return err
 		}
-		_, err = e.gr.Versions.Create(tx, e.grant.ID, grants.NewVersion{QuotaTokensPerDay: i64(1000),
+		_, err = e.gr.Versions.Create(tx, e.grant.ID, grants.NewVersion{Quotas: []grants.QuotaEntry{{Metric: grants.MetricTokens, Limit: 1000, Window: 24 * time.Hour}},
 			Models: []grants.VersionModel{{ModelID: e.model.ID, ContextCap: i64(4096)}}})
 		return err
 	}); err != nil {
@@ -128,7 +128,7 @@ func TestIssueAndAuthenticate(t *testing.T) {
 	if id.ConsumerID != e.cons.ID || id.PrincipalID != e.cons.PrincipalID || id.GrantVersionNo != 1 || id.KeyID != is.AccessKey.ID {
 		t.Fatalf("identity = %+v", id)
 	}
-	if len(id.Limits.Models) != 1 || *id.Limits.QuotaTokensPerDay != 1000 {
+	if len(id.Limits.Models) != 1 || len(id.Limits.Quotas) != 1 || id.Limits.Quotas[0].Limit != 1000 {
 		t.Fatalf("limits = %+v", id.Limits)
 	}
 }
@@ -289,7 +289,7 @@ func TestGrantChangeEventClearsCache(t *testing.T) {
 		t.Fatalf("%+v %v", id, err)
 	}
 	if err := e.bus.Write(context.Background(), e.db, func(tx *storage.Tx) error {
-		if _, err := e.gr.Versions.Create(tx, e.grant.ID, grants.NewVersion{QuotaTokensPerDay: i64(5)}); err != nil {
+		if _, err := e.gr.Versions.Create(tx, e.grant.ID, grants.NewVersion{Quotas: []grants.QuotaEntry{{Metric: grants.MetricTokens, Limit: 5, Window: 24 * time.Hour}}}); err != nil {
 			return err
 		}
 		_, err := e.bus.Emit(tx, events.Event{Type: events.GrantChanged})
@@ -298,7 +298,7 @@ func TestGrantChangeEventClearsCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, err := e.check(is.Key.Reveal())
-	if err != nil || id.GrantVersionNo != 2 || *id.Limits.QuotaTokensPerDay != 5 {
+	if err != nil || id.GrantVersionNo != 2 || id.Limits.Quotas[0].Limit != 5 {
 		t.Fatalf("%+v %v", id, err)
 	}
 }
@@ -340,14 +340,14 @@ func TestNarrowingOnlyNarrows(t *testing.T) {
 	e := setup(t)
 	// The key lists a model the grant does not have, a higher quota and a lower context cap.
 	is := e.issue(t, auth.IssueParams{Narrowing: auth.Narrowing{ModelIDs: []string{e.model.ID, "other"},
-		QuotaTokensPerDay: i64(5000), ContextCap: i64(1024), MaxConcurrency: i64(2)}})
+		Quotas: []grants.QuotaEntry{{Metric: grants.MetricTokens, Limit: 5000, Window: 24 * time.Hour}}, ContextCap: i64(1024), MaxConcurrency: i64(2)}})
 	id, err := e.check(is.Key.Reveal())
 	if err != nil {
 		t.Fatal(err)
 	}
 	l := id.Limits
-	if *l.QuotaTokensPerDay != 1000 {
-		t.Errorf("quota = %d, narrowing must not widen the grant's 1000", *l.QuotaTokensPerDay)
+	if len(l.Quotas) != 1 || l.Quotas[0].Limit != 1000 {
+		t.Errorf("quotas = %v, narrowing must not widen the grant's 1000", l.Quotas)
 	}
 	if len(l.Models) != 1 || l.Models[0].ModelID != e.model.ID || *l.Models[0].ContextCap != 1024 {
 		t.Errorf("models = %+v", l.Models)
@@ -477,5 +477,60 @@ func TestIssueAuditHasNarrowing(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(detail), &d); err != nil || d.Narrowing.Quota != 77 {
 		t.Fatalf("issue detail = %s, %v", detail, err)
+	}
+}
+
+// TestQuotaEntriesMergePerMetricAndWindow covers the effective quota list (req_001 D-107): per
+// (metric, window) the smaller limit of grant and key wins, and an entry only one side has is kept.
+func TestQuotaEntriesMergePerMetricAndWindow(t *testing.T) {
+	e := setup(t) // the grant has tokens 1000 per 24h
+	k := e.issue(t, auth.IssueParams{Narrowing: auth.Narrowing{Quotas: []grants.QuotaEntry{
+		{Metric: grants.MetricTokens, Limit: 300, Window: 24 * time.Hour}, // narrower than the grant's: wins
+		{Metric: grants.MetricTokens, Limit: 50, Window: time.Hour},       // a window the grant has not: kept
+		{Metric: grants.MetricRequests, Limit: 9, Window: 24 * time.Hour}, // another metric: kept
+	}}})
+	id, err := e.check(k.Key.Reveal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[grants.QuotaEntry]bool{
+		{Metric: grants.MetricTokens, Limit: 300, Window: 24 * time.Hour}: true,
+		{Metric: grants.MetricTokens, Limit: 50, Window: time.Hour}:       true,
+		{Metric: grants.MetricRequests, Limit: 9, Window: 24 * time.Hour}: true,
+	}
+	if len(id.Limits.Quotas) != len(want) {
+		t.Fatalf("quotas = %v, want %v", id.Limits.Quotas, want)
+	}
+	for _, q := range id.Limits.Quotas {
+		if !want[q] {
+			t.Errorf("unexpected effective entry %v", q)
+		}
+	}
+	wide := e.issue(t, auth.IssueParams{Narrowing: auth.Narrowing{Quotas: []grants.QuotaEntry{{Metric: grants.MetricTokens, Limit: 5000, Window: 24 * time.Hour}}}})
+	if id, err = e.check(wide.Key.Reveal()); err != nil || len(id.Limits.Quotas) != 1 || id.Limits.Quotas[0].Limit != 1000 {
+		t.Errorf("a wider key entry must not widen the grant's: %+v %v", id.Limits.Quotas, err)
+	}
+}
+
+func TestParseNarrowingQuotas(t *testing.T) {
+	n, err := auth.ParseNarrowing(`{"quotas":[{"metric":"tokens","limit":5,"window_seconds":60},{"metric":"requests","limit":0,"window_seconds":3600}],"quota_tokens_per_day":9}`)
+	if err != nil || len(n.Quotas) != 2 || n.Quotas[1].Window != time.Hour || n.Quotas[1].Limit != 0 || n.QuotaTokensPerDay == nil {
+		t.Fatalf("ParseNarrowing = %+v, %v", n, err)
+	}
+	text, err := auth.Narrowing{Quotas: n.Quotas}.Text()
+	if err != nil || text == nil || *text != `{"quotas":[{"metric":"tokens","limit":5,"window_seconds":60},{"metric":"requests","limit":0,"window_seconds":3600}]}` {
+		t.Fatalf("Text = %v, %v", text, err)
+	}
+	for _, bad := range []string{
+		`{"quotas":[{"metric":"bytes","limit":1,"window_seconds":60}]}`,
+		`{"quotas":[{"metric":"tokens","limit":-1,"window_seconds":60}]}`,
+		`{"quotas":[{"metric":"tokens","limit":1,"window_seconds":0}]}`,
+		`{"quotas":[{"metric":"tokens","limit":1}]}`,
+		`{"quotas":[{"metric":"tokens","limit":1,"window_seconds":60,"x":1}]}`,
+		`{"quotas":[{"metric":"tokens","limit":1,"window_seconds":60},{"metric":"tokens","limit":2,"window_seconds":60}]}`,
+	} {
+		if _, err := auth.ParseNarrowing(bad); !errors.Is(err, auth.ErrInvalidNarrowing) {
+			t.Errorf("ParseNarrowing(%s) = %v, want ErrInvalidNarrowing", bad, err)
+		}
 	}
 }

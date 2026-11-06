@@ -46,6 +46,9 @@ func (a *Admin) AdminCreateConsumer(ctx context.Context, req *api.ConsumerCreate
 	if v, ok := req.Email.Get(); ok {
 		in.Email = &v
 	}
+	if v, ok := req.BillingMode.Get(); ok {
+		in.BillingMode = string(v)
+	}
 	c, err := a.cons.CreateConsumer(ctx, PrincipalIDOf(ctx), in)
 	if err != nil {
 		return nil, err
@@ -69,6 +72,9 @@ func (a *Admin) AdminUpdateConsumer(ctx context.Context, req *api.ConsumerUpdate
 		ch.DisplayName = consumers.Value(v)
 	}
 	ch.Email = nilString(req.Email)
+	if v, ok := req.BillingMode.Get(); ok {
+		ch.BillingMode = consumers.Value(string(v))
+	}
 	c, err := a.cons.UpdateConsumer(ctx, PrincipalIDOf(ctx), params.ConsumerID.String(), ch)
 	if err != nil {
 		return nil, err
@@ -115,7 +121,7 @@ func toConsumer(c identity.ConsumerAccount) (api.Consumer, error) {
 	}
 	out := api.Consumer{ID: id, Kind: api.ConsumerKind(c.Kind), Status: api.ConsumerStatus(c.Status),
 		DisplayName: optNil(c.DisplayName), Username: optNil(c.Username), Email: optNil(c.Email),
-		HasLogin: c.HasLogin, CreatedAt: c.CreatedAt}
+		HasLogin: c.HasLogin, BillingMode: api.NewOptBillingMode(api.BillingMode(c.BillingMode)), CreatedAt: c.CreatedAt}
 	if c.Status == identity.StatusDeleted {
 		out.DeletedAt = api.NewOptNilDateTime(c.StatusChangedAt)
 	} else {

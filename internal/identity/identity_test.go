@@ -229,3 +229,66 @@ func TestAdminUserGetByPrincipal(t *testing.T) {
 		t.Fatalf("unknown principal = %v", err)
 	}
 }
+
+// TestConsumerBillingMode covers idn_consumer.billing_mode (req_001 D-107): it defaults to none,
+// can be given at creation, is changed by SetBillingMode with a row_version bump and a captured
+// change, and the table refuses any other value.
+func TestConsumerBillingMode(t *testing.T) {
+	db, r := open(t)
+	ctx := context.Background()
+
+	var plain, paid identity.Consumer
+	if err := db.Write(ctx, func(tx *storage.Tx) error {
+		p1, err := r.Principals.Create(tx, "consumer", nil, nil)
+		if err != nil {
+			return err
+		}
+		if plain, err = r.Consumers.Create(tx, p1.ID, identity.ConsumerIndividual, str("A"), nil); err != nil {
+			return err
+		}
+		p2, err := r.Principals.Create(tx, "consumer", nil, nil)
+		if err != nil {
+			return err
+		}
+		paid, err = r.Consumers.CreateWithBilling(tx, p2.ID, identity.ConsumerApplication, identity.BillingPrepaid, str("B"), nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if plain.BillingMode != identity.BillingNone || plain.Chargeable() {
+		t.Errorf("default consumer = %q, chargeable %v; want none, false", plain.BillingMode, plain.Chargeable())
+	}
+	if !paid.Chargeable() {
+		t.Errorf("prepaid consumer is not chargeable")
+	}
+	got, err := r.Consumers.Get(ctx, db.Reader(), plain.ID)
+	if err != nil || got.BillingMode != identity.BillingNone {
+		t.Fatalf("stored default = %+v, %v", got, err)
+	}
+
+	if err := db.Write(ctx, func(tx *storage.Tx) error { return r.Consumers.SetBillingMode(tx, plain.ID, identity.BillingPostpaid) }); err != nil {
+		t.Fatal(err)
+	}
+	got, err = r.Consumers.Get(ctx, db.Reader(), plain.ID)
+	if err != nil || got.BillingMode != identity.BillingPostpaid || !got.Chargeable() || got.RowVersion != 2 {
+		t.Fatalf("after SetBillingMode = %+v, %v; want postpaid, chargeable, row_version 2", got, err)
+	}
+	acc, err := r.Consumers.GetAccount(ctx, db.Reader(), plain.ID)
+	if err != nil || acc.BillingMode != identity.BillingPostpaid {
+		t.Fatalf("account = %+v, %v", acc, err)
+	}
+	var n int
+	if err := db.Reader().QueryRow(ctx, `SELECT count(*) FROM syn_change WHERE table_name = 'idn_consumer' AND pk = ? AND version = 2`, plain.ID).Scan(&n); err != nil || n != 1 {
+		t.Errorf("captured changes at version 2 = %d, %v; want 1", n, err)
+	}
+
+	for _, bad := range []string{"", "free", "PREPAID"} {
+		err := db.Write(ctx, func(tx *storage.Tx) error { return r.Consumers.SetBillingMode(tx, plain.ID, bad) })
+		if err == nil || !strings.Contains(err.Error(), "CHECK") {
+			t.Errorf("billing mode %q: want CHECK error, got %v", bad, err)
+		}
+	}
+	if identity.ValidBillingMode("free") || !identity.ValidBillingMode(identity.BillingNone) {
+		t.Error("ValidBillingMode is wrong")
+	}
+}

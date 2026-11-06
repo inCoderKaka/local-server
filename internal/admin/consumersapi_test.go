@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/inCoderKaka/local-server/internal/admin"
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/storage"
@@ -33,7 +35,7 @@ func (e *env) giveGrant(consumerID string, tokens int64, models ...string) {
 		if err != nil {
 			return err
 		}
-		v := grants.NewVersion{QuotaTokensPerDay: &tokens}
+		v := grants.NewVersion{Quotas: []grants.QuotaEntry{{Metric: grants.MetricTokens, Limit: tokens, Window: 24 * time.Hour}}}
 		for _, name := range models {
 			m, err := e.gr.Models.Create(tx, name)
 			if err != nil {
@@ -315,7 +317,7 @@ func TestAccessKeyOverHTTP(t *testing.T) {
 	}
 	status(t, e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"models":["no-such-model"]}}`), http.StatusBadRequest)
 	// An unknown field would be dropped silently and the cap never applied, so it is refused.
-	status(t, e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"quotas":[{"tokens":100}]}}`), http.StatusBadRequest)
+	status(t, e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"quotas":[{"tokens":100}]}}`), http.StatusBadRequest) // an entry needs metric, limit and window_seconds
 	status(t, e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"quota":{"window_seconds":60,"tokens":100}}}`), http.StatusBadRequest)
 
 	r = e.call(token, "POST", "/admin/v1/access-keys/"+kid+"/revoke", "")
@@ -359,6 +361,131 @@ func TestAccessKeyOverHTTP(t *testing.T) {
 		}
 	}
 	status(t, e.call(token, "POST", "/admin/v1/consumers/"+cid+"/access-keys", `{}`), http.StatusConflict)
+}
+
+// A key's quota is a list of windowed entries; the deprecated quota object is an alias for the
+// entries with the host's default window, and the list wins when both are sent (req_001 D-107).
+func TestAccessKeyQuotaEntriesOverHTTP(t *testing.T) {
+	e := newEnv(t)
+	token := e.setup()
+	cid := e.createConsumer(token, `{"kind":"application","display_name":"Example App"}`)["id"].(string)
+	e.giveGrant(cid, 1000, "example-model") // tokens 1000 per day
+	keys := "/admin/v1/consumers/" + cid + "/access-keys"
+
+	// Entries in: they come back as the list, and the day-long ones as the deprecated alias too.
+	r := e.call(token, "POST", keys, `{"narrowing":{"quotas":[{"metric":"requests","limit":20,"window_seconds":3600},{"metric":"tokens","limit":100,"window_seconds":86400}]}}`)
+	status(t, r, http.StatusCreated)
+	k := r.obj("access_key")
+	nar, _ := k["narrowing"].(map[string]any)
+	list, _ := nar["quotas"].([]any)
+	if len(list) != 2 || list[0].(map[string]any)["metric"] != "tokens" || list[0].(map[string]any)["limit"] != float64(100) ||
+		list[0].(map[string]any)["window_seconds"] != float64(86400) || list[1].(map[string]any)["window_seconds"] != float64(3600) {
+		t.Fatalf("quotas = %v", nar)
+	}
+	if alias, _ := nar["quota"].(map[string]any); alias["tokens"] != float64(100) || alias["requests"] != nil {
+		t.Errorf("alias = %v", nar["quota"])
+	}
+	if k["warnings"] != nil {
+		t.Errorf("warnings = %v", k["warnings"])
+	}
+
+	// The deprecated alias in: it becomes entries with the default window, no warning.
+	r = e.call(token, "POST", keys, `{"narrowing":{"quota":{"tokens":50,"requests":9}}}`)
+	status(t, r, http.StatusCreated)
+	nar, _ = r.obj("access_key")["narrowing"].(map[string]any)
+	list, _ = nar["quotas"].([]any)
+	if len(list) != 2 || list[0].(map[string]any)["window_seconds"] != float64(86400) || nar["quota"].(map[string]any)["requests"] != float64(9) ||
+		r.obj("access_key")["warnings"] != nil {
+		t.Fatalf("alias in = %s", r.Body.String())
+	}
+
+	// Both: the list wins and a warning says so; on a change the warning is in the changed key.
+	both := `{"quota":{"tokens":5},"quotas":[{"metric":"tokens","limit":7,"window_seconds":7200}]}`
+	r = e.call(token, "POST", keys, `{"narrowing":`+both+`}`)
+	status(t, r, http.StatusCreated)
+	k = r.obj("access_key")
+	nar, _ = k["narrowing"].(map[string]any)
+	list, _ = nar["quotas"].([]any)
+	warns, _ := k["warnings"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["limit"] != float64(7) || nar["quota"] != nil || len(warns) != 1 ||
+		warns[0] != "quota is deprecated and ignored because quotas is given" {
+		t.Fatalf("both = %s", r.Body.String())
+	}
+	kid, _ := k["id"].(string)
+	r = e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":`+both+`}`)
+	status(t, r, http.StatusOK)
+	if warns, _ := r.json()["warnings"].([]any); len(warns) != 1 {
+		t.Errorf("patch warnings = %s", r.Body.String())
+	}
+	if r := e.call(token, "GET", keys, ""); strings.Contains(r.Body.String(), `"warnings"`) {
+		t.Errorf("a list repeats warnings: %s", r.Body.String())
+	}
+
+	// Refusals are 400 and name the entry: a window outside the host's bounds (1m to 720h by
+	// default), a repeated metric and window, a limit above the grant's entry of the same window.
+	for name, c := range map[string]struct{ narrowing, param string }{
+		"window below the minimum": {`{"quotas":[{"metric":"tokens","limit":1,"window_seconds":30}]}`, "narrowing.quotas.0.window_seconds"},
+		"window above the maximum": {`{"quotas":[{"metric":"tokens","limit":1,"window_seconds":9999999}]}`, "narrowing.quotas.0.window_seconds"},
+		"window too long to hold":  {`{"quotas":[{"metric":"tokens","limit":1,"window_seconds":9223372036854775807}]}`, "narrowing.quotas.0.window_seconds"},
+		"repeated entry": {`{"quotas":[{"metric":"requests","limit":1,"window_seconds":3600},{"metric":"requests","limit":2,"window_seconds":3600}]}`,
+			"narrowing.quotas.1.window_seconds"},
+		"wider than the grant": {`{"quotas":[{"metric":"tokens","limit":5000,"window_seconds":86400}]}`, "narrowing.quotas.0"},
+	} {
+		r := e.call(token, "POST", keys, `{"narrowing":`+c.narrowing+`}`)
+		status(t, r, http.StatusBadRequest)
+		if got := r.errBody(t)["param"]; got != c.param && !strings.HasPrefix(got.(string), c.param) {
+			t.Errorf("%s: param = %v, want %s", name, got, c.param)
+		}
+	}
+	// Schema bounds are refused before the service: a window of 0 and an unknown metric.
+	status(t, e.call(token, "POST", keys, `{"narrowing":{"quotas":[{"metric":"tokens","limit":1,"window_seconds":0}]}}`), http.StatusBadRequest)
+	status(t, e.call(token, "POST", keys, `{"narrowing":{"quotas":[{"metric":"jobs","limit":1,"window_seconds":60}]}}`), http.StatusBadRequest)
+}
+
+// A refusal that is a matter of who asks, not of the body, is 403 with the field named.
+func TestForbiddenKindIs403(t *testing.T) {
+	status, param, _ := admin.ClassifyError(&consumers.Error{Kind: consumers.KindForbidden, Param: "narrowing.quotas", Message: "Not allowed."})
+	if status != http.StatusForbidden || param != "narrowing.quotas" {
+		t.Errorf("status %d param %q, want 403 narrowing.quotas", status, param)
+	}
+}
+
+func TestConsumerBillingModeOverHTTP(t *testing.T) {
+	e := newEnv(t)
+	token := e.setup()
+
+	c := e.createConsumer(token, `{"kind":"application","display_name":"Example App"}`)
+	id, _ := c["id"].(string)
+	if c["billing_mode"] != "none" {
+		t.Fatalf("default billing_mode = %v", c["billing_mode"])
+	}
+	c = e.createConsumer(token, `{"kind":"application","display_name":"Paying App","billing_mode":"postpaid"}`)
+	if c["billing_mode"] != "postpaid" {
+		t.Fatalf("created billing_mode = %v", c["billing_mode"])
+	}
+
+	r := e.call(token, "PATCH", "/admin/v1/consumers/"+id, `{"billing_mode":"prepaid"}`)
+	status(t, r, http.StatusOK)
+	if r.json()["billing_mode"] != "prepaid" || r.json()["display_name"] != "Example App" {
+		t.Fatalf("patch = %s", r.Body.String())
+	}
+	r = e.call(token, "GET", "/admin/v1/consumers/"+id, "")
+	status(t, r, http.StatusOK)
+	if r.json()["billing_mode"] != "prepaid" {
+		t.Fatalf("get = %s", r.Body.String())
+	}
+	if rows := e.auditRows(consumers.ActionConsumerUpdated); len(rows) == 0 {
+		t.Error("no audit row for the billing mode change")
+	}
+	status(t, e.call(token, "PATCH", "/admin/v1/consumers/"+id, `{"billing_mode":"gold"}`), http.StatusBadRequest)
+	status(t, e.call(token, "PATCH", "/admin/v1/consumers/"+id, `{"billing_mode":null}`), http.StatusBadRequest)
+	status(t, e.call(token, "POST", "/admin/v1/consumers", `{"kind":"application","display_name":"X","billing_mode":"gold"}`), http.StatusBadRequest)
+	if got := e.call(token, "GET", "/admin/v1/consumers/"+id, "").json()["billing_mode"]; got != "prepaid" {
+		t.Errorf("a refused change was applied: %v", got)
+	}
+	if list := e.call(token, "GET", "/admin/v1/consumers", "").Body.String(); !strings.Contains(list, `"billing_mode":"postpaid"`) {
+		t.Errorf("the list lacks billing_mode: %s", list)
+	}
 }
 
 func TestInviteOverHTTP(t *testing.T) {

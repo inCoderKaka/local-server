@@ -16,12 +16,17 @@ type NewConsumer struct {
 	Kind        string // identity.ConsumerIndividual or identity.ConsumerApplication
 	DisplayName string
 	Email       *string
+	// BillingMode is identity.BillingNone, BillingPrepaid or BillingPostpaid; empty means none
+	// (req_001 D-107).
+	BillingMode string
 }
 
 // ConsumerChange is a change to a consumer; a field left out stays as it is.
 type ConsumerChange struct {
 	DisplayName Field[string]
 	Email       Field[string]
+	// BillingMode cannot be given as null: a consumer always has one.
+	BillingMode Field[string]
 }
 
 // ConsumerPage is one page of consumers, newest first.
@@ -63,6 +68,12 @@ func (s *Service) CreateConsumer(ctx context.Context, actor string, in NewConsum
 	if err != nil {
 		return identity.ConsumerAccount{}, err
 	}
+	if in.BillingMode == "" {
+		in.BillingMode = identity.BillingNone
+	}
+	if !identity.ValidBillingMode(in.BillingMode) {
+		return identity.ConsumerAccount{}, invalid("billing_mode", "The billing mode must be none, prepaid or postpaid.")
+	}
 	var email *string
 	if in.Email != nil {
 		e, err := cleanEmail(*in.Email)
@@ -78,12 +89,12 @@ func (s *Service) CreateConsumer(ctx context.Context, actor string, in NewConsum
 		if err != nil {
 			return err
 		}
-		c, err := ir.Consumers.Create(tx, p.ID, in.Kind, &name, email)
+		c, err := ir.Consumers.CreateWithBilling(tx, p.ID, in.Kind, in.BillingMode, &name, email)
 		if err != nil {
 			return err
 		}
 		if err := s.record(tx, audit.Event{Action: ActionConsumerCreated, ActorID: actor, TargetID: p.ID,
-			Detail: map[string]any{"consumer_id": c.ID, "kind": in.Kind}}); err != nil {
+			Detail: map[string]any{"consumer_id": c.ID, "kind": in.Kind, "billing_mode": in.BillingMode}}); err != nil {
 			return err
 		}
 		out, err = ir.Consumers.GetAccountTx(tx, c.ID)
@@ -139,7 +150,7 @@ func (s *Service) consumerTx(tx *storage.Tx, id string) (identity.ConsumerAccoun
 	return a, err
 }
 
-// UpdateConsumer changes the display name or email. A deleted consumer is refused: its personal
+// UpdateConsumer changes the display name, email or billing mode. A deleted consumer is refused: its personal
 // fields were erased and are not filled again (req_001 D-40, D-54). A change that leaves a field
 // as it is writes nothing.
 func (s *Service) UpdateConsumer(ctx context.Context, actor, id string, ch ConsumerChange) (identity.ConsumerAccount, error) {
@@ -162,6 +173,9 @@ func (s *Service) UpdateConsumer(ctx context.Context, actor, id string, ch Consu
 		}
 		email = &v
 	}
+	if ch.BillingMode.Set && (ch.BillingMode.Null || !identity.ValidBillingMode(ch.BillingMode.Value)) {
+		return identity.ConsumerAccount{}, invalid("billing_mode", "The billing mode must be none, prepaid or postpaid.")
+	}
 	var out identity.ConsumerAccount
 	err := s.write(ctx, func(tx *storage.Tx) error {
 		a, err := s.consumerTx(tx, id)
@@ -182,11 +196,23 @@ func (s *Service) UpdateConsumer(ctx context.Context, actor, id string, ch Consu
 			newEmail = email
 			fields = append(fields, "email")
 		}
+		personal := len(fields) > 0 // a personal field changed
+		setBilling := ch.BillingMode.Set && ch.BillingMode.Value != a.BillingMode
+		if setBilling {
+			fields = append(fields, "billing_mode")
+		}
 		if len(fields) == 0 {
 			return nil
 		}
-		if err := s.cfg.Identity.Consumers.Update(tx, id, newName, newEmail); err != nil {
-			return err
+		if personal {
+			if err := s.cfg.Identity.Consumers.Update(tx, id, newName, newEmail); err != nil {
+				return err
+			}
+		}
+		if setBilling {
+			if err := s.cfg.Identity.Consumers.SetBillingMode(tx, id, ch.BillingMode.Value); err != nil {
+				return err
+			}
 		}
 		// Field names only: the values are personal data and the audit trail is kept forever.
 		if err := s.record(tx, audit.Event{Action: ActionConsumerUpdated, ActorID: actor, TargetID: a.PrincipalID,

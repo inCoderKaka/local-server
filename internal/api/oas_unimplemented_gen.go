@@ -259,7 +259,7 @@ func (UnimplementedHandler) AdminGetUsage(ctx context.Context, params AdminGetUs
 // Audited.
 //
 // POST /admin/v1/consumers/{consumer_id}/access-keys
-func (UnimplementedHandler) AdminIssueAccessKey(ctx context.Context, req *AccessKeyCreate, params AdminIssueAccessKeyParams) (r *AccessKeyIssued, _ error) {
+func (UnimplementedHandler) AdminIssueAccessKey(ctx context.Context, req *AccessKeyCreate, params AdminIssueAccessKeyParams) (r AdminIssueAccessKeyRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -444,7 +444,7 @@ func (UnimplementedHandler) AdminSuspendConsumer(ctx context.Context, params Adm
 // Audited.
 //
 // PATCH /admin/v1/access-keys/{access_key_id}
-func (UnimplementedHandler) AdminUpdateAccessKey(ctx context.Context, req *AccessKeyUpdate, params AdminUpdateAccessKeyParams) (r *AccessKey, _ error) {
+func (UnimplementedHandler) AdminUpdateAccessKey(ctx context.Context, req *AccessKeyUpdate, params AdminUpdateAccessKeyParams) (r AdminUpdateAccessKeyRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

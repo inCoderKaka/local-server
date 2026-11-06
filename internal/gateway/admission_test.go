@@ -8,6 +8,7 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/engine/fake"
+	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/storage"
@@ -103,7 +104,7 @@ func (e *env) au0() *auth.Identity {
 func TestTokenQuotaIs429QuotaExceeded(t *testing.T) {
 	e := newEnv(t, func(o *envOpts) {
 		o.version = func(models []grantsModel) grantsNewVersion {
-			return grantsNewVersion{Models: models, QuotaTokensPerDay: i64(20)}
+			return grantsNewVersion{Models: models, Quotas: dayQuotas(grants.MetricTokens, 20)}
 		}
 	})
 	statusIs(t, e.chat(okChat), http.StatusOK) // 11 tokens
@@ -123,7 +124,7 @@ func TestTokenQuotaIs429QuotaExceeded(t *testing.T) {
 func TestRequestQuotaCountsEveryAdmittedCall(t *testing.T) {
 	e := newEnv(t, func(o *envOpts) {
 		o.version = func(models []grantsModel) grantsNewVersion {
-			return grantsNewVersion{Models: models, QuotaRequestsPerDay: i64(3)}
+			return grantsNewVersion{Models: models, Quotas: dayQuotas(grants.MetricRequests, 3)}
 		}
 	})
 	e.meter.set(-1) // metering fails for good: every call is answered unmetered, no use_record
@@ -149,7 +150,7 @@ func TestRequestQuotaCountsEveryAdmittedCall(t *testing.T) {
 func TestRequestQuotaSkipsRefusedCallsAndCountsFailedOnes(t *testing.T) {
 	e := newEnv(t, func(o *envOpts) {
 		o.version = func(models []grantsModel) grantsNewVersion {
-			return grantsNewVersion{Models: models, QuotaRequestsPerDay: i64(2)}
+			return grantsNewVersion{Models: models, Quotas: dayQuotas(grants.MetricRequests, 2)}
 		}
 	})
 	statusIs(t, e.chat(`{"model":"nope","messages":[{"role":"user","content":"hi"}]}`), http.StatusForbidden)

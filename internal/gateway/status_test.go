@@ -2,6 +2,7 @@ package gateway_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/engine/fake"
 	"github.com/inCoderKaka/local-server/internal/gateway"
+	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/host"
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
@@ -205,7 +207,7 @@ func TestCapabilitiesAfterGrantAndKeyNarrowing(t *testing.T) {
 		o.version = func(models []grantsModel) grantsNewVersion {
 			models[0].ContextCap, models[0].MaxOutputTokens = i64(4000), i64(500)
 			props := `["priority","tag"]`
-			return grantsNewVersion{Models: models, MaxConcurrency: i64(4), QuotaTokensPerDay: i64(1000), AllowedProperties: &props, OnContextOverflow: "truncate"}
+			return grantsNewVersion{Models: models, MaxConcurrency: i64(4), Quotas: dayQuotas(grants.MetricTokens, 1000), AllowedProperties: &props, OnContextOverflow: "truncate"}
 		}
 	})
 	e.set(gateway.KeyDefaultContextTokens, "2048")
@@ -306,7 +308,7 @@ func TestCapabilitiesRefusesNullAllowedPropertiesText(t *testing.T) {
 func TestCapabilitiesRemainingQuota(t *testing.T) {
 	e := newEnv(t, func(o *envOpts) {
 		o.version = func(models []grantsModel) grantsNewVersion {
-			return grantsNewVersion{Models: models, QuotaTokensPerDay: i64(1000), QuotaRequestsPerDay: i64(50)}
+			return grantsNewVersion{Models: models, Quotas: append(dayQuotas(grants.MetricTokens, 1000), dayQuotas(grants.MetricRequests, 50)...)}
 		}
 	})
 	narrow, _ := e.issue(auth.Narrowing{QuotaTokensPerDay: i64(100)})
@@ -341,6 +343,41 @@ func TestCapabilitiesRemainingQuota(t *testing.T) {
 	}
 	if _, err := time.Parse(time.RFC3339Nano, q["grant"]["resets_at"].(string)); err != nil || q["grant"]["window_seconds"] != float64(86400) {
 		t.Fatalf("window = %v", q["grant"])
+	}
+}
+
+// Every window is its own quota in the status, with that window's tokens and requests together
+// (req_001 D-107).
+func TestCapabilitiesReportsEveryWindow(t *testing.T) {
+	e := newEnv(t, func(o *envOpts) {
+		o.version = func(models []grantsModel) grantsNewVersion {
+			return grantsNewVersion{Models: models, Quotas: []grants.QuotaEntry{
+				{Metric: grants.MetricTokens, Limit: 1000, Window: 24 * time.Hour},
+				{Metric: grants.MetricTokens, Limit: 200, Window: time.Hour},
+				{Metric: grants.MetricRequests, Limit: 10, Window: time.Hour}}}
+		}
+	})
+	k, _ := e.issue(auth.Narrowing{Quotas: []grants.QuotaEntry{{Metric: grants.MetricRequests, Limit: 5, Window: 2 * time.Hour}}})
+	statusIs(t, e.doAuth(k, http.MethodPost, "/v1/chat/completions", okChat), http.StatusOK)
+	r := e.doAuth(k, http.MethodGet, "/v1/capabilities", "")
+	statusIs(t, r, http.StatusOK)
+	byWindow := map[string]map[string]any{}
+	for _, q := range r.json()["quotas"].([]any) {
+		q := q.(map[string]any)
+		byWindow[fmt.Sprintf("%s/%v", q["scope"], q["window_seconds"])] = q
+	}
+	if len(byWindow) != 3 {
+		t.Fatalf("quotas = %v, want grant/86400, grant/3600 and access_key/7200", r.json()["quotas"])
+	}
+	day, hour, key := byWindow["grant/86400"], byWindow["grant/3600"], byWindow["access_key/7200"]
+	if day["tokens"] != float64(1000) || day["requests"] != nil {
+		t.Errorf("day window = %v", day)
+	}
+	if hour["tokens"] != float64(200) || hour["requests"] != float64(10) || hour["used_requests"] != float64(1) || hour["remaining_requests"] != float64(9) {
+		t.Errorf("hour window = %v", hour)
+	}
+	if key["requests"] != float64(5) || key["used_requests"] != float64(1) || key["tokens"] != nil {
+		t.Errorf("key window = %v", key)
 	}
 }
 

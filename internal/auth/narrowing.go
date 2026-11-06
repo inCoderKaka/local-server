@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
+	"time"
 
 	"github.com/inCoderKaka/local-server/internal/grants"
 )
@@ -17,15 +19,23 @@ var ErrInvalidNarrowing = errors.New("auth: invalid narrowing")
 // A field left out adds no limit. A narrowing can only reduce what the grant allows, never widen
 // it (D-25). The text is a JSON object with exactly these fields.
 type Narrowing struct {
-	ModelIDs            []string `json:"model_ids,omitempty"`
-	QuotaTokensPerDay   *int64   `json:"quota_tokens_per_day,omitempty"`
-	QuotaRequestsPerDay *int64   `json:"quota_requests_per_day,omitempty"`
-	MaxConcurrency      *int64   `json:"max_concurrency,omitempty"`
-	ContextCap          *int64   `json:"context_cap,omitempty"`
-	MaxOutputTokens     *int64   `json:"max_output_tokens,omitempty"`
+	ModelIDs []string `json:"model_ids,omitempty"`
+	// Quotas are the key's windowed quota entries, at most one per (metric, window); each is
+	// stored as {metric, limit, window_seconds} (req_001 D-107).
+	Quotas []grants.QuotaEntry `json:"quotas,omitempty"`
+	// QuotaTokensPerDay and QuotaRequestsPerDay are the deprecated alias of one entry each,
+	// for the window limits.quota_window. They are still read from keys stored before Quotas
+	// existed; the admin layer no longer writes them (req_001 D-107).
+	QuotaTokensPerDay   *int64 `json:"quota_tokens_per_day,omitempty"`
+	QuotaRequestsPerDay *int64 `json:"quota_requests_per_day,omitempty"`
+	MaxConcurrency      *int64 `json:"max_concurrency,omitempty"`
+	ContextCap          *int64 `json:"context_cap,omitempty"`
+	MaxOutputTokens     *int64 `json:"max_output_tokens,omitempty"`
 }
 
-// ParseNarrowing reads and validates narrowing text. Unknown fields and negative numbers are refused.
+// ParseNarrowing reads and validates narrowing text. Unknown fields, negative numbers and a bad
+// quota list (see grants.ValidateQuotas) are refused. The window bounds are host settings and
+// are not checked here.
 func ParseNarrowing(text string) (Narrowing, error) {
 	var n Narrowing
 	dec := json.NewDecoder(bytes.NewReader([]byte(text)))
@@ -43,7 +53,16 @@ func ParseNarrowing(text string) (Narrowing, error) {
 			return Narrowing{}, fmt.Errorf("%w: %s is negative", ErrInvalidNarrowing, name)
 		}
 	}
+	if p := grants.ValidateQuotas(n.Quotas); p != nil {
+		return Narrowing{}, fmt.Errorf("%w: %v", ErrInvalidNarrowing, p)
+	}
 	return n, nil
+}
+
+// AllQuotas returns Quotas plus the deprecated single figures as entries with the given window
+// (see grants.WithLegacy).
+func (n Narrowing) AllQuotas(legacyWindow time.Duration) []grants.QuotaEntry {
+	return grants.WithLegacy(n.Quotas, n.QuotaTokensPerDay, n.QuotaRequestsPerDay, legacyWindow)
 }
 
 // Text returns the JSON text to store, or nil when the narrowing adds nothing.
@@ -69,12 +88,15 @@ type ModelLimit struct {
 // Limits are the effective limits of a key: its consumer's current grant version narrowed by
 // the key. A nil number means no limit.
 type Limits struct {
-	Models              []ModelLimit
-	QuotaTokensPerDay   *int64
-	QuotaRequestsPerDay *int64
-	MaxConcurrency      *int64
-	AllowedProperties   *string
-	OnContextOverflow   string
+	Models []ModelLimit
+	// Quotas keeps, per (metric, window), the smaller limit among the grant version's entries
+	// and the key's; an entry only one of them has is kept as it is. The deprecated
+	// quota_*_per_day alias columns are not resolved here, because their window is a host
+	// setting: the limits module reads them (req_001 D-107).
+	Quotas            []grants.QuotaEntry
+	MaxConcurrency    *int64
+	AllowedProperties *string
+	OnContextOverflow string
 }
 
 // narrow applies n to a grant version. For every number the smaller one wins; a model is kept
@@ -82,10 +104,9 @@ type Limits struct {
 // the cap of each kept model.
 func narrow(v grants.Version, n Narrowing) Limits {
 	l := Limits{
-		QuotaTokensPerDay:   minLimit(v.QuotaTokensPerDay, n.QuotaTokensPerDay),
-		QuotaRequestsPerDay: minLimit(v.QuotaRequestsPerDay, n.QuotaRequestsPerDay),
-		MaxConcurrency:      minLimit(v.MaxConcurrency, n.MaxConcurrency),
-		OnContextOverflow:   v.OnContextOverflow,
+		Quotas:            mergeQuotas(v.Quotas, n.Quotas),
+		MaxConcurrency:    minLimit(v.MaxConcurrency, n.MaxConcurrency),
+		OnContextOverflow: v.OnContextOverflow,
 	}
 	if v.AllowedProperties != nil {
 		ap := *v.AllowedProperties
@@ -103,6 +124,22 @@ func narrow(v grants.Version, n Narrowing) Limits {
 			ContextCap: minLimit(m.ContextCap, n.ContextCap), MaxOutputTokens: minLimit(m.MaxOutputTokens, n.MaxOutputTokens)})
 	}
 	return l
+}
+
+// mergeQuotas merges two quota lists per (metric, window): the smaller limit wins. The order is
+// that of a, then the entries only b has.
+func mergeQuotas(a, b []grants.QuotaEntry) []grants.QuotaEntry {
+	var out []grants.QuotaEntry
+	for _, q := range append(append([]grants.QuotaEntry(nil), a...), b...) {
+		i := slices.IndexFunc(out, func(o grants.QuotaEntry) bool { return o.Metric == q.Metric && o.Window == q.Window })
+		switch {
+		case i < 0:
+			out = append(out, q)
+		case q.Limit < out[i].Limit:
+			out[i].Limit = q.Limit
+		}
+	}
+	return out
 }
 
 // minLimit returns the smaller of two limits, where nil means no limit. The result is a copy.

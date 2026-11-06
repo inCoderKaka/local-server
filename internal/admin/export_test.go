@@ -22,3 +22,10 @@ func DecodeError(err error) (status int, param, message string) {
 	e := decodeError(err)
 	return e.status, e.param, e.message
 }
+
+// ClassifyError exposes classify to the external tests: the status, param and message it answers
+// to an error a handler returned.
+func ClassifyError(err error) (status int, param, message string) {
+	e, _ := classify(err)
+	return e.status, e.param, e.message
+}

@@ -182,7 +182,7 @@ type Handler interface {
 	// Audited.
 	//
 	// POST /admin/v1/consumers/{consumer_id}/access-keys
-	AdminIssueAccessKey(ctx context.Context, req *AccessKeyCreate, params AdminIssueAccessKeyParams) (*AccessKeyIssued, error)
+	AdminIssueAccessKey(ctx context.Context, req *AccessKeyCreate, params AdminIssueAccessKeyParams) (AdminIssueAccessKeyRes, error)
 	// AdminListAccessKeys implements adminListAccessKeys operation.
 	//
 	// The consumer's access keys, by prefix.
@@ -307,7 +307,7 @@ type Handler interface {
 	// Audited.
 	//
 	// PATCH /admin/v1/access-keys/{access_key_id}
-	AdminUpdateAccessKey(ctx context.Context, req *AccessKeyUpdate, params AdminUpdateAccessKeyParams) (*AccessKey, error)
+	AdminUpdateAccessKey(ctx context.Context, req *AccessKeyUpdate, params AdminUpdateAccessKeyParams) (AdminUpdateAccessKeyRes, error)
 	// AdminUpdateConsumer implements adminUpdateConsumer operation.
 	//
 	// Changes a consumer's display name or email. Audited.

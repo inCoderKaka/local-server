@@ -9,6 +9,7 @@ The consumer API: OpenAI-compatible endpoints and the request pipeline. Built (P
 - Packages: `internal/gateway/` (built by PLT-F-018, PLT-F-019, PLT-F-021, PLT-F-022).
 - Tables: none.
 - Metrics and events: emits `metering.failed` and `policy.rule_invalid` (internal, D-73); exposes `Gateway.RuleFailures` / `ClearRuleFailures` for PLT-F-026.
+- Quotas (req_001 D-107): the gateway calls `Limiter.CountAdmitted` once when the scheduler admits a call, so the persisted request counter counts every admitted call, metered or not; a call is charged to the quota window that holds that moment. `/v1/capabilities` lists one quota status per scope and window (a window's tokens and requests together), from `Limiter.StatusOf`.
 - Port: none defined here. `NewRuleSource(db, repos)` is the `policy.RuleSource` over stored rules.
 
 ## Imports
@@ -17,4 +18,4 @@ Allowed and forbidden imports are enforced by `tools/archcheck` (`go run ./tools
 
 ## Decisions
 
-D-16, D-21, D-24, D-26, D-32, D-38, D-39, D-51, D-73, D-79, D-85, D-100. The module map is in `docs/design_docs/lld.md` section 1.
+D-16, D-21, D-24, D-26, D-32, D-38, D-39, D-51, D-73, D-79, D-85, D-107. The module map is in `docs/design_docs/lld.md` section 1.

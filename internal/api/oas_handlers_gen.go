@@ -3343,7 +3343,7 @@ func (s *Server) handleAdminIssueAccessKeyRequest(args [1]string, argsEscaped bo
 		}
 	}()
 
-	var response *AccessKeyIssued
+	var response AdminIssueAccessKeyRes
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
 			Context:          ctx,
@@ -3364,7 +3364,7 @@ func (s *Server) handleAdminIssueAccessKeyRequest(args [1]string, argsEscaped bo
 		type (
 			Request  = *AccessKeyCreate
 			Params   = AdminIssueAccessKeyParams
-			Response = *AccessKeyIssued
+			Response = AdminIssueAccessKeyRes
 		)
 		response, err = middleware.HookMiddleware[
 			Request,
@@ -6216,7 +6216,7 @@ func (s *Server) handleAdminUpdateAccessKeyRequest(args [1]string, argsEscaped b
 		}
 	}()
 
-	var response *AccessKey
+	var response AdminUpdateAccessKeyRes
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
 			Context:          ctx,
@@ -6237,7 +6237,7 @@ func (s *Server) handleAdminUpdateAccessKeyRequest(args [1]string, argsEscaped b
 		type (
 			Request  = *AccessKeyUpdate
 			Params   = AdminUpdateAccessKeyParams
-			Response = *AccessKey
+			Response = AdminUpdateAccessKeyRes
 		)
 		response, err = middleware.HookMiddleware[
 			Request,

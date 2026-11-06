@@ -43,7 +43,7 @@ The base URL's host name and port are the host's tailnet name and the port they 
 | `POST /v1/embeddings` | OpenAI | Embeddings |
 | `GET /v1/models` | OpenAI | Only the models your grant allows |
 | `GET /v1/health` | local-server | Online; sharing, paused or quiet; whether the engine answers; the loaded models your grant allows; queue depth. Call it to decide quickly whether to fall back |
-| `GET /v1/capabilities` | local-server | Your models, context limits, max output and remaining quota |
+| `GET /v1/capabilities` | local-server | Your models, context limits, max output and remaining quota, one entry per scope (grant or key) and quota window |
 | `POST /v1/jobs`, `GET /v1/jobs/{id}`, `GET /v1/jobs/{id}/result` | local-server | Background work that should outlive a request |
 | `/v1/resource-requests` | local-server | Ask the host for more, with comments |
 | `GET /v1/usage` | local-server | Your usage over time |
@@ -59,13 +59,21 @@ The base URL's host name and port are the host's tailnet name and the port they 
   - `LS-Request-Properties` (request) tags the call with properties the host's policy rules understand. For example, a background call can be allowed only in background-work hours. The header's format is defined in the spec.
   - `LS-Receipt` (response) carries the signed usage receipt of a non-streamed call. A streamed response has no `LS-Receipt` header: its receipt arrives instead in an SSE comment line `: ls-receipt <JWS>` after the last chunk and before `data: [DONE]`. Standard SDKs skip comment lines, so read the raw event stream if you want to keep a streamed call's receipt.
 
+### Quotas
+
+A quota is a list of entries `{metric, limit, window_seconds}`: `metric` is `tokens` or `requests`, and an entry caps that metric in each fixed window of `window_seconds`. A grant or a key has at most one entry per metric and window, and every entry is enforced on its own. A call counts in the window that holds the moment the host admitted it, so a call that runs across a window's end is counted once. The request metric counts every admitted call, metered or not.
+
+- **The older `quota` object** (`{tokens, requests}`) is deprecated. It stands for entries whose window is the host's default window, and the host still returns it when such entries exist. When you send both `quota` and `quotas`, `quotas` wins and the answer's `warnings` says the other was ignored.
+- **Choosing a window:** a window is whole seconds within the host's `limits.quota_window_min` and `limits.quota_window_max`. You pick the windows of your own keys only when the host has set your consumer's billing mode to `prepaid` or `postpaid`; otherwise the host sets them (the planned consumer-side key route will answer `403` to a consumer with billing mode `none`). No balances, invoices or prices exist in this version.
+- **Reading it:** `GET /v1/capabilities` returns one quota status for each scope and window, with the tokens and requests of that window together.
+
 ### Errors and retries
 
 Errors use the OpenAI error envelope plus a typed `code`. Use `Retry-After` where it is present.
 
 | `code` | What to do |
 |---|---|
-| `quota_exceeded` | Wait for `Retry-After`, or file a resource request |
+| `quota_exceeded` | A quota entry of your grant or key is used up for its current window. Wait for `Retry-After`, which is the time to that window's end, or file a resource request |
 | `queue_full` | Retry after `Retry-After` with backoff, or fall back. A background call can also get it after waiting, when interactive calls need its place. |
 | `host_paused` | Fall back now. Queue background work and resend when `/v1/health` says the host is back |
 | `model_not_granted` | Check `/v1/capabilities`, or ask for the model |

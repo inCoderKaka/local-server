@@ -496,3 +496,8 @@ type (
 )
 
 func engineDown() error { return engine.Errorf(engine.CodeEngineUnavailable, nil, "down") }
+
+// dayQuotas is one quota entry over 24 hours, the default limits.quota_window.
+func dayQuotas(metric string, limit int64) []grants.QuotaEntry {
+	return []grants.QuotaEntry{{Metric: metric, Limit: limit, Window: 24 * time.Hour}}
+}

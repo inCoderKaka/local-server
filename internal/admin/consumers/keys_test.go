@@ -214,6 +214,21 @@ func TestUpdateAndRevokeKey(t *testing.T) {
 	}
 }
 
+// day is a quota entry over 24 hours, the default limits.quota_window.
+func day(metric string, limit int64) grants.QuotaEntry {
+	return grants.QuotaEntry{Metric: metric, Limit: limit, Window: 24 * time.Hour}
+}
+
+// effective is the limit of the 24-hour entry of a metric in an identity's effective limits, or -1.
+func effective(id *auth.Identity, metric string) int64 {
+	for _, q := range id.Limits.Quotas {
+		if q.Metric == metric && q.Window == 24*time.Hour {
+			return q.Limit
+		}
+	}
+	return -1
+}
+
 // A narrowing can only narrow the grant: models the grant lacks and numbers above the grant's are
 // refused, on issue and on update. What it adds shows in the effective limits.
 func TestNarrowingOnlyNarrows(t *testing.T) {
@@ -221,7 +236,7 @@ func TestNarrowingOnlyNarrows(t *testing.T) {
 	c := e.newConsumer("App")
 	e.model("m2")
 	e.model("other")
-	e.grant(c.ID, grants.NewVersion{QuotaTokensPerDay: i64(1000), QuotaRequestsPerDay: i64(50), MaxConcurrency: i64(4)}, "m1", "m2")
+	e.grant(c.ID, grants.NewVersion{Quotas: []grants.QuotaEntry{day(grants.MetricTokens, 1000), day(grants.MetricRequests, 50)}, MaxConcurrency: i64(4)}, "m1", "m2")
 
 	bad := map[string]struct {
 		n     consumers.Narrowing
@@ -264,7 +279,7 @@ func TestNarrowingOnlyNarrows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(id.Limits.Models) != 1 || id.Limits.Models[0].ModelID == "" || *id.Limits.QuotaTokensPerDay != 100 || *id.Limits.MaxConcurrency != 2 {
+	if len(id.Limits.Models) != 1 || id.Limits.Models[0].ModelID == "" || effective(id, grants.MetricTokens) != 100 || *id.Limits.MaxConcurrency != 2 {
 		t.Fatalf("effective limits = %+v", id.Limits)
 	}
 
@@ -280,14 +295,14 @@ func TestNarrowingOnlyNarrows(t *testing.T) {
 	if err != nil || u.Narrowing.Models[0] != "m2" || *u.Narrowing.Quota.Tokens != 10 || u.Narrowing.Concurrency != nil {
 		t.Fatalf("replaced narrowing = %+v, %v", u.Narrowing, err)
 	}
-	if id, _ = e.au.Authenticate(ctx, "Bearer "+is.Secret.Reveal(), "100.64.0.1:1"); id == nil || *id.Limits.QuotaTokensPerDay != 10 {
+	if id, _ = e.au.Authenticate(ctx, "Bearer "+is.Secret.Reveal(), "100.64.0.1:1"); id == nil || effective(id, grants.MetricTokens) != 10 {
 		t.Fatalf("the new narrowing did not apply at once: %+v", id)
 	}
 	u, err = e.svc.UpdateAccessKey(ctx, e.admin, is.Key.ID, consumers.KeyChange{Narrowing: consumers.Null[consumers.Narrowing]()})
 	if err != nil || u.Narrowing != nil {
 		t.Fatalf("removed narrowing = %+v, %v", u.Narrowing, err)
 	}
-	if id, _ = e.au.Authenticate(ctx, "Bearer "+is.Secret.Reveal(), "100.64.0.1:1"); id == nil || *id.Limits.QuotaTokensPerDay != 1000 {
+	if id, _ = e.au.Authenticate(ctx, "Bearer "+is.Secret.Reveal(), "100.64.0.1:1"); id == nil || effective(id, grants.MetricTokens) != 1000 {
 		t.Fatalf("the removed narrowing still applies: %+v", id)
 	}
 	// An empty narrowing is none.
