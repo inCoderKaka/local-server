@@ -100,13 +100,14 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 	}
 	sv.consumer, sv.jobExec = gw.Handler(), gw.JobExecutor()
 
-	// The admin API shares the settings, the sharing state and the sampler built above; it reads
-	// the host kid from the keys and the usage rollups from the usage module (req_001 D-104).
+	// The admin API shares the settings, the sharing state, the sampler, the auth service and the
+	// event bus built above; it reads the host kid from the keys and the usage rollups from the
+	// usage module (req_001 D-104).
 	auditLog, err := audit.NewLog(st)
 	if err != nil {
 		return nil, err
 	}
-	adm, err := admin.New(admin.Config{DB: db, Settings: st, Identity: ir, Audit: auditLog, Sharing: share, Sampler: sv.sampler,
+	adm, err := admin.New(admin.Config{DB: db, Settings: st, Identity: ir, Grants: gr, Auth: au, Events: bus, Audit: auditLog, Sharing: share, Sampler: sv.sampler,
 		Keys: keys, Engine: eng, Metrics: metrics, Version: version, Telemetry: tel})
 	if err != nil {
 		return nil, fmt.Errorf("admin: %w", err)

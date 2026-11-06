@@ -12,10 +12,20 @@
 //
 // PLT-F-024 implements these operations: the first-run setup, login, logout and current admin,
 // host state with pause and resume, host metrics now and over time, host settings read and
-// change, the audit list and the usage rollups (req_001 D-104). Every other admin operation
-// stays on api.UnimplementedHandler and answers 501 once the caller is logged in. A later ticket
-// adds an operation by implementing its method on Admin; routing, security and error mapping
-// need no change.
+// change, the audit list and the usage rollups (req_001 D-104).
+//
+// PLT-F-025 implements the consumer, access key and invite operations: list, create, get,
+// change, delete, suspend and reactivate a consumer; list, issue, change and revoke an access
+// key; list, create and revoke an invite. They are thin: package admin/consumers owns the rules
+// (soft delete with erasure of personal fields, key secrets and invite tokens shown once,
+// narrowing that can only narrow the grant, terminal states never reopened, req_001 D-25, D-40,
+// D-54) and package admin maps its types onto the generated ones and its *consumers.Error onto
+// the envelope (400, 404, 409).
+//
+// Every other admin operation (grants, models, policy rules, resource requests, notification
+// preferences and webhook endpoints) stays on api.UnimplementedHandler and answers 501 once the
+// caller is logged in. A later ticket adds an operation by implementing its method on Admin;
+// routing, security and error mapping need no change.
 //
 // # Sessions and the admin principal
 //

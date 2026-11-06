@@ -18,9 +18,11 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/admin"
 	"github.com/inCoderKaka/local-server/internal/audit"
+	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/auth/credential"
 	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/engine/fake"
+	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/host"
 	"github.com/inCoderKaka/local-server/internal/hostmetrics"
 	"github.com/inCoderKaka/local-server/internal/identity"
@@ -143,6 +145,8 @@ type env struct {
 	db      *storage.DB
 	st      *settings.Store
 	ir      *identity.Repos
+	gr      *grants.Repos
+	auth    *auth.Service
 	clk     *clock
 	tel     *logTel
 	sampler *fakeSampler
@@ -164,20 +168,25 @@ func newEnv(t *testing.T, mod ...func(*envOpts)) *env {
 	}
 	ctx := context.Background()
 	db, err := storage.Open(ctx, storage.DefaultConfig(filepath.Join(t.TempDir(), "t.db"),
-		settings.Module(), host.Module(), identity.Module(), audit.Module(), events.Module(), usage.Module()))
+		settings.Module(), host.Module(), identity.Module(), grants.Module(), audit.Module(), events.Module(), usage.Module()))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 	e := &env{t: t, db: db, st: settings.New(db), clk: &clock{t: t0}, tel: newLogTel(), sampler: &fakeSampler{}}
-	e.ir = identity.NewRepos(e.clk.now)
+	e.ir, e.gr = identity.NewRepos(e.clk.now), grants.NewRepos(e.clk.now)
+	bus := events.New()
+	e.auth, err = auth.New(auth.Config{DB: db, Identity: e.ir, Grants: e.gr, Events: bus, Settings: e.st, Clock: e.clk.now})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Write(ctx, func(tx *storage.Tx) error {
 		_, err := tx.Exec(`INSERT INTO hst_host (id, created_at, data_key_sealed) VALUES ('h1', 1, x'00')`)
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
-	e.share, err = host.NewSharing(db, e.st, events.New(), e.clk.now)
+	e.share, err = host.NewSharing(db, e.st, bus, e.clk.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +197,7 @@ func newEnv(t *testing.T, mod ...func(*envOpts)) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.admin, err = admin.New(admin.Config{DB: db, Settings: e.st, Identity: e.ir, Audit: log, Sharing: e.share, Sampler: e.sampler,
+	e.admin, err = admin.New(admin.Config{DB: db, Settings: e.st, Identity: e.ir, Grants: e.gr, Auth: e.auth, Events: bus, Audit: log, Sharing: e.share, Sampler: e.sampler,
 		Keys: fakeKeys{}, Engine: o.engine, Metrics: o.metrics, Version: "1.2.3-test", Telemetry: e.tel, Clock: e.clk.now})
 	if err != nil {
 		t.Fatal(err)

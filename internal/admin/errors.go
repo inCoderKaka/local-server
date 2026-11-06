@@ -14,6 +14,7 @@ import (
 	"github.com/ogen-go/ogen/ogenerrors"
 	"github.com/ogen-go/ogen/validate"
 
+	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/audit"
 	"github.com/inCoderKaka/local-server/internal/usage"
@@ -50,6 +51,16 @@ func newErr(status int, typ, code, param, message string) *apiError {
 
 func badRequest(param, message string) *apiError {
 	return newErr(http.StatusBadRequest, typeInvalidRequest, "", param, message)
+}
+
+// notFoundErr is a 404 for a resource that does not exist; notFound is the one for a path.
+func notFoundErr(message string) *apiError {
+	return newErr(http.StatusNotFound, typeInvalidRequest, "", "", message)
+}
+
+// conflict is a 409: the resource is in a state that does not allow the request.
+func conflict(message string) *apiError {
+	return newErr(http.StatusConflict, typeInvalidRequest, "", "", message)
 }
 
 func internalError() *apiError {
@@ -118,9 +129,12 @@ func classify(err error) (e *apiError, internal bool) {
 	var ae *apiError
 	var le *LockedOutError
 	var mb *http.MaxBytesError
+	var ce *consumers.Error
 	switch {
 	case errors.As(err, &ae):
 		return ae, false
+	case errors.As(err, &ce):
+		return consumersError(ce), false
 	case errors.As(err, &le):
 		return &apiError{status: http.StatusTooManyRequests, typ: typeRequests, code: codeRateLimit,
 			message: "Too many failed login attempts. Try again later.", retryAfter: le.RetryAfter}, false
@@ -141,6 +155,22 @@ func classify(err error) (e *apiError, internal bool) {
 		return newErr(http.StatusGatewayTimeout, typeServer, "", "", "The host did not finish in time."), true
 	}
 	return internalError(), true
+}
+
+// consumersError maps a refusal of the consumers service to the envelope. Its text is fixed and
+// holds no request bytes; its param is a constant field name, and is checked anyway.
+func consumersError(e *consumers.Error) *apiError {
+	switch e.Kind {
+	case consumers.KindNotFound:
+		return notFoundErr(e.Message)
+	case consumers.KindConflict:
+		return conflict(e.Message)
+	}
+	param := e.Param
+	if !safeName(param) {
+		param = ""
+	}
+	return badRequest(param, e.Message)
 }
 
 var (

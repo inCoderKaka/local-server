@@ -11,13 +11,16 @@ import (
 
 	"github.com/ogen-go/ogen/ogenerrors"
 
+	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/audit"
 	"github.com/inCoderKaka/local-server/internal/auth/credential"
 	"github.com/inCoderKaka/local-server/internal/engine"
+	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/host"
 	"github.com/inCoderKaka/local-server/internal/hostmetrics"
 	"github.com/inCoderKaka/local-server/internal/identity"
+	"github.com/inCoderKaka/local-server/internal/notifier/events"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
@@ -58,11 +61,19 @@ type Config struct {
 	// Identity is built with the same clock as Clock, so a session's created_at and expires_at
 	// agree.
 	Identity *identity.Repos
-	Audit    *audit.Log
-	Sharing  Sharing
-	Sampler  Sampler
-	Keys     HostKeys
-	Engine   Engine
+	// Grants is read to check a key's narrowing against its consumer's grant and to name models.
+	Grants *grants.Repos
+	// Auth issues and revokes access keys and forgets cached keys after a consumer or key changes
+	// (*auth.Service). Build it with the same Clock.
+	Auth consumers.Auth
+	// Events runs the unit of work of every consumer, key and invite write, so that revoking a key
+	// emits access_key.revoked in the same unit.
+	Events  events.Notifier
+	Audit   *audit.Log
+	Sharing Sharing
+	Sampler Sampler
+	Keys    HostKeys
+	Engine  Engine
 	// Metrics serves GET /metrics (telemetry.MetricsHandler), behind the same guard as the API.
 	Metrics http.Handler
 	// Version is the software version shown in /admin/v1/host. Empty means "dev".
@@ -82,6 +93,7 @@ type Admin struct {
 	now  func() time.Time
 	log  *slog.Logger
 	auth *Authenticator
+	cons *consumers.Service
 	srv  http.Handler
 }
 
@@ -92,9 +104,9 @@ var (
 
 // New registers the admin and credential settings and builds the admin API.
 func New(cfg Config) (*Admin, error) {
-	if cfg.DB == nil || cfg.Settings == nil || cfg.Identity == nil || cfg.Audit == nil || cfg.Sharing == nil ||
-		cfg.Sampler == nil || cfg.Keys == nil || cfg.Engine == nil || cfg.Metrics == nil {
-		return nil, errors.New("admin: DB, Settings, Identity, Audit, Sharing, Sampler, Keys, Engine and Metrics are required")
+	if cfg.DB == nil || cfg.Settings == nil || cfg.Identity == nil || cfg.Grants == nil || cfg.Auth == nil || cfg.Events == nil ||
+		cfg.Audit == nil || cfg.Sharing == nil || cfg.Sampler == nil || cfg.Keys == nil || cfg.Engine == nil || cfg.Metrics == nil {
+		return nil, errors.New("admin: DB, Settings, Identity, Grants, Auth, Events, Audit, Sharing, Sampler, Keys, Engine and Metrics are required")
 	}
 	if cfg.Telemetry == nil {
 		cfg.Telemetry = telemetry.Nop()
@@ -112,7 +124,12 @@ func New(cfg Config) (*Admin, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &Admin{cfg: cfg, now: cfg.Clock, log: cfg.Telemetry.Logger(), auth: au}
+	cons, err := consumers.New(consumers.Config{DB: cfg.DB, Settings: cfg.Settings, Identity: cfg.Identity, Grants: cfg.Grants,
+		Auth: cfg.Auth, Events: cfg.Events, Clock: cfg.Clock, Logger: cfg.Telemetry.Logger()})
+	if err != nil {
+		return nil, err
+	}
+	a := &Admin{cfg: cfg, now: cfg.Clock, log: cfg.Telemetry.Logger(), auth: au, cons: cons}
 	srv, err := api.NewServer(a, a,
 		api.WithErrorHandler(a.errorHandler),
 		api.WithNotFound(a.notFound),

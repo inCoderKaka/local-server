@@ -103,3 +103,14 @@ WHERE id = ? AND redeemed_at IS NULL AND revoked_at IS NULL AND expires_at > ?`,
 func (r *InviteRepo) Revoke(tx *storage.Tx, id string) error {
 	return mustChange(tx.Exec(`UPDATE idn_invite SET revoked_at = ? WHERE id = ? AND redeemed_at IS NULL AND revoked_at IS NULL`, ms(r.now()), id))
 }
+
+// EraseNotesRedeemedBy clears the note of every invite a consumer redeemed and returns how many
+// it changed. The note is personal data (who the invite was for), so deleting the consumer erases
+// it while the invite row stays (D-40).
+func (r *InviteRepo) EraseNotesRedeemedBy(tx *storage.Tx, consumerID string) (int64, error) {
+	res, err := tx.Exec(`UPDATE idn_invite SET note = NULL WHERE redeemed_consumer_id = ? AND note IS NOT NULL`, consumerID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

@@ -22,7 +22,9 @@ var ErrMalformedInviteToken = errors.New("auth: malformed invite token")
 func NewInviteToken() (prefix, secret string, err error) { return newKey() }
 
 // FormatInviteToken joins a prefix and a secret into the token text an invitee receives.
-func FormatInviteToken(prefix, secret string) string { return inviteScheme + "_" + prefix + "_" + secret }
+func FormatInviteToken(prefix, secret string) string {
+	return inviteScheme + "_" + prefix + "_" + secret
+}
 
 // ParseInviteToken reads token text "ls_invite_<prefix>_<secret>". It is strict, and it never
 // returns any part of the input in its error. The secret in the result is redacted.

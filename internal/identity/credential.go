@@ -96,3 +96,14 @@ func (r *CredentialRepo) MarkUsed(tx *storage.Tx, id string) error {
 func (r *CredentialRepo) Revoke(tx *storage.Tx, id string) error {
 	return mustChange(tx.Exec(`UPDATE idn_credential SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`, ms(r.now()), id))
 }
+
+// DeleteByPrincipal removes every credential of a principal, revoked or not, and returns how
+// many. A login name is personal data, so deleting a consumer erases the rows instead of keeping
+// them revoked (D-40). Nothing refers to a credential row.
+func (r *CredentialRepo) DeleteByPrincipal(tx *storage.Tx, principalID string) (int64, error) {
+	res, err := tx.Exec(`DELETE FROM idn_credential WHERE principal_id = ?`, principalID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

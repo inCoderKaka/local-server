@@ -48,8 +48,8 @@ func TestErrorEnvelopeEveryFailureShape(t *testing.T) {
 		{"wrong login", req{method: "POST", path: "/admin/v1/session", body: creds("nobody", hostile), origin: adminOrigin}, 401, nil},
 		{"foreign host", req{path: "/admin/v1/host", cookie: token, host: "evil.example"}, 403, nil},
 		{"foreign origin", req{method: "POST", path: "/admin/v1/host/pause", cookie: token, origin: "http://evil.example"}, 403, nil},
-		{"not implemented", req{path: "/admin/v1/consumers", cookie: token}, 501, nil},
-		{"not implemented write", req{method: "POST", path: "/admin/v1/invites", body: `{}`, cookie: token, origin: adminOrigin}, 501, nil},
+		{"not implemented", req{path: "/admin/v1/notification-preferences", cookie: token}, 501, nil},
+		{"not implemented write", req{method: "PUT", path: "/admin/v1/notification-preferences", body: `{"data":[]}`, cookie: token, origin: adminOrigin}, 501, nil},
 		{"setup done", req{method: "POST", path: "/admin/v1/setup", body: creds("x", testPass), origin: adminOrigin}, 409, nil},
 	} {
 		r := e.do(c.r)
@@ -84,12 +84,12 @@ func TestErrorEnvelopeEveryFailureShape(t *testing.T) {
 func TestErrorEnvelopeUnimplementedOperation(t *testing.T) {
 	e := newEnv(t)
 	token := e.setup()
-	r := e.call(token, "GET", "/admin/v1/consumers", "")
+	r := e.call(token, "GET", "/admin/v1/notification-preferences", "")
 	status(t, r, http.StatusNotImplemented)
 	if inner := r.errBody(t); inner["type"] != "server_error" {
 		t.Errorf("error = %v", inner)
 	}
-	status(t, e.do(req{path: "/admin/v1/consumers"}), http.StatusUnauthorized)
+	status(t, e.do(req{path: "/admin/v1/notification-preferences"}), http.StatusUnauthorized)
 }
 
 // An unknown field in a login body is ignored: the AdminCredentials schema does not refuse extra
