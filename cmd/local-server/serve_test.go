@@ -303,6 +303,16 @@ func TestServeRunsWorkers(t *testing.T) {
 	waitFor(t, "a host-metrics row", func() bool { return count(t, ta.dir, `SELECT count(*) FROM hst_metric_minute`) > 0 })
 }
 
+// The power worker runs under the supervisor and takes the sleep lock of a sharing host through
+// the app's power port, here a fake (PLT-F-042).
+func TestServeHoldsSleepLockWhileSharing(t *testing.T) {
+	ta := newTestApp(t, true)
+	seed(t, ta.dir, loopbackAny)
+	r := startServe(t, ta, "--engine", "fake")
+	defer r.stop()
+	waitFor(t, "the sleep lock to be taken", func() bool { return ta.power.(*fakePower).count() > 0 })
+}
+
 // An existing install whose keychain does not answer stops with an error naming the setting; it
 // neither falls back to the key file nor creates a key (req_001 D-81, D-102).
 func TestServeExistingInstallKeychainTimeout(t *testing.T) {

@@ -17,6 +17,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/engine/fake"
 	"github.com/inCoderKaka/local-server/internal/engine/ollama"
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
+	"github.com/inCoderKaka/local-server/internal/power"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/telemetry/slogprom"
 )
@@ -120,7 +121,11 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 		eng = ad
 	}
 
-	sv, err := wire(d, keys, eng, tel, tel.MetricsHandler())
+	pw := a.power
+	if pw == nil {
+		pw = power.New(log)
+	}
+	sv, err := wire(d, keys, eng, tel, tel.MetricsHandler(), pw)
 	if err != nil {
 		return fmt.Errorf("wire modules: %w", err)
 	}

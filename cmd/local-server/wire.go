@@ -22,6 +22,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
 	"github.com/inCoderKaka/local-server/internal/policy"
+	"github.com/inCoderKaka/local-server/internal/power"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
@@ -43,13 +44,15 @@ type services struct {
 	jobs       *jobs.Service
 	jobExec    jobs.Executor
 	rollups    *usage.Rollups
+	power      *power.Keeper
 }
 
 // wire builds every module on d, keys and eng, in dependency order, and returns what serve
-// runs; metrics is telemetry's /metrics handler, which the admin listener serves. Constructors
+// runs; metrics is telemetry's /metrics handler, which the admin listener serves; pw is the OS
+// sleep lock (the real one for the build's OS, or a fake in tests). Constructors
 // register their own settings; registerSettings did the rest. To add a
 // module that serves or runs a worker, build it here and add its worker in startWorkers.
-func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Telemetry, metrics http.Handler) (*services, error) {
+func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Telemetry, metrics http.Handler, pw power.Power) (*services, error) {
 	var err error
 	db, st, log := d.db, d.st, tel.Logger()
 	bus := events.New(events.WithLogger(log))
@@ -64,6 +67,10 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 		return nil, err
 	}
 	if sv.sampler, err = hostmetrics.NewSampler(db, st, tel, eng, nil); err != nil {
+		return nil, err
+	}
+	// Holds the sleep lock while the effective sharing state is sharing (PLT-F-042).
+	if sv.power, err = power.NewKeeper(pw, share, st, tel); err != nil {
 		return nil, err
 	}
 	cps, err := checkpoint.New(db, keys, st)
@@ -145,4 +152,7 @@ func (sv *services) startWorkers(ctx context.Context, sup *supervisor, log *slog
 	sup.Go(ctx, "jobs", func(ctx context.Context) error { sv.jobs.Run(ctx, sv.jobExec); return nil })
 	// Adds new usage records to the usage rollups behind GET /v1/usage (PLT-F-023).
 	sup.Go(ctx, "usage-rollups", func(ctx context.Context) error { sv.rollups.Run(ctx); return nil })
+	// Takes the sleep lock while sharing and releases it when paused, in quiet hours and on stop
+	// (PLT-F-042).
+	sup.Go(ctx, "power", sv.power.Run)
 }

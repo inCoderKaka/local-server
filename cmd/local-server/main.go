@@ -33,6 +33,7 @@ import (
 	"syscall"
 
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
+	"github.com/inCoderKaka/local-server/internal/power"
 	// IANA zone data for host.quiet_hours.time_zone and policy windows on machines without a system zoneinfo database (Windows, minimal Linux).
 	_ "time/tzdata"
 )
@@ -86,6 +87,9 @@ type app struct {
 	keychain hostkeys.Keychain
 	// onListening, when set, is called by serve once its listeners are bound.
 	onListening func(listening)
+	// power is the OS sleep lock; nil means the real one for this OS (power.New). Tests pass a
+	// fake: they must never start caffeinate or systemd-inhibit.
+	power power.Power
 }
 
 // listening are the addresses serve is bound to.

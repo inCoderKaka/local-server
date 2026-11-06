@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
+	"github.com/inCoderKaka/local-server/internal/power"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
@@ -76,6 +77,31 @@ func (f *fakeKeychain) calls() (gets, sets int) {
 	return f.gets, f.sets
 }
 
+// fakePower is a power.Power that holds nothing. Tests never start the real sleep lock
+// (caffeinate, systemd-inhibit).
+type fakePower struct {
+	mu       sync.Mutex
+	acquired int
+}
+
+func (f *fakePower) Acquire(context.Context) (power.Lock, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.acquired++
+	return fakeLock{}, nil
+}
+
+func (f *fakePower) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.acquired
+}
+
+type fakeLock struct{}
+
+func (fakeLock) Release() error { return nil }
+func (fakeLock) Alive() bool    { return true }
+
 // testApp is an app whose terminal, keychain and environment are fakes.
 type testApp struct {
 	*app
@@ -98,6 +124,7 @@ func newTestApp(t *testing.T, terminal bool) *testApp {
 		stdin:            strings.NewReader(""),
 		readPassword:     func() (string, error) { return "", io.EOF },
 		keychain:         ta.kc,
+		power:            &fakePower{},
 	}
 	return ta
 }
