@@ -120,3 +120,72 @@ func (r *ConsumerRepo) captureCurrent(tx *storage.Tx, id, op string) error {
 	}
 	return capture(tx, c, op)
 }
+
+// ConsumerAccount is a consumer with the state of its principal and of its login.
+type ConsumerAccount struct {
+	Consumer
+	// Status is the principal's status: active, suspended or deleted.
+	Status string
+	// StatusChangedAt is when the principal row last changed. For a deleted consumer that is
+	// the moment of deletion, because deleted is final.
+	StatusChangedAt time.Time
+	// Username is the identifier of the consumer's first password credential that is not
+	// revoked, or nil for a key-only consumer.
+	Username *string
+	// HasLogin is whether the consumer has any credential that is not revoked.
+	HasLogin bool
+}
+
+const accountSelect = `SELECT c.id, c.principal_id, c.kind, c.display_name, c.email, c.row_version, c.created_at, c.updated_at,
+p.status, p.updated_at,
+(SELECT k.identifier FROM idn_credential k WHERE k.principal_id = p.id AND k.kind = 'password' AND k.revoked_at IS NULL ORDER BY k.created_at, k.id LIMIT 1),
+EXISTS (SELECT 1 FROM idn_credential k WHERE k.principal_id = p.id AND k.revoked_at IS NULL)
+FROM idn_consumer c JOIN idn_principal p ON p.id = c.principal_id`
+
+func scanAccount(r storage.Row) (ConsumerAccount, error) {
+	var a ConsumerAccount
+	var cr, up, st int64
+	err := r.Scan(&a.ID, &a.PrincipalID, &a.Kind, &a.DisplayName, &a.Email, &a.RowVersion, &cr, &up,
+		&a.Status, &st, &a.Username, &a.HasLogin)
+	a.CreatedAt, a.UpdatedAt, a.StatusChangedAt = tm(cr), tm(up), tm(st)
+	return a, err
+}
+
+// GetAccount returns one consumer with its principal status and login.
+func (r *ConsumerRepo) GetAccount(ctx context.Context, rd *storage.Reader, id string) (ConsumerAccount, error) {
+	return first[ConsumerAccount](rd.Query(ctx, accountSelect+` WHERE c.id = ?`, id))(scanAccount)
+}
+
+// GetAccountTx is GetAccount as the unit of work sees it.
+func (r *ConsumerRepo) GetAccountTx(tx *storage.Tx, id string) (ConsumerAccount, error) {
+	return first[ConsumerAccount](tx.Query(accountSelect+` WHERE c.id = ?`, id))(scanAccount)
+}
+
+// ListAccounts returns up to limit consumers, newest first, that come after the given position
+// (from the start when after is nil). A status keeps the consumers whose principal has it; an
+// empty status keeps every consumer that is not deleted.
+func (r *ConsumerRepo) ListAccounts(ctx context.Context, rd *storage.Reader, status string, after *PageKey, limit int) ([]ConsumerAccount, error) {
+	q := accountSelect + ` WHERE ` + statusClause(status)
+	var args []any
+	if status != "" {
+		args = append(args, status)
+	}
+	if after != nil {
+		q += ` AND (c.created_at < ? OR (c.created_at = ? AND c.id < ?))`
+		args = append(args, ms(after.CreatedAt), ms(after.CreatedAt), after.ID)
+	}
+	q += ` ORDER BY c.created_at DESC, c.id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := rd.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	return collect(rows, scanAccount)
+}
+
+func statusClause(status string) string {
+	if status == "" {
+		return `p.status <> 'deleted'`
+	}
+	return `p.status = ?`
+}

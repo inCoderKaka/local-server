@@ -86,6 +86,15 @@ func (r *AccessKeyRepo) ListByConsumer(ctx context.Context, rd *storage.Reader, 
 	return collect(rows, scanAccessKey)
 }
 
+// ListByConsumerTx is ListByConsumer as the unit of work sees it.
+func (r *AccessKeyRepo) ListByConsumerTx(tx *storage.Tx, consumerID string) ([]AccessKey, error) {
+	rows, err := tx.Query(`SELECT `+keyCols+` FROM idn_access_key WHERE consumer_id = ? ORDER BY created_at, id`, consumerID)
+	if err != nil {
+		return nil, err
+	}
+	return collect(rows, scanAccessKey)
+}
+
 // Update changes the label, the narrowing, the node binding and the expiry of a key.
 func (r *AccessKeyRepo) Update(tx *storage.Tx, id string, label, narrowingJSON, boundNode *string, expiresAt *time.Time) error {
 	return mustChange(tx.Exec(`UPDATE idn_access_key SET label = ?, narrowing_json = ?, bound_node = ?, expires_at = ? WHERE id = ?`,

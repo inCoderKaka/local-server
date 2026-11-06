@@ -73,6 +73,15 @@ func (r *CredentialRepo) ListByPrincipal(ctx context.Context, rd *storage.Reader
 	return collect(rows, scanCredential)
 }
 
+// ListByPrincipalTx is ListByPrincipal as the unit of work sees it.
+func (r *CredentialRepo) ListByPrincipalTx(tx *storage.Tx, principalID string) ([]Credential, error) {
+	rows, err := tx.Query(`SELECT `+credCols+` FROM idn_credential WHERE principal_id = ? ORDER BY created_at, id`, principalID)
+	if err != nil {
+		return nil, err
+	}
+	return collect(rows, scanCredential)
+}
+
 // UpdateSecret replaces the stored hash or public key.
 func (r *CredentialRepo) UpdateSecret(tx *storage.Tx, id, secret string) error {
 	return mustChange(tx.Exec(`UPDATE idn_credential SET secret = ? WHERE id = ?`, secret, id))

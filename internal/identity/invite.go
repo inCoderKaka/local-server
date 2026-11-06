@@ -54,6 +54,29 @@ func (r *InviteRepo) Get(ctx context.Context, rd *storage.Reader, id string) (In
 	return first[Invite](rd.Query(ctx, `SELECT `+inviteCols+` FROM idn_invite WHERE id = ?`, id))(scanInvite)
 }
 
+// GetTx returns one invite as the unit of work sees it.
+func (r *InviteRepo) GetTx(tx *storage.Tx, id string) (Invite, error) {
+	return first[Invite](tx.Query(`SELECT `+inviteCols+` FROM idn_invite WHERE id = ?`, id))(scanInvite)
+}
+
+// ListPage returns up to limit invites, newest first, that come after the given position (from
+// the start when after is nil).
+func (r *InviteRepo) ListPage(ctx context.Context, rd *storage.Reader, after *PageKey, limit int) ([]Invite, error) {
+	q := `SELECT ` + inviteCols + ` FROM idn_invite`
+	var args []any
+	if after != nil {
+		q += ` WHERE created_at < ? OR (created_at = ? AND id < ?)`
+		args = append(args, ms(after.CreatedAt), ms(after.CreatedAt), after.ID)
+	}
+	q += ` ORDER BY created_at DESC, id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := rd.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	return collect(rows, scanInvite)
+}
+
 // GetByPrefix returns the invite with a token prefix.
 func (r *InviteRepo) GetByPrefix(ctx context.Context, rd *storage.Reader, prefix string) (Invite, error) {
 	return first[Invite](rd.Query(ctx, `SELECT `+inviteCols+` FROM idn_invite WHERE prefix = ?`, prefix))(scanInvite)

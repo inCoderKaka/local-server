@@ -38,6 +38,14 @@ func tmp(v *int64) *time.Time {
 	return &t
 }
 
+// PageKey is the position of one row in a list that is ordered newest first by created_at and
+// then id. A page query returns the rows strictly after it, which keeps paging stable while rows
+// are added.
+type PageKey struct {
+	CreatedAt time.Time
+	ID        string
+}
+
 // Repos holds every identity repository.
 type Repos struct {
 	Principals  *PrincipalRepo

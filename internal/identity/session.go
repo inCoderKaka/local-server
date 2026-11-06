@@ -64,6 +64,15 @@ func (r *SessionRepo) ListByPrincipal(ctx context.Context, rd *storage.Reader, p
 	return collect(rows, scanSession)
 }
 
+// ListByPrincipalTx is ListByPrincipal as the unit of work sees it.
+func (r *SessionRepo) ListByPrincipalTx(tx *storage.Tx, principalID string) ([]Session, error) {
+	rows, err := tx.Query(`SELECT `+sessionCols+` FROM idn_session WHERE principal_id = ? ORDER BY created_at DESC, id DESC`, principalID)
+	if err != nil {
+		return nil, err
+	}
+	return collect(rows, scanSession)
+}
+
 // Extend sets a later expiry.
 func (r *SessionRepo) Extend(tx *storage.Tx, id string, expiresAt time.Time) error {
 	return mustChange(tx.Exec(`UPDATE idn_session SET expires_at = ? WHERE id = ? AND revoked_at IS NULL`, ms(expiresAt), id))
