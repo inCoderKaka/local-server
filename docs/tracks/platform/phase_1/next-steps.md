@@ -32,7 +32,7 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 ### B4 — Control plane and accounts
 
 14. ~~S25 **PLT-F-024** Admin API base: admin listener, login, first admin, settings and host controls (deps: PLT-F-001, PLT-F-004, PLT-F-003, PLT-F-008, PLT-F-012, PLT-F-013, PLT-F-020) **gate it**~~ (455b281)
-15. ~~PLT-F-071 quota API shape~~ built 2026-11-05, provisional (`d03d916`, I-313; code gate owed with set A) — S26 ~~**PLT-F-025** Admin API: consumers, invites and access keys~~ built 2026-11-06 (`4b94c59`; code gate owed with PLT-F-042) (deps: PLT-F-024, PLT-F-007, PLT-F-010, PLT-F-015)  ∥  S27 **PLT-F-026** Admin API: grants, models and policy rules (deps: PLT-F-024, PLT-F-006, PLT-F-007, PLT-F-011)  ∥  S28 **PLT-C-002** Terms of Use and Privacy/consent drafts v1 for the user's review (deps: —)
+15. ~~PLT-F-071 quota API shape~~ built 2026-11-05, provisional (`d03d916`, I-313; gated `734ae20`) — S26 ~~**PLT-F-025** Admin API: consumers, invites and access keys~~ built 2026-11-06 (`4b94c59`; gated `734ae20`) (deps: PLT-F-024, PLT-F-007, PLT-F-010, PLT-F-015)  ∥  S27 **PLT-F-026** Admin API: grants, models and policy rules (deps: PLT-F-024, PLT-F-006, PLT-F-007, PLT-F-011)  ∥  S28 **PLT-C-002** Terms of Use and Privacy/consent drafts v1 for the user's review (deps: —)
 16. S29 **PLT-F-027** Consumer accounts: invites, password and passkey login, sessions, consent (deps: PLT-F-024, PLT-F-025, PLT-C-002) **gate it**
 17. S30 **PLT-F-028** Resource requests with comments (deps: PLT-F-026, PLT-F-010, PLT-F-027, PLT-F-009)
 
@@ -55,7 +55,7 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 
 ### B8 — Packaging
 
-26. S43 **PLT-F-041** Background service: per-user by default, system mode optional (deps: PLT-F-020)  ∥  S44 ~~**PLT-F-042** Sleep lock while sharing~~ built 2026-11-06 (`a457ece`; code gate owed)  ∥  S45 **PLT-C-003** Release pipeline with checksums (deps: PLT-C-001, PLT-F-032, PLT-F-036) **gate it**
+26. S43 **PLT-F-041** Background service: per-user by default, system mode optional (deps: PLT-F-020)  ∥  S44 ~~**PLT-F-042** Sleep lock while sharing~~ built 2026-11-06 (`a457ece`; gated `734ae20`)  ∥  S45 **PLT-C-003** Release pipeline with checksums (deps: PLT-C-001, PLT-F-032, PLT-F-036) **gate it**
 27. S46 **PLT-F-043** Install, upgrade and uninstall scripts (deps: PLT-F-041, PLT-C-003) **gate it**
 
 ### B9 — Off-host data and sharing
