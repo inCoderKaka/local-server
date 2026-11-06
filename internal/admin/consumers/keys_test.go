@@ -86,6 +86,36 @@ func TestIssueShownOnce(t *testing.T) {
 	}
 }
 
+// A name and a bound node are stored trimmed, on issue and on update, so a node binding cannot be
+// made unmatchable by a stray space. An update that only adds spaces writes nothing.
+func TestKeyFieldsStoredTrimmed(t *testing.T) {
+	e := newEnv(t)
+	c := e.newConsumer("App")
+	e.grant(c.ID, grants.NewVersion{}, "m1")
+
+	is := e.issue(c.ID, consumers.NewKey{Name: str("  laptop "), BoundNode: str("node-1 ")})
+	if k := is.Key; k.Name == nil || *k.Name != "laptop" || k.BoundNode == nil || *k.BoundNode != "node-1" {
+		t.Fatalf("issued key = %+v", k)
+	}
+	list, err := e.svc.ListAccessKeys(ctx, c.ID)
+	if err != nil || len(list) != 1 || list[0].Name == nil || *list[0].Name != "laptop" || list[0].BoundNode == nil || *list[0].BoundNode != "node-1" {
+		t.Fatalf("listed keys = %+v, %v", list, err)
+	}
+
+	u, err := e.svc.UpdateAccessKey(ctx, e.admin, is.Key.ID, consumers.KeyChange{Name: consumers.Value(" desk "), BoundNode: consumers.Value(" node-2 ")})
+	if err != nil || u.Name == nil || *u.Name != "desk" || u.BoundNode == nil || *u.BoundNode != "node-2" {
+		t.Fatalf("update = %+v, %v", u, err)
+	}
+
+	before := e.count(`SELECT count(*) FROM aud_event WHERE action = ?`, consumers.ActionKeyUpdated)
+	if _, err := e.svc.UpdateAccessKey(ctx, e.admin, is.Key.ID, consumers.KeyChange{Name: consumers.Value("  desk"), BoundNode: consumers.Value("node-2  ")}); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.count(`SELECT count(*) FROM aud_event WHERE action = ?`, consumers.ActionKeyUpdated); n != before {
+		t.Errorf("%d key.updated rows, want %d (spaces alone are no change)", n, before)
+	}
+}
+
 func TestUpdateAndRevokeKey(t *testing.T) {
 	e := newEnv(t)
 	c := e.newConsumer("App")
@@ -304,6 +334,8 @@ func TestNarrowingAgainstCapsAndWithoutGrant(t *testing.T) {
 	}
 	if _, err := e.svc.IssueAccessKey(ctx, e.admin, c.ID, consumers.NewKey{Narrowing: &consumers.Narrowing{MaxOutputTokens: i64(513)}}); err == nil {
 		t.Error("output limit above the grant's cap accepted")
+	} else {
+		wantKind(t, err, consumers.KindInvalid, "narrowing.max_output_tokens")
 	}
 	e.issue(c.ID, consumers.NewKey{Narrowing: &consumers.Narrowing{ContextLimit: i64(4096), MaxOutputTokens: i64(512)}})
 }

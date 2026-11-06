@@ -353,7 +353,7 @@ func (s *AccessKeyCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bound_node\"")
 			}
 		default:
-			return d.Skip()
+			return errors.Errorf("unexpected field %q", k)
 		}
 		return nil
 	}); err != nil {
@@ -714,7 +714,7 @@ func (s *AccessKeyNarrowing) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"concurrency\"")
 			}
 		default:
-			return d.Skip()
+			return errors.Errorf("unexpected field %q", k)
 		}
 		return nil
 	}); err != nil {
@@ -870,7 +870,7 @@ func (s *AccessKeyUpdate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bound_node\"")
 			}
 		default:
-			return d.Skip()
+			return errors.Errorf("unexpected field %q", k)
 		}
 		return nil
 	}); err != nil {
@@ -4270,7 +4270,7 @@ func (s *ConsumerCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"email\"")
 			}
 		default:
-			return d.Skip()
+			return errors.Errorf("unexpected field %q", k)
 		}
 		return nil
 	}); err != nil {
@@ -4625,7 +4625,7 @@ func (s *ConsumerUpdate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"email\"")
 			}
 		default:
-			return d.Skip()
+			return errors.Errorf("unexpected field %q", k)
 		}
 		return nil
 	}); err != nil {
@@ -6144,7 +6144,7 @@ func (s *GrantLimits) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"expires_at\"")
 			}
 		default:
-			return d.Skip()
+			return errors.Errorf("unexpected field %q", k)
 		}
 		return nil
 	}); err != nil {
@@ -9161,7 +9161,7 @@ func (s *InviteCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"expires_at\"")
 			}
 		default:
-			return d.Skip()
+			return errors.Errorf("unexpected field %q", k)
 		}
 		return nil
 	}); err != nil {
@@ -9203,7 +9203,7 @@ func (s *InviteIssued) encodeFields(e *jx.Encoder) {
 	}
 	{
 		e.FieldStart("link")
-		json.EncodeURI(e, s.Link)
+		e.Str(s.Link)
 	}
 }
 
@@ -9247,8 +9247,8 @@ func (s *InviteIssued) Decode(d *jx.Decoder) error {
 		case "link":
 			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
-				v, err := json.DecodeURI(d)
-				s.Link = v
+				v, err := d.Str()
+				s.Link = string(v)
 				if err != nil {
 					return err
 				}
@@ -14594,7 +14594,7 @@ func (s *Quota) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"requests\"")
 			}
 		default:
-			return d.Skip()
+			return errors.Errorf("unexpected field %q", k)
 		}
 		return nil
 	}); err != nil {
@@ -15650,7 +15650,7 @@ func (s *ResourceRequestAsk) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"request_properties\"")
 			}
 		default:
-			return d.Skip()
+			return errors.Errorf("unexpected field %q", k)
 		}
 		return nil
 	}); err != nil {

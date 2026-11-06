@@ -59,7 +59,7 @@ func (r *AccessKeyRepo) Create(tx *storage.Tx, n NewAccessKey) (AccessKey, error
 		return AccessKey{}, err
 	}
 	return AccessKey{ID: id, ConsumerID: n.ConsumerID, Prefix: n.Prefix, SecretHash: n.SecretHash, Label: n.Label,
-		NarrowingJSON: n.NarrowingJSON, BoundNode: n.BoundNode, CreatedAt: tm(now), ExpiresAt: n.ExpiresAt}, nil
+		NarrowingJSON: n.NarrowingJSON, BoundNode: n.BoundNode, CreatedAt: tm(now), ExpiresAt: tmp(msp(n.ExpiresAt))}, nil
 }
 
 // Get returns one access key.

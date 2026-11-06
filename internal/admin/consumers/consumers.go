@@ -209,16 +209,16 @@ func samePtr(a, b *string) bool {
 // SuspendConsumer blocks the consumer's keys until it is reactivated. A suspended consumer stays
 // suspended and writes nothing; a deleted one cannot be suspended.
 func (s *Service) SuspendConsumer(ctx context.Context, actor, id string) (identity.ConsumerAccount, error) {
-	return s.setStatus(ctx, actor, id, identity.StatusActive, identity.StatusSuspended, ActionConsumerSuspended, "A deleted consumer cannot be suspended.")
+	return s.setStatus(ctx, actor, id, identity.StatusSuspended, ActionConsumerSuspended, "A deleted consumer cannot be suspended.")
 }
 
 // ReactivateConsumer ends a suspension. A deleted consumer is never reactivated (req_001 D-54):
 // that is a conflict. An active consumer stays active and writes nothing.
 func (s *Service) ReactivateConsumer(ctx context.Context, actor, id string) (identity.ConsumerAccount, error) {
-	return s.setStatus(ctx, actor, id, identity.StatusSuspended, identity.StatusActive, ActionConsumerReactivated, "A deleted consumer cannot be reactivated.")
+	return s.setStatus(ctx, actor, id, identity.StatusActive, ActionConsumerReactivated, "A deleted consumer cannot be reactivated.")
 }
 
-func (s *Service) setStatus(ctx context.Context, actor, id, from, to, action, deletedMsg string) (identity.ConsumerAccount, error) {
+func (s *Service) setStatus(ctx context.Context, actor, id, to, action, deletedMsg string) (identity.ConsumerAccount, error) {
 	var out identity.ConsumerAccount
 	changed := false
 	err := s.write(ctx, func(tx *storage.Tx) error {
@@ -237,7 +237,7 @@ func (s *Service) setStatus(ctx context.Context, actor, id, from, to, action, de
 			return err
 		}
 		if err := s.record(tx, audit.Event{Action: action, ActorID: actor, TargetID: a.PrincipalID,
-			Detail: map[string]any{"consumer_id": id, "from": from, "to": to}}); err != nil {
+			Detail: map[string]any{"consumer_id": id, "from": a.Status, "to": to}}); err != nil {
 			return err
 		}
 		changed = true

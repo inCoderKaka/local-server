@@ -183,6 +183,12 @@ func TestConsumerNotFoundAndBadInput(t *testing.T) {
 		{"invite bad cursor", "GET", "/admin/v1/invites?cursor=" + hostile, "", 400, "cursor"},
 		{"invite past expiry", "POST", "/admin/v1/invites", `{"expires_at":"2020-01-01T00:00:00Z"}`, 400, "expires_at"},
 		{"invite bad expiry", "POST", "/admin/v1/invites", `{"expires_at":"` + hostile + `"}`, 400, nil},
+		{"bad consumer field", "POST", "/admin/v1/consumers", `{"kind":"individual","display_name":"x","nickname":"y"}`, 400, "nickname"},
+		{"bad consumer patch field", "PATCH", "/admin/v1/consumers/" + noSuchID, `{"emial":"a@example.invalid"}`, 400, "emial"},
+		{"key expiry typo", "POST", "/admin/v1/consumers/" + noSuchID + "/access-keys", `{"name":"x","expiry":"2027-01-01T00:00:00Z"}`, 400, "expiry"},
+		{"key top-level quota", "POST", "/admin/v1/consumers/" + noSuchID + "/access-keys", `{"quota":{"tokens":1}}`, 400, "quota"},
+		{"key patch typo", "PATCH", "/admin/v1/access-keys/" + noSuchID, `{"expiry":null}`, 400, "expiry"},
+		{"invite unknown field", "POST", "/admin/v1/invites", `{"ttl":"1h"}`, 400, "ttl"},
 	} {
 		r := e.call(token, c.method, c.path, c.body)
 		if r.Code != c.status {
@@ -296,6 +302,10 @@ func TestAccessKeyOverHTTP(t *testing.T) {
 	if got := r.json(); got["name"] != nil || got["bound_node"] != "example-node" || got["narrowing"].(map[string]any)["quota"].(map[string]any)["tokens"] != float64(10) {
 		t.Fatalf("patch = %s", r.Body.String())
 	}
+	// A narrowing replaces the stored one whole: parts left out are removed.
+	if nar := r.json()["narrowing"].(map[string]any); nar["models"] != nil || nar["max_output_tokens"] != nil || nar["concurrency"] != nil {
+		t.Errorf("patched narrowing kept parts that were left out: %v", nar)
+	}
 	body += r.Body.String()
 	status(t, e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":null}`), http.StatusOK)
 	r = e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"quota":{"tokens":5000}}}`) // wider than the grant
@@ -304,6 +314,9 @@ func TestAccessKeyOverHTTP(t *testing.T) {
 		t.Errorf("param = %v", r.errBody(t)["param"])
 	}
 	status(t, e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"models":["no-such-model"]}}`), http.StatusBadRequest)
+	// An unknown field would be dropped silently and the cap never applied, so it is refused.
+	status(t, e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"quotas":[{"tokens":100}]}}`), http.StatusBadRequest)
+	status(t, e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"quota":{"window_seconds":60,"tokens":100}}}`), http.StatusBadRequest)
 
 	r = e.call(token, "POST", "/admin/v1/access-keys/"+kid+"/revoke", "")
 	status(t, r, http.StatusOK)

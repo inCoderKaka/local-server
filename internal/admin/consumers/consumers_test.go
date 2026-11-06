@@ -155,7 +155,10 @@ func TestListPagingAndStatusFilter(t *testing.T) {
 	} else {
 		wantKind(t, err, consumers.KindInvalid, "limit")
 	}
-	for _, bad := range []string{"x", "!!!", "MTIzOmFiYw", "bm90LWEtY3Vyc29y"} {
+	for _, bad := range []string{"x", "!!!", "MTIzOmFiYw", "bm90LWEtY3Vyc29y",
+		"MTcwMDAwMDAwMDAwMDowMTkyRTVBMC0wMDAxLTcwMDAtODAwMC0wMDAwMDAwMDAwMDE",
+		"MTcwMDAwMDAwMDAwMDp1cm46dXVpZDowMTkyZTVhMC0wMDAxLTcwMDAtODAwMC0wMDAwMDAwMDAwMDE",
+		"MTcwMDAwMDAwMDAwMDp7MDE5MmU1YTAtMDAwMS03MDAwLTgwMDAtMDAwMDAwMDAwMDAxfQ"} {
 		if _, err := e.svc.ListConsumers(ctx, consumers.ListQuery{Cursor: bad}); err == nil {
 			t.Errorf("cursor %q accepted", bad)
 		} else {
@@ -229,12 +232,10 @@ func TestSuspendReactivateInvalidatesAuthCache(t *testing.T) {
 	} else {
 		wantKind(t, err, consumers.KindConflict, "")
 	}
-	for _, id := range []string{"no-such-consumer"} {
-		if _, err := e.svc.SuspendConsumer(ctx, e.admin, id); err == nil {
-			t.Error("unknown consumer suspended")
-		} else {
-			wantKind(t, err, consumers.KindNotFound, "")
-		}
+	if _, err := e.svc.SuspendConsumer(ctx, e.admin, "no-such-consumer"); err == nil {
+		t.Error("unknown consumer suspended")
+	} else {
+		wantKind(t, err, consumers.KindNotFound, "")
 	}
 }
 

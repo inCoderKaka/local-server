@@ -82,6 +82,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Policy rule | A versioned, declarative rule the host edits through a form (request properties, time windows, priority class, caps). Set per grant or globally. | Rule | D-25 |
 | Priority class | *Interactive* (someone is waiting) or *background* (can wait). Interactive runs first, and background ages up so it is never starved. | Interactive / Background | D-26 |
 | Quota | A grant's or key's token or request allowance for a period. Going over it returns `quota_exceeded`, and a near-limit notice is sent first. | Quota | D-25, D-29, D-98 |
+| Quota window | The period a quota counts over. It is one length for the whole host, the host setting `limits.quota_window` (one day by default); a client cannot choose it. | — | D-98, D-54 |
 | Request counter | The count, kept in memory per consumer, per access key and per quota window, of the calls the gateway admitted, metered or not; the request quota reads it. After a restart it is seeded from the window's usage records. Counts only, no content. | — | D-100 |
 | Rate limit | The maximum number of requests a key may send per time window. Mandatory in public mode. | Rate limit | D-24 |
 | Retention rule | A setting saying how long one kind of record is kept before the retention worker deletes it. | How long we keep … | D-38, D-40 |

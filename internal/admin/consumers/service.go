@@ -164,7 +164,7 @@ func decodeCursor(c string) (*identity.PageKey, error) {
 	if err != nil {
 		return nil, bad
 	}
-	if _, err := uuid.Parse(id); err != nil {
+	if u, err := uuid.Parse(id); err != nil || u.String() != id {
 		return nil, bad
 	}
 	return &identity.PageKey{CreatedAt: time.UnixMilli(at).UTC(), ID: id}, nil

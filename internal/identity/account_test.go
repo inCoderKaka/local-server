@@ -78,7 +78,7 @@ func TestConsumerAccountLogin(t *testing.T) {
 		t.Fatalf("GetAccountTx = %+v, %v", viaTx, err)
 	}
 
-	// Deleting the consumer records when, on the principal.
+	// Deleting the consumer records the moment of deletion as the principal's status time.
 	now = now.Add(time.Hour)
 	if err := db.Write(ctx, func(tx *storage.Tx) error { return r.Consumers.SoftDelete(tx, c.ID) }); err != nil {
 		t.Fatal(err)

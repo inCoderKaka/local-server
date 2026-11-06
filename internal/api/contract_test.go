@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-faster/jx"
 	"github.com/ogen-go/ogen"
 	"github.com/ogen-go/ogen/ogenerrors"
 )
@@ -243,10 +244,16 @@ func TestQuotaInputShapeMatchesStorage(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"GrantLimits", "AccessKeyNarrowing", "ResourceRequestAsk"} {
+	for _, name := range []string{"Quota", "GrantLimits", "AccessKeyNarrowing", "ResourceRequestAsk"} {
 		s := schemas[name]
 		if s == nil {
 			t.Errorf("%s missing from the spec", name)
+			continue
+		}
+		if ap := s.AdditionalProperties; ap == nil || ap.Bool == nil || *ap.Bool {
+			t.Errorf("%s is not strict (additionalProperties: false); an unknown field such as the old quotas or window_seconds would be dropped silently (D-32)", name)
+		}
+		if name == "Quota" {
 			continue
 		}
 		if _, ok := findProperty(s, "quota"); !ok {
@@ -255,6 +262,11 @@ func TestQuotaInputShapeMatchesStorage(t *testing.T) {
 		if _, ok := findProperty(s, "quotas"); ok {
 			t.Errorf("%s still has a quotas list; storage holds one quota", name)
 		}
+	}
+
+	// I-314: a grant version always states its quota, even when it is null for none.
+	if !slices.Contains(schemas["GrantLimits"].Required, "quota") {
+		t.Error("GrantLimits does not require quota")
 	}
 
 	status := schemas["QuotaStatus"]
@@ -278,4 +290,22 @@ func findProperty(s *ogen.Schema, name string) (*ogen.Schema, bool) {
 		}
 	}
 	return nil, false
+}
+
+// A body that still carries the old quotas list is refused, not decoded with the list dropped
+// (D-32: explicit rejection over silent dropping).
+func TestQuotaRequestBodiesRejectOldQuotasList(t *testing.T) {
+	var ask ResourceRequestAsk
+	if err := ask.Decode(jx.DecodeStr(`{"quotas":[{"tokens":5}]}`)); err == nil {
+		t.Error("ResourceRequestAsk decoded a body with quotas; want an error")
+	}
+
+	var limits GrantLimits
+	body := `{"models":[],"quota":null,"concurrency":1,"on_context_overflow":"refuse","allowed_request_properties":[],"quotas":[]}`
+	if err := limits.Decode(jx.DecodeStr(body)); err == nil {
+		t.Error("GrantLimits decoded a body with quotas; want an error")
+	}
+	if err := limits.Decode(jx.DecodeStr(strings.Replace(body, `,"quotas":[]`, "", 1))); err != nil {
+		t.Errorf("GrantLimits refused a valid body: %v", err)
+	}
 }

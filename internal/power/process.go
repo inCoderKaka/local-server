@@ -25,6 +25,9 @@ type Process interface {
 	Stop() error
 	// Done is closed when the program has exited, however it ended.
 	Done() <-chan struct{}
+	// Err is the error the program ended with (from os/exec Wait, for example "exit status 1")
+	// once Done is closed; it is nil before that.
+	Err() error
 }
 
 // command is a helper program and its arguments.
@@ -82,12 +85,13 @@ func (p *processPower) Acquire(context.Context) (Lock, error) {
 	if err != nil {
 		return nil, fmt.Errorf("power: start %s: %w", c.name, err)
 	}
-	return &processLock{proc: proc}, nil
+	return &processLock{proc: proc, name: c.name}, nil
 }
 
 // processLock holds the lock for as long as its helper process runs.
 type processLock struct {
 	proc Process
+	name string
 	once sync.Once
 	err  error
 }
@@ -104,6 +108,14 @@ func (l *processLock) Alive() bool {
 	default:
 		return true
 	}
+}
+
+// Err names the helper and says how it ended once it has; it is nil while the helper runs.
+func (l *processLock) Err() error {
+	if err := l.proc.Err(); err != nil {
+		return fmt.Errorf("%s ended: %w", l.name, err)
+	}
+	return nil
 }
 
 // ExecRunner is the Runner that starts real programs with os/exec.
@@ -124,7 +136,7 @@ func (ExecRunner) Start(name string, args ...string) (Process, error) {
 	}
 	p := &execProcess{cmd: cmd, done: make(chan struct{})}
 	go func() {
-		_ = cmd.Wait()
+		p.err = cmd.Wait()
 		close(p.done)
 	}()
 	return p, nil
@@ -133,9 +145,20 @@ func (ExecRunner) Start(name string, args ...string) (Process, error) {
 type execProcess struct {
 	cmd  *exec.Cmd
 	done chan struct{}
+	err  error // set by the Wait goroutine before done is closed
 }
 
 func (p *execProcess) Done() <-chan struct{} { return p.done }
+
+// Err returns the error Wait reported, once the program has ended.
+func (p *execProcess) Err() error {
+	select {
+	case <-p.done:
+		return p.err
+	default:
+		return nil
+	}
+}
 
 func (p *execProcess) Stop() error {
 	if err := p.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {

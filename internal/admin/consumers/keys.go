@@ -22,7 +22,8 @@ const (
 	KeyRevoked = "revoked"
 )
 
-// Quota is an extra allowance per quota window for one key. A nil number adds no limit; 0 allows
+// Quota is a per-key limit per quota window, counted on this key's own use. The consumer's grant
+// quota still applies, so a key quota can only narrow it. A nil number sets no key limit; 0 allows
 // none. The window is the host's setting, not the caller's (req_001 D-98).
 type Quota struct {
 	Tokens   *int64
@@ -62,7 +63,7 @@ type NewKey struct {
 }
 
 // KeyChange is a change to a key; a field left out stays as it is. A field given as null is
-// cleared.
+// cleared. A narrowing that is given replaces the stored one whole; its parts are not merged.
 type KeyChange struct {
 	Name      Field[string]
 	ExpiresAt Field[time.Time]
@@ -180,10 +181,21 @@ func (s *Service) checkKeyFields(name *string, expires *time.Time, node *string)
 	return nil
 }
 
+// trimmed returns a pointer to a trimmed copy of *p, or nil for nil. It never writes through p:
+// the caller owns that string.
+func trimmed(p *string) *string {
+	if p == nil {
+		return nil
+	}
+	v := strings.TrimSpace(*p)
+	return &v
+}
+
 // IssueAccessKey issues a key for a consumer that is not deleted, through the auth service, in
 // one unit of work with its audit row. Only the prefix and a hash of the secret are stored
 // (req_001 D-25, D-40); the secret is in the result and nowhere else.
 func (s *Service) IssueAccessKey(ctx context.Context, actor, consumerID string, in NewKey) (IssuedKey, error) {
+	in.Name, in.BoundNode = trimmed(in.Name), trimmed(in.BoundNode)
 	if err := s.checkKeyFields(in.Name, in.ExpiresAt, in.BoundNode); err != nil {
 		return IssuedKey{}, err
 	}
@@ -224,19 +236,20 @@ func (s *Service) IssueAccessKey(ctx context.Context, actor, consumerID string, 
 
 // UpdateAccessKey changes the name, expiry, narrowing or bound node of a key. A revoked or
 // expired key is final and returns a conflict (req_001 D-54). A narrowing is checked against
-// the consumer's current grant, as when a key is issued. A change that leaves everything as it
-// is writes nothing.
+// the consumer's current grant, as when a key is issued. A narrowing that is given replaces the
+// stored one whole; its parts are not merged. A change that leaves everything as it is writes
+// nothing.
 func (s *Service) UpdateAccessKey(ctx context.Context, actor, keyID string, ch KeyChange) (Key, error) {
 	var name, node *string
 	var expires *time.Time
 	if ch.Name.Set && !ch.Name.Null {
-		name = &ch.Name.Value
+		name = trimmed(&ch.Name.Value)
 	}
 	if ch.ExpiresAt.Set && !ch.ExpiresAt.Null {
 		expires = &ch.ExpiresAt.Value
 	}
 	if ch.BoundNode.Set && !ch.BoundNode.Null {
-		node = &ch.BoundNode.Value
+		node = trimmed(&ch.BoundNode.Value)
 	}
 	if err := s.checkKeyFields(name, expires, node); err != nil {
 		return Key{}, err

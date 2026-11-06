@@ -2,8 +2,6 @@ package admin
 
 import (
 	"context"
-	"fmt"
-	"net/url"
 
 	"github.com/google/uuid"
 
@@ -51,12 +49,7 @@ func (a *Admin) AdminCreateInvite(ctx context.Context, req *api.InviteCreate) (*
 	if err != nil {
 		return nil, err
 	}
-	link, err := url.Parse(is.Link.Reveal())
-	if err != nil {
-		// The text of a url.Error holds the URL, which holds the token.
-		return nil, fmt.Errorf("admin: the invite link is not a valid address; check setting %s", consumers.KeyInviteLinkBaseURL)
-	}
-	return &api.InviteIssued{Invite: inv, Token: is.Token.Reveal(), Link: *link}, nil
+	return &api.InviteIssued{Invite: inv, Token: is.Token.Reveal(), Link: is.Link.Reveal()}, nil
 }
 
 // AdminRevokeInvite implements POST /admin/v1/invites/{invite_id}/revoke. An invite that is not

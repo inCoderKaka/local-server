@@ -49,11 +49,18 @@ func NewKeeper(p Power, src StateSource, st *settings.Store, tel telemetry.Telem
 	return k, nil
 }
 
-// Held reports whether the Keeper holds a live lock now.
+// Held reports whether the Keeper holds a live lock now. A lock that holds nothing (this host has
+// no adapter or no helper tool) does not count as held.
 func (k *Keeper) Held() bool {
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	return k.lock != nil && k.lock.Alive()
+	return k.lock != nil && !holdsNothing(k.lock) && k.lock.Alive()
+}
+
+// holdsNothing reports whether l is the lock of a host that has no sleep lock to take.
+func holdsNothing(l Lock) bool {
+	_, ok := l.(noopLock)
+	return ok
 }
 
 // Run checks the sharing state every power.check_interval until ctx ends, then releases the
@@ -83,11 +90,14 @@ func (k *Keeper) Check(ctx context.Context) time.Duration {
 		if d, ok := k.st.Definition(KeyCheckInterval); ok {
 			wait, _ = time.ParseDuration(d.Default)
 		}
-	} else if wait <= 0 {
-		// The check is off: hold nothing, and look again at the default pace for a change.
-		k.release("check interval is off")
-		d, _ := time.ParseDuration(defaultCheckInterval)
-		return d
+	} else {
+		k.clearErr("interval")
+		if wait <= 0 {
+			// The check is off: hold nothing, and look again at the default pace for a change.
+			k.release("check interval is off")
+			d, _ := time.ParseDuration(defaultCheckInterval)
+			return d
+		}
 	}
 	k.apply(ctx)
 	return wait
@@ -118,7 +128,11 @@ func (k *Keeper) apply(ctx context.Context) {
 		}
 		if !k.lostWarned {
 			k.lostWarned = true
-			k.log.WarnContext(ctx, "the sleep lock was lost; taking it again")
+			if e, ok := k.lock.(interface{ Err() error }); ok && e.Err() != nil {
+				k.log.WarnContext(ctx, "the sleep lock was lost; taking it again", "error", e.Err())
+			} else {
+				k.log.WarnContext(ctx, "the sleep lock was lost; taking it again")
+			}
 		}
 		_ = k.lock.Release()
 		k.lock = nil
@@ -131,6 +145,12 @@ func (k *Keeper) apply(ctx context.Context) {
 	}
 	delete(k.lastErr, "acquire")
 	k.lock = l
+	if holdsNothing(l) {
+		// The adapter has said once why it holds nothing. Keep the lock so it is not retried
+		// every interval, but do not report it as held.
+		k.held.Set(0)
+		return
+	}
 	k.held.Set(1)
 	k.log.InfoContext(ctx, "sleep lock taken")
 }
@@ -142,13 +162,16 @@ func (k *Keeper) release(why string) {
 	if k.lock == nil {
 		return
 	}
+	heldNothing := holdsNothing(k.lock)
 	if err := k.lock.Release(); err != nil {
 		k.log.Warn("power: release the sleep lock", "error", err)
 	}
 	k.lock = nil
 	k.lostWarned = false
 	k.held.Set(0)
-	k.log.Info("sleep lock released", "reason", why)
+	if !heldNothing {
+		k.log.Info("sleep lock released", "reason", why)
+	}
 }
 
 func (k *Keeper) logOnce(ctx context.Context, kind string, err error, msg string) {

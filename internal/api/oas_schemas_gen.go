@@ -267,9 +267,9 @@ func (s *AccessKeyList) SetData(val []AccessKey) {
 // Limits a key adds on top of its consumer's grant. They can only narrow the grant, never widen it.
 // Ref: #/components/schemas/AccessKeyNarrowing
 type AccessKeyNarrowing struct {
-	// Only these of the grant's models.
+	// Only these of the grant's models. Left out or empty, the key may use every model of the grant.
 	Models []string `json:"models"`
-	// An extra allowance per quota window for this key, or null for none.
+	// A limit per quota window on this key's own use, within the grant's quota, or null for none.
 	Quota OptNilQuota `json:"quota"`
 	// A lower context limit for every model.
 	ContextLimit OptInt `json:"context_limit"`
@@ -378,14 +378,16 @@ func (s *AccessKeyStatus) UnmarshalText(data []byte) error {
 	}
 }
 
-// Changes to an access key; absent fields stay as they are.
+// Changes to an access key; absent fields stay as they are. A narrowing, when given, replaces the
+// stored one as a whole.
 // Ref: #/components/schemas/AccessKeyUpdate
 type AccessKeyUpdate struct {
 	// A label for the key.
 	Name OptNilString `json:"name"`
 	// When it expires; null means never.
 	ExpiresAt OptNilDateTime `json:"expires_at"`
-	// Limits the key adds; null removes them.
+	// The key's whole new narrowing: it replaces the stored one, so a limit left out of it is removed;
+	// null removes them all.
 	Narrowing OptNilAccessKeyNarrowing `json:"narrowing"`
 	// Bind the key to this tailnet node; null unbinds it.
 	BoundNode OptNilString `json:"bound_node"`
@@ -4239,8 +4241,9 @@ type InviteIssued struct {
 	Invite Invite `json:"invite"`
 	// The one-time token, shown once.
 	Token string `json:"token"`
-	// The sign-up link on the consumer web page, carrying the token, shown once.
-	Link url.URL `json:"link"`
+	// The sign-up link on the consumer web page, carrying the token, shown once. It is relative
+	// (`/invite#<token>`) when the host setting `invites.link_base_url` is empty.
+	Link string `json:"link"`
 }
 
 // GetInvite returns the value of Invite.
@@ -4254,7 +4257,7 @@ func (s *InviteIssued) GetToken() string {
 }
 
 // GetLink returns the value of Link.
-func (s *InviteIssued) GetLink() url.URL {
+func (s *InviteIssued) GetLink() string {
 	return s.Link
 }
 
@@ -4269,7 +4272,7 @@ func (s *InviteIssued) SetToken(val string) {
 }
 
 // SetLink sets the value of Link.
-func (s *InviteIssued) SetLink(val url.URL) {
+func (s *InviteIssued) SetLink(val string) {
 	s.Link = val
 }
 

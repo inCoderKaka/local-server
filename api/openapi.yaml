@@ -5084,6 +5084,7 @@ components:
       enum: [refuse, truncate]
     Quota:
       type: object
+      additionalProperties: false
       description: A token and request allowance per quota window. The window length is the host setting `limits.quota_window` (one day by default), not set by the client (D-25, D-98, D-38). Leave out `tokens` or `requests` for no limit on it; `0` allows none.
       properties:
         tokens:
@@ -5223,6 +5224,7 @@ components:
       enum: [open, approved, rejected, withdrawn, expired]
     ResourceRequestAsk:
       type: object
+      additionalProperties: false
       description: What the consumer asks for; every field is optional. The host decides the resulting limits.
       properties:
         models:
@@ -6084,6 +6086,7 @@ components:
           example: null
     ConsumerCreate:
       type: object
+      additionalProperties: false
       description: A new key-only consumer.
       required: [kind, display_name]
       properties:
@@ -6104,6 +6107,7 @@ components:
           example: user@example.invalid
     ConsumerUpdate:
       type: object
+      additionalProperties: false
       description: Changes to a consumer; absent fields stay as they are.
       properties:
         display_name:
@@ -6253,15 +6257,16 @@ components:
           example: example-new-password-placeholder
     AccessKeyNarrowing:
       type: object
+      additionalProperties: false
       description: Limits a key adds on top of its consumer's grant. They can only narrow the grant, never widen it.
       properties:
         models:
           type: array
-          description: Only these of the grant's models.
+          description: Only these of the grant's models. Left out or empty, the key may use every model of the grant.
           items:
             type: string
         quota:
-          description: An extra allowance per quota window for this key, or null for none.
+          description: A limit per quota window on this key's own use, within the grant's quota, or null for none.
           oneOf:
             - $ref: '#/components/schemas/Quota'
             - type: 'null'
@@ -6353,6 +6358,7 @@ components:
               revoked_at: null
     AccessKeyCreate:
       type: object
+      additionalProperties: false
       description: A new access key.
       properties:
         name:
@@ -6376,7 +6382,8 @@ components:
           example: example-node
     AccessKeyUpdate:
       type: object
-      description: Changes to an access key; absent fields stay as they are.
+      additionalProperties: false
+      description: Changes to an access key; absent fields stay as they are. A narrowing, when given, replaces the stored one as a whole.
       properties:
         name:
           type: [string, 'null']
@@ -6391,7 +6398,7 @@ components:
           oneOf:
             - $ref: '#/components/schemas/AccessKeyNarrowing'
             - type: 'null'
-          description: Limits the key adds; null removes them.
+          description: "The key's whole new narrowing: it replaces the stored one, so a limit left out of it is removed; null removes them all."
           example:
             models: [example-model]
             max_output_tokens: 512
@@ -6470,6 +6477,7 @@ components:
           jobs.result_ttl: 1h
     GrantLimits:
       type: object
+      additionalProperties: false
       description: The limits of a grant version.
       required: [models, quota, concurrency, on_context_overflow, allowed_request_properties]
       properties:
@@ -6879,6 +6887,7 @@ components:
           example: null
     InviteCreate:
       type: object
+      additionalProperties: false
       description: A new invite.
       properties:
         note:
@@ -6910,8 +6919,8 @@ components:
           example: ls_invite_example_placeholder
         link:
           type: string
-          description: The sign-up link on the consumer web page, carrying the token, shown once.
-          format: uri
+          description: The sign-up link on the consumer web page, carrying the token, shown once. It is relative (`/invite#<token>`) when the host setting `invites.link_base_url` is empty.
+          format: uri-reference
           example: https://host.example.invalid/invite#ls_invite_example_placeholder
     HostModel:
       type: object

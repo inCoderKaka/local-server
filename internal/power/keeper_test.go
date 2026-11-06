@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -41,15 +42,23 @@ type fakePower struct {
 	acquired int
 	locks    []*fakeLock
 	err      error
+	noop     bool // hand out the lock of a host that has nothing to hold
 }
 
 type fakeLock struct {
 	released atomic.Int32
 	dead     atomic.Bool
+	err      error // why it died; set before dead
 }
 
 func (l *fakeLock) Release() error { l.released.Add(1); return nil }
 func (l *fakeLock) Alive() bool    { return !l.dead.Load() && l.released.Load() == 0 }
+func (l *fakeLock) Err() error {
+	if l.dead.Load() {
+		return l.err
+	}
+	return nil
+}
 
 func (p *fakePower) Acquire(context.Context) (Lock, error) {
 	p.mu.Lock()
@@ -58,6 +67,9 @@ func (p *fakePower) Acquire(context.Context) (Lock, error) {
 		return nil, p.err
 	}
 	p.acquired++
+	if p.noop {
+		return noopLock{}, nil
+	}
 	l := &fakeLock{}
 	p.locks = append(p.locks, l)
 	return l, nil
@@ -76,11 +88,12 @@ func (p *fakePower) lock(i int) *fakeLock {
 }
 
 type keeperEnv struct {
-	k   *Keeper
-	p   *fakePower
-	src *fakeState
-	st  *settings.Store
-	log *lockedBuf
+	k     *Keeper
+	p     *fakePower
+	src   *fakeState
+	st    *settings.Store
+	log   *lockedBuf
+	gauge *fakeGauge
 }
 
 func newKeeperEnv(t *testing.T) *keeperEnv {
@@ -91,8 +104,8 @@ func newKeeperEnv(t *testing.T) *keeperEnv {
 	}
 	t.Cleanup(func() { db.Close() })
 	log, buf := testLogger()
-	e := &keeperEnv{p: &fakePower{}, src: &fakeState{state: host.Sharing}, st: settings.New(db), log: buf}
-	e.k, err = NewKeeper(e.p, e.src, e.st, logTel{Telemetry: telemetry.Nop(), log: log})
+	e := &keeperEnv{p: &fakePower{}, src: &fakeState{state: host.Sharing}, st: settings.New(db), log: buf, gauge: &fakeGauge{}}
+	e.k, err = NewKeeper(e.p, e.src, e.st, logTel{Telemetry: telemetry.Nop(), log: log, gauge: e.gauge})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +188,64 @@ func TestKeeperTakesALostLockAgain(t *testing.T) {
 	e.k.Check(ctx)
 	if n := countOf(e.log.String(), "the sleep lock was lost"); n != 1 {
 		t.Errorf("warned %d times, want 1:\n%s", n, e.log.String())
+	}
+}
+
+// The warning for a lost lock carries the reason the helper ended, when the lock knows it.
+func TestKeeperLostWarningSaysWhy(t *testing.T) {
+	e := newKeeperEnv(t)
+	ctx := context.Background()
+	e.k.Check(ctx)
+	e.p.lock(0).err = errors.New("caffeinate ended: exit status 1")
+	e.p.lock(0).dead.Store(true)
+	e.k.Check(ctx)
+	if out := e.log.String(); !strings.Contains(out, "the sleep lock was lost") || !strings.Contains(out, "exit status 1") {
+		t.Errorf("the lost warning lacks the reason:\n%s", out)
+	}
+}
+
+// A host with no sleep lock keeps its no-op lock, so it is not retried, but reports nothing held:
+// the gauge stays 0, Held is false and no "taken" or "released" line is logged.
+func TestKeeperHoldsNothingOnAHostWithoutASleepLock(t *testing.T) {
+	e := newKeeperEnv(t)
+	ctx := context.Background()
+	e.p.noop = true
+	e.k.Check(ctx)
+	e.k.Check(ctx)
+	if e.p.count() != 1 {
+		t.Errorf("acquired %d times, want 1 (not retried)", e.p.count())
+	}
+	if e.k.Held() {
+		t.Error("Held is true for a lock that holds nothing")
+	}
+	if v := e.gauge.value(); v != 0 {
+		t.Errorf("gauge = %v, want 0", v)
+	}
+	if strings.Contains(e.log.String(), "sleep lock taken") {
+		t.Errorf("logged a lock taken that holds nothing:\n%s", e.log.String())
+	}
+	e.src.set(host.Paused, nil)
+	e.k.Check(ctx)
+	if strings.Contains(e.log.String(), "sleep lock released") {
+		t.Errorf("logged a release of a lock that held nothing:\n%s", e.log.String())
+	}
+}
+
+// A check interval that fails to read, reads fine, then fails the same way again is logged both
+// times: a good read clears the repeat suppression.
+func TestKeeperIntervalErrorLoggedAgainAfterAGoodRead(t *testing.T) {
+	e := newKeeperEnv(t)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel() // a read with this context fails with the same text each time
+	e.k.Check(cancelled)
+	e.k.Check(cancelled)
+	if n := countOf(e.log.String(), "read check interval"); n != 1 {
+		t.Fatalf("logged the same error %d times in a row, want 1:\n%s", n, e.log.String())
+	}
+	e.k.Check(context.Background())
+	e.k.Check(cancelled)
+	if n := countOf(e.log.String(), "read check interval"); n != 2 {
+		t.Errorf("logged %d times, want 2 (once before and once after the good read):\n%s", n, e.log.String())
 	}
 }
 
@@ -298,7 +369,45 @@ func countOf(s, sub string) int {
 // logTel is a telemetry.Telemetry that logs to a chosen logger and records nothing else.
 type logTel struct {
 	telemetry.Telemetry
-	log *slog.Logger
+	log   *slog.Logger
+	gauge telemetry.Gauge // returned for every gauge when set
 }
 
 func (l logTel) Logger() *slog.Logger { return l.log }
+
+func (l logTel) Gauge(name string, labelNames ...string) telemetry.Gauge {
+	if l.gauge != nil {
+		return l.gauge
+	}
+	return l.Telemetry.Gauge(name, labelNames...)
+}
+
+// fakeGauge is a telemetry.Gauge that keeps the last value it was given.
+type fakeGauge struct {
+	mu  sync.Mutex
+	val float64
+}
+
+func (g *fakeGauge) Set(v float64, _ ...string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.val = v
+}
+
+func (g *fakeGauge) Add(d float64, _ ...string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.val += d
+}
+
+func (g *fakeGauge) Delete(...string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.val = 0
+}
+
+func (g *fakeGauge) value() float64 {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.val
+}

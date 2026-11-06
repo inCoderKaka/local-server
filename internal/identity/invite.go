@@ -65,7 +65,7 @@ func (r *InviteRepo) ListPage(ctx context.Context, rd *storage.Reader, after *Pa
 	q := `SELECT ` + inviteCols + ` FROM idn_invite`
 	var args []any
 	if after != nil {
-		q += ` WHERE created_at < ? OR (created_at = ? AND id < ?)`
+		q += ` WHERE (created_at < ? OR (created_at = ? AND id < ?))`
 		args = append(args, ms(after.CreatedAt), ms(after.CreatedAt), after.ID)
 	}
 	q += ` ORDER BY created_at DESC, id DESC LIMIT ?`

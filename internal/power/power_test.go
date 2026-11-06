@@ -18,11 +18,20 @@ type fakeProc struct {
 	done  chan struct{}
 	stops atomic.Int32
 	once  sync.Once
+	err   error // what the program ended with; set before it dies
 }
 
 func newFakeProc() *fakeProc { return &fakeProc{done: make(chan struct{})} }
 
 func (p *fakeProc) Done() <-chan struct{} { return p.done }
+func (p *fakeProc) Err() error {
+	select {
+	case <-p.done:
+		return p.err
+	default:
+		return nil
+	}
+}
 func (p *fakeProc) Stop() error {
 	p.stops.Add(1)
 	p.once.Do(func() { close(p.done) })
@@ -135,6 +144,28 @@ func TestProcessLockNotAliveWhenHelperDies(t *testing.T) {
 	r.proc(0).die()
 	if l.Alive() {
 		t.Error("lock alive after its helper died")
+	}
+}
+
+// A lock whose helper died says which tool ended and how; a running or cleanly stopped one has no error.
+func TestProcessLockErrNamesTheTool(t *testing.T) {
+	r := &fakeRunner{}
+	l, err := newProcessPower(r, darwinCommand, 7, nil).Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, ok := l.(interface{ Err() error })
+	if !ok {
+		t.Fatal("a process lock must report why its helper ended")
+	}
+	if got := e.Err(); got != nil {
+		t.Errorf("Err while running = %v, want nil", got)
+	}
+	r.proc(0).err = errors.New("exit status 1")
+	r.proc(0).die()
+	got := e.Err()
+	if got == nil || !strings.Contains(got.Error(), "caffeinate ended") || !strings.Contains(got.Error(), "exit status 1") {
+		t.Errorf("Err = %v; want it to name caffeinate and the exit status", got)
 	}
 }
 

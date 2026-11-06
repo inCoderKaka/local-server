@@ -4,6 +4,7 @@ Software choices the AI made that no ticket, design doc or requirement decision 
 
 | ID | Date | Kind | Ticket | Decision | Reverse-by | Status |
 |---|---|---|---|---|---|---|
+| I-343 | 2026-11-06 | design | PLT-F-025 | A narrowing given in an access-key PATCH replaces the stored narrowing whole (no per-part merge); the spec and module doc say so. | Merge per part, with nullable narrowing parts in api/openapi.yaml (gate fix). | unreviewed |
 | I-342 | 2026-11-06 | copy | PLT-F-042 | The Linux inhibitor reason string is "Sharing is on", shown in `systemd-inhibit --list`. | Edit `linuxCommand` in `internal/power/process.go` (`a457ece`). | unreviewed |
 | I-341 | 2026-11-06 | design | PLT-F-042 | `app.power` is an injection seam and `wire` takes the `Power` as a parameter, so tests never start a real helper. | Revert the three `cmd/local-server` edits (`a457ece`). | unreviewed |
 | I-340 | 2026-11-06 | design | PLT-F-042 | Gauge `power_sleep_lock_held` (0 or 1) is emitted through the Telemetry port. | Remove the gauge lines in `internal/power/keeper.go` (`a457ece`). | unreviewed |
