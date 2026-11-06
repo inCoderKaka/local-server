@@ -4,6 +4,8 @@ Software choices the AI made that no ticket, design doc or requirement decision 
 
 | ID | Date | Kind | Ticket | Decision | Reverse-by | Status |
 |---|---|---|---|---|---|---|
+| I-345 | 2026-11-06 | design | PLT-F-025 | `InviteIssued.link` is typed a URI reference, not a URI, because the default `invites.link_base_url` is empty and the link is then relative (gate fix). | Change the format in `api/openapi.yaml` and regenerate; refuse invite creation until the setting is set (`734ae20`). | unreviewed |
+| I-344 | 2026-11-06 | design | PLT-F-071, PLT-F-025 | Provisional: unknown JSON fields in the admin consumer, key and invite request bodies, `GrantLimits`, `Quota`, `AccessKeyNarrowing` and `ResourceRequestAsk` answer 400 instead of being dropped. The gate applied D-32 ("explicit rejection over silent dropping") by analogy, since D-32's text names the OpenAI-compatible fields. | Remove `additionalProperties: false` on those schemas in `api/openapi.yaml` and regenerate (`734ae20`). | needs-ruling |
 | I-343 | 2026-11-06 | design | PLT-F-025 | A narrowing given in an access-key PATCH replaces the stored narrowing whole (no per-part merge); the spec and module doc say so. | Merge per part, with nullable narrowing parts in api/openapi.yaml (gate fix). | unreviewed |
 | I-342 | 2026-11-06 | copy | PLT-F-042 | The Linux inhibitor reason string is "Sharing is on", shown in `systemd-inhibit --list`. | Edit `linuxCommand` in `internal/power/process.go` (`a457ece`). | unreviewed |
 | I-341 | 2026-11-06 | design | PLT-F-042 | `app.power` is an injection seam and `wire` takes the `Power` as a parameter, so tests never start a real helper. | Revert the three `cmd/local-server` edits (`a457ece`). | unreviewed |
