@@ -49,6 +49,7 @@ Each phase folder contains these files:
 - **`worklog.md`:** the work ledger: what happened, when, root causes and verification. A ticket id may appear on several rows, one per session.
 - **`next-steps.md`:** the ordered queue for the next session, each item pointing at tickets.
 - **`implementation-status.md`:** built by the `implementation-status-reporter` agent only.
+- **`ticket-sizes.md`:** the persisted `| ID | Size | Why |` map with one row per feature and chore ticket in `backlog.md` (bugs are counted apart), so a session's big/small counts come from the file and never from a fresh judgement. **big** = 3 or more files across 2 or more directories, or a change to a shared contract (`api/openapi.yaml`, the storage unit of work and migration layout, the event catalog, the module-boundary config); **small** = anything else; test files and tracking docs do not count. Its header carries `Map date:` and `Covers ids up to:`. **Only the orchestrate session edits it** (at the plan call: add a row for each new ticket, then move the header). `ops/bin/ticket-drift` fails an open feature or chore with no row, and only warns (`WARN-unsized`) for an id above `Covers ids up to:`.
 
 ## Decisions log format
 

@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""docs-drift: the mechanical subset of the docs drift audit."""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+
+import datetime
+import re
+import urllib.parse
+
+import _opslib as L
+
+PUBLIC_DOCS = ["README.md", "ROADMAP.md", "docs/user-guide.md", "docs/developer-guide.md"]
+PLANNED_RE = re.compile(r"@planned|\bplanned\b", re.I)
+SHIPPED_RE = re.compile(r"@shipped|\bshipped\b|\bbuilt\b|\bavailable now\b", re.I)
+SCHEMA_REF = L.ROOT / "docs" / "schema-reference.md"
+MAX_PATHS_SHOWN = 3
+
+
+def main():
+    ap = L.base_parser(
+        "docs-drift",
+        "Mechanical docs drift checks: relative markdown links; planned/shipped markers in the public "
+        "docs against ticket status; decisions whose depends-on files changed after the decision date "
+        "(warning); docs/schema-reference.md against the migrations.",
+        epilog=("The link and schema checks are global. --track and --phase narrow the ticket, roadmap "
+                "batch and decision checks."))
+    args = ap.parse_args()
+    scope = L.phase_dirs(args.track, args.phase)
+    rep = L.Report("docs-drift")
+    tickets, _ = L.load_tickets(L.all_phase_dirs())
+    by_id = L.tickets_by_id(tickets)
+
+    n_links = check_links(rep)
+    check_markers(rep, by_id)
+    check_roadmap(rep, tickets, scope)
+    n_dec = check_decisions(rep, scope)
+    n_tab = check_schema(rep, tickets)
+    return rep.finish(args.strict, args.quiet,
+                      f"{n_links} links, {n_dec} decided rows with depends-on files, {n_tab} migration tables")
+
+
+# ------------------------------------------------------------------ links
+
+FENCE = re.compile(r"^\s*(```|~~~)")
+LINK = re.compile(r"!?\[(?:[^\]\\]|\\.)*\]\(\s*(<[^>]+>|[^)\s]+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
+INLINE_CODE = re.compile(r"`[^`\n]*`")
+_anchor_cache = {}
+
+
+def slug_set(path):
+    if path in _anchor_cache:
+        return _anchor_cache[path]
+    seen, out = {}, set()
+    fence = False
+    for ln in L.read_lines(path):
+        if FENCE.match(ln):
+            fence = not fence
+        if fence:
+            continue
+        m = re.match(r"^#{1,6}\s+(.*?)\s*#*\s*$", ln)
+        if not m:
+            continue
+        t = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", m.group(1))
+        t = re.sub(r"[`*_~]", "", t) if False else re.sub(r"[`*~]", "", t)
+        s = re.sub(r"[^\w\- ]", "", t.lower(), flags=re.U).replace(" ", "-")
+        n = seen.get(s, 0)
+        seen[s] = n + 1
+        out.add(s if n == 0 else f"{s}-{n}")
+    _anchor_cache[path] = out
+    return out
+
+
+def check_links(rep):
+    count = 0
+    for p in L.md_files():
+        rel = L.rel(p)
+        if rel == "docs/mnp_nt.md":
+            continue
+        fence = False
+        for i, ln in enumerate(L.read_lines(p), 1):
+            if FENCE.match(ln):
+                fence = not fence
+                continue
+            if fence:
+                continue
+            for m in LINK.finditer(INLINE_CODE.sub("", ln)):
+                tgt = m.group(1).strip("<>")
+                if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", tgt) or tgt.startswith("//"):
+                    continue
+                count += 1
+                path_part, _, frag = tgt.partition("#")
+                path_part = urllib.parse.unquote(path_part.split("?")[0])
+                if path_part == "":
+                    dest = p
+                elif path_part.startswith("/"):
+                    dest = L.ROOT / path_part.lstrip("/")
+                else:
+                    dest = (p.parent / path_part)
+                try:
+                    dest = dest.resolve()
+                except OSError:
+                    dest = None
+                if dest is None or not dest.exists():
+                    rep.add(p, i, "broken-link", f"'{tgt}' does not resolve")
+                    continue
+                if frag and dest.is_file() and dest.suffix == ".md":
+                    frag_l = urllib.parse.unquote(frag).lower()
+                    if frag_l not in slug_set(dest) and not re.fullmatch(r"L\d+(-L\d+)?", frag):
+                        rep.add(p, i, "broken-anchor", f"'{tgt}': no heading '#{frag}' in {L.rel(dest)}")
+    return count
+
+
+# ------------------------------------------------------------------ planned / shipped markers
+
+def check_markers(rep, by_id):
+    for name in PUBLIC_DOCS:
+        p = L.ROOT / name
+        lines = L.read_lines(p)
+        for i, ln in enumerate(lines, 1):
+            planned, shipped = bool(PLANNED_RE.search(ln)), bool(SHIPPED_RE.search(ln))
+            if planned == shipped:
+                continue  # no marker, or both on one line: cannot tell which one the ticket carries
+            ids = L.ids_in(ln)
+            if not ids and re.search(r"@planned|@shipped", ln) and i < len(lines):
+                ids = L.ids_in(lines[i])  # an @planned/@shipped marker may name its tickets on the next line
+            for tid in ids:
+                t = by_id.get(tid)
+                if t is None:
+                    rep.add(p, i, "marker-unknown-ticket", f"{tid} is not a ticket")
+                elif planned and t.state == "done":
+                    rep.add(p, i, "planned-but-done", f"{tid} is {t.raw_status} ({L.rel(t.file)}:{t.line}) but this text still says planned; it should say shipped")
+                elif shipped and t.state == "open":
+                    rep.add(p, i, "shipped-but-open", f"{tid} is {t.raw_status} ({L.rel(t.file)}:{t.line}) but this text says it is shipped")
+
+
+def check_roadmap(rep, tickets, scope):
+    """ROADMAP batch rows (B1..B10) against the planned tickets of that batch."""
+    p = L.ROOT / "ROADMAP.md"
+    phases = {int(ph.name.split("_")[1]): ph.resolve() for ph in scope}
+    for tb in L.parse_tables(p):
+        hdr = [h.lower() for h in tb.header]
+        if "batch" not in hdr or "status" not in hdr:
+            continue
+        m = re.search(r"phase\s+(\d+)", tb.h2, re.I)
+        phase_no = int(m.group(1)) if m else 1
+        if phase_no not in phases:
+            continue
+        for ln, cells in tb.rows:
+            bm = re.match(r"B(\d+)\b", cells[hdr.index("batch")])
+            if not bm:
+                continue
+            batch = bm.group(1)
+            status = re.sub(r"[`*_]", "", cells[hdr.index("status")]).strip().lower()
+            word = "in progress" if status.startswith("in progress") else status.split()[0] if status else ""
+            mine = []
+            for t in tickets:
+                if t.phase.resolve() != phases[phase_no] or t.kind == "B":
+                    continue
+                if not re.match(r"(req_\d+|design)\b", t.source or ""):
+                    continue  # spin-offs and gate findings are not the batch's planned slices
+                if re.search(rf"\bP{phase_no}/B{batch}\b", t.text):
+                    mine.append(t)
+            if not mine:
+                continue
+            done = [t for t in mine if t.state == "done"]
+            opn = [t for t in mine if t.state == "open"]
+            if word == "planned" and done:
+                rep.add(p, ln, "roadmap-batch", f"B{batch} says planned but {', '.join(t.id for t in done[:4])} is done")
+            elif word == "built" and opn:
+                rep.add(p, ln, "roadmap-batch", f"B{batch} says built but {', '.join(t.id for t in opn[:4])} is still open")
+            elif word == "in progress" and (not done or not opn):
+                what = "nothing is done yet" if not done else "every planned ticket is done"
+                rep.add(p, ln, "roadmap-batch", f"B{batch} says in progress but {what}")
+
+
+# ------------------------------------------------------------------ decision staleness
+
+PATH_RE = re.compile(r"[\w./*-]+\.(?:md|txt|go|yaml|yml|sql|json)\b")
+
+
+def last_change_dates():
+    """{path: 'YYYY-MM-DD' of its newest commit}, plus today for paths with working-tree changes."""
+    r = L.git("log", "--format=%x00%cs", "--name-only")
+    out, cur = {}, None
+    for ln in r.stdout.splitlines():
+        if ln.startswith("\x00"):
+            cur = ln[1:]
+        elif ln and cur and ln not in out:
+            out[ln] = cur
+    today = datetime.date.today().isoformat()
+    for ln in L.git("status", "--porcelain", "-uall").stdout.splitlines():
+        path = ln[3:].split(" -> ")[-1].strip('"')
+        out[path] = today
+    return out
+
+
+def check_decisions(rep, scope):
+    dates = None
+    counted = 0
+    for ph in scope:
+        for log in sorted((ph / "requirements").glob("req_*.decisions.md")):
+            for tb in L.parse_tables(log):
+                hdr = [h.lower() for h in tb.header]
+                if hdr[:2] != ["id", "date"] or "depends-on" not in hdr or "status" not in hdr:
+                    continue
+                di, pi, si = hdr.index("date"), hdr.index("depends-on"), hdr.index("status")
+                for ln, cells in tb.rows:
+                    if len(cells) != len(hdr) or "~~" in cells[0] or cells[si].strip() != "decided":
+                        continue
+                    if cells[pi] in ("—", "-", ""):
+                        continue
+                    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", cells[di]):
+                        continue
+                    paths = PATH_RE.findall(cells[pi])
+                    if not paths:
+                        continue
+                    counted += 1
+                    if dates is None:
+                        dates = last_change_dates()
+                    newer, missing = [], []
+                    for raw in dict.fromkeys(paths):
+                        found = resolve_dep(raw, ph)
+                        if not found:
+                            missing.append(raw)
+                            continue
+                        for f in found:
+                            d = dates.get(L.rel(f))
+                            if d and d > cells[di]:
+                                newer.append((L.rel(f), d))
+                    if newer:
+                        shown = ", ".join(f"{p} ({d})" for p, d in newer[:MAX_PATHS_SHOWN])
+                        more = f" and {len(newer) - MAX_PATHS_SHOWN} more" if len(newer) > MAX_PATHS_SHOWN else ""
+                        rep.add(log, ln, "stale-decision",
+                                f"{cells[0]} ({cells[di]}) depends on files changed since: {shown}{more}", warn=True)
+                    for raw in missing:
+                        rep.add(log, ln, "depends-on-missing", f"{cells[0]} depends on '{raw}', which does not exist", warn=True)
+    return counted
+
+
+def resolve_dep(raw, ph):
+    cands = [L.ROOT / raw, L.ROOT / "docs" / raw, ph / raw, ph / "requirements" / raw]
+    for c in cands:
+        if "*" in raw:
+            hits = sorted(c.parent.glob(c.name)) if c.parent.exists() else []
+            if hits:
+                return hits
+        elif c.exists() and c.is_file():
+            return [c]
+    return []
+
+
+# ------------------------------------------------------------------ schema reference vs migrations
+
+CREATE = re.compile(r"\bCREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[\"`\[]?(\w+)", re.I)
+DROP = re.compile(r"\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?[\"`\[]?(\w+)", re.I)
+RENAME = re.compile(r"\bALTER\s+TABLE\s+[\"`\[]?(\w+)[\"`\]]?\s+RENAME\s+TO\s+[\"`\[]?(\w+)", re.I)
+
+
+def migration_tables():
+    """{table: (file, line)} after applying every module's migrations in file order."""
+    tables = {}
+    for f in sorted((L.ROOT / "internal").rglob("migrations/*.sql")):
+        for i, ln in enumerate(L.read_lines(f), 1):
+            ln = ln.split("--")[0]
+            for m in CREATE.finditer(ln):
+                tables.setdefault(m.group(1), (f, i))
+            for m in DROP.finditer(ln):
+                tables.pop(m.group(1), None)
+            for m in RENAME.finditer(ln):
+                if m.group(1) in tables:
+                    tables[m.group(2)] = tables.pop(m.group(1))
+    return tables
+
+
+def check_schema(rep, tickets):
+    if not SCHEMA_REF.exists():
+        rep.add(SCHEMA_REF, 1, "missing-file", "docs/schema-reference.md not found")
+        return 0
+    mig = migration_tables()
+    ref = {}
+    lines = L.read_lines(SCHEMA_REF)
+    for i, ln in enumerate(lines, 1):
+        m = re.match(r"^##\s+`?(\w+)`?\s*$", ln)
+        if m and any(l.startswith("Module:") for l in lines[i:i + 4]):
+            ref[m.group(1)] = i
+    known = sorted(t.id for t in tickets if t.state == "open" and "schema-reference" in t.text)
+    for name, (f, i) in sorted(mig.items()):
+        if name not in ref:
+            note = f" (known: {', '.join(known)} still open)" if known else ""
+            rep.add(f, i, "schema-table-missing",
+                    f"table {name} is created by the migrations but has no section in docs/schema-reference.md{note}",
+                    warn=bool(known))
+    for name, i in sorted(ref.items()):
+        if name not in mig:
+            rep.add(SCHEMA_REF, i, "schema-table-extra", f"docs/schema-reference.md documents {name}, which no migration creates")
+    return len(mig)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

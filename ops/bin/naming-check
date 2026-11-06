@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""naming-check: retired glossary words used in docs and Go sources."""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+
+import re
+
+import _opslib as L
+
+GLOSSARY = L.ROOT / "docs" / "glossary.md"
+# History and verbatim records keep old names on purpose.
+SKIP_DIRS = ("docs/execetive_inputs/", "docs/adr/")
+SKIP_PARTS = ("/requirements/",)          # decision logs and raw requirement text
+CODE_SUFFIXES = {".go", ".sql", ".yaml", ".yml"}
+SKIP_TREE = {".git", "node_modules", "vendor", "dist"}
+# A line that talks about the rename itself is not new use of the old word.
+EXPLAINS = re.compile(r"retired|renam|formerly|supersed|used to be|old name|~~|→|->", re.I)
+# A table prefix is only a retired name where a table is named: SQL, or 'table `x_y`' / '`x_y` table'.
+SQL_CTX = re.compile(r"\b(?:CREATE|ALTER|DROP)\s+TABLE\b|\bREFERENCES\b|\bFROM\b|\bJOIN\b|\bINSERT\s+INTO\b|\bUPDATE\b")
+STOP = {"port", "name", "names", "that", "this", "with"}
+
+
+def load_retired():
+    """Rules from the glossary 'Retired names' table: (label, regex, qualifier words, new name, start, end)."""
+    lines = L.read_lines(GLOSSARY)
+    start = end = None
+    for i, ln in enumerate(lines, 1):
+        if ln.strip().lower() == "## retired names":
+            start = i
+        elif start and i > start and ln.startswith("## "):
+            end = i - 1
+            break
+    if not start:
+        L.die(f"{L.rel(GLOSSARY)} has no '## Retired names' section")
+    end = end or len(lines)
+    rules = []
+    for t in L.parse_tables(GLOSSARY):
+        if t.h2.lower() != "retired names" or [h.lower() for h in t.header[:2]] != ["old", "new"]:
+            continue
+        for ln, cells in t.rows:
+            old, new = cells[0], cells[1]
+            paren = " ".join(re.findall(r"\(([^)]*)\)", old))
+            outside = re.sub(r"\([^)]*\)", " ", old)
+            terms = re.findall(r"`([^`]+)`", outside)
+            rest = re.sub(r"`[^`]*`", " ", outside)
+            rest = re.sub(r"[,…]|\.\.\.", " ", rest)
+            if not terms:
+                terms, rest = [rest.strip()], ""
+            qual = [w.lower() for w in re.findall(r"[A-Za-z]+", paren + " " + rest)
+                    if len(w) > 3 and w.lower() not in STOP]
+            for term in terms:
+                term = term.strip()
+                if not term:
+                    continue
+                esc = re.escape(term)
+                if term.endswith("_"):
+                    pat = rf"(?<![A-Za-z0-9_]){esc}[a-z]"
+                else:
+                    pat = rf"(?<![\w-]){esc}(?![\w-])"
+                flags = re.I if (term == term.lower() and " " in term) else 0
+                rules.append((term, re.compile(pat, flags), qual, re.sub(r"`", "", new).strip(), ln))
+    return rules, start, end
+
+
+def scan_targets():
+    out = []
+    for p in L.md_files():
+        out.append(p)
+    for dp, dn, fn in os.walk(L.ROOT):
+        dn[:] = [d for d in dn if d not in SKIP_TREE and not d.startswith(".")]
+        for f in fn:
+            if os.path.splitext(f)[1] in CODE_SUFFIXES:
+                out.append(L.Path(dp) / f)
+    return out
+
+
+def skipped(rel):
+    if rel.startswith(SKIP_DIRS) or any(s in rel for s in SKIP_PARTS):
+        return True
+    return rel == "docs/mnp_nt.md"
+
+
+def added_lines(ref):
+    """{relpath: set(line numbers)} added since ref in the working tree; None value = whole file (untracked)."""
+    r = L.git("diff", "-U0", "--no-color", ref, "--")
+    if r.returncode != 0:
+        L.die(f"--since {ref}: {r.stderr.strip()}")
+    out, cur = {}, None
+    for ln in r.stdout.splitlines():
+        if ln.startswith("+++ "):
+            cur = ln[6:] if ln.startswith("+++ b/") else None
+            if cur:
+                out.setdefault(cur, set())
+        elif ln.startswith("@@") and cur:
+            m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", ln)
+            if m:
+                n0, cnt = int(m.group(1)), int(m.group(2) if m.group(2) is not None else 1)
+                out[cur].update(range(n0, n0 + cnt))
+    u = L.git("ls-files", "--others", "--exclude-standard")
+    for f in u.stdout.splitlines():
+        out[f] = None
+    return out
+
+
+def main():
+    ap = L.base_parser(
+        "naming-check",
+        "Report each use of a retired name from the glossary 'Retired names' table in docs/**/*.md "
+        "and in Go sources (also .sql and .yaml).",
+        epilog=("Skipped: the glossary's own Retired names section, docs/execetive_inputs/, docs/adr/, "
+                "requirement folders (decision logs), lines that explain a rename (retired, renamed, "
+                "superseded, ->, strikethrough) and lines under an opt-out marker 'naming-ok'. "
+                "A rule with a qualifier in the glossary (for example 'Notifier (notification-delivery "
+                "port)') fires only on a line that also uses one of the qualifier's words and does not name "
+                "the replacement; a table prefix such as 'platform_' fires only in SQL or beside the word table. "
+                "--track and --phase do not narrow this check: names are global."))
+    ap.add_argument("--since", metavar="REF",
+                    help="only look at lines added since REF (working tree included, untracked files whole)")
+    args = ap.parse_args()
+    if args.track or args.phase is not None:
+        L.phase_dirs(args.track, args.phase)  # validate only
+
+    rules, g_start, g_end = load_retired()
+    only = added_lines(args.since) if args.since else None
+    rep = L.Report("naming-check")
+    scanned = 0
+    for p in scan_targets():
+        rel = L.rel(p)
+        if skipped(rel):
+            continue
+        if only is not None and rel not in only:
+            continue
+        lines = L.read_lines(p)
+        scanned += 1
+        sel = only.get(rel) if only is not None else None
+        for i, ln in enumerate(lines, 1):
+            if sel is not None and i not in sel:
+                continue
+            if p == GLOSSARY and g_start <= i <= g_end:
+                continue
+            if "naming-ok" in ln or EXPLAINS.search(ln):
+                continue
+            low = ln.lower()
+            for term, rx, qual, new, _ in rules:
+                if not rx.search(ln):
+                    continue
+                if term.endswith("_"):
+                    ctx = SQL_CTX.search(ln) or re.search(rf"[Tt]ables?\s+`{re.escape(term)}\w|`{re.escape(term)}\w+`\s+tables?\b", ln)
+                    if not ctx:
+                        continue
+                elif qual and not any(w in low for w in qual):
+                    continue
+                if qual and not term.endswith("_") and new.split("/")[0].strip().lower() in low:
+                    continue  # the line names the replacement too: it tells the two apart
+                rep.add(p, i, "retired-name", f"'{term}' is retired, use '{new}' (docs/glossary.md Retired names)")
+    return rep.finish(args.strict, args.quiet, f"{scanned} files, {len(rules)} retired terms")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

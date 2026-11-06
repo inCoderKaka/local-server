@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+"""ticket-drift: ticket tables vs worklog vs implementation status vs size map."""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+
+import re
+
+import _opslib as L
+
+MODELS = {"Sonnet", "Opus", "Haiku"}      # the user's set; docs/tracks/README.md also lists Fable
+PRIS = {"P0", "P1", "P2", "P3"}
+SOURCE_KIND = re.compile(r"^(req_\d+|design|review-gate|build|user|drift-audit|legacy)\b")
+WORK_TYPE = {"F": "feat", "B": "bug", "C": "chore"}
+STATUS_DONE = {"done", "fixed", "shipped"}
+STATUS_OPEN = {"idea", "designed", "building", "reported", "confirmed", "in-progress"}
+FEAT_TYPES = ("F", "C")
+
+
+def main():
+    ap = L.base_parser(
+        "ticket-drift",
+        "Check ticket tables (backlog.md, bugs.md) against the worklog, implementation-status.md "
+        "and ticket-sizes.md of each phase folder.",
+        epilog=("Checks: ids unique; Depends On ids exist; done tickets have a worklog row and do not "
+                "depend on open ones; implementation-status.md agrees with tickets; required fields "
+                "(Source, Model, Pri, ref); every open feature and chore has a ticket-sizes.md entry; "
+                "ticket ids in commit subjects exist."))
+    ap.add_argument("--since", metavar="REF",
+                    help="also check ticket ids in commit subjects since this sha (or date, YYYY-MM-DD)")
+    ap.add_argument("--id", metavar="ID", help="print what is known about one ticket and exit")
+    ap.add_argument("--all", action="store_true", help="accepted for compatibility; every ticket is always checked")
+    args = ap.parse_args()
+
+    scope = L.phase_dirs(args.track, args.phase)
+    everything = L.all_phase_dirs()
+    all_tickets, problems = L.load_tickets(everything)
+    by_id = L.tickets_by_id(all_tickets)
+
+    if args.id:
+        return show(args.id, by_id, everything)
+
+    rep = L.Report("ticket-drift")
+    scope_set = {p.resolve() for p in scope}
+    in_scope = lambda t: t.phase.resolve() in scope_set
+
+    for f, ln, code, msg in problems:
+        if any(str(f).startswith(str(p)) for p in scope):
+            rep.add(f, ln, code, msg)
+
+    # ids unique across backlog.md and bugs.md (and across phases: ids are never reused)
+    seen = {}
+    for t in all_tickets:
+        if t.id in seen:
+            o = seen[t.id]
+            if in_scope(t) or in_scope(o):
+                rep.add(t.file, t.line, "dup-id", f"{t.id} also defined at {L.rel(o.file)}:{o.line}")
+        else:
+            seen[t.id] = t
+
+    scoped = [t for t in all_tickets if in_scope(t)]
+
+    # required fields
+    for t in scoped:
+        check_fields(rep, t)
+
+    # dependencies
+    for t in scoped:
+        for d in t.deps:
+            dt = by_id.get(d)
+            if dt is None:
+                rep.add(t.file, t.line, "unknown-dep", f"{t.id} depends on {d}, which is not a ticket")
+            elif t.state == "done" and dt.state == "open":
+                rep.add(t.file, t.line, "done-depends-on-open",
+                        f"{t.id} is done but depends on {d}, which is still open ({dt.raw_status})")
+
+    # worklog, status, sizes per phase
+    totals = {"big": 0, "small": 0}
+    for ph in scope:
+        pts = [t for t in scoped if t.phase.resolve() == ph.resolve()]
+        work = L.load_worklog(ph)
+        check_worklog(rep, ph, pts, work, by_id)
+        check_status(rep, ph, pts)
+        check_sizes(rep, ph, pts, totals)
+
+    if args.since:
+        check_commits(rep, args.since, by_id)
+
+    extra = f"{len(scoped)} tickets in {len(scope)} phase(s); open features and chores: {totals['big']} big / {totals['small']} small"
+    return rep.finish(args.strict, args.quiet, extra)
+
+
+# ------------------------------------------------------------------ fields
+
+def check_fields(rep, t):
+    req_driven = bool(re.search(r"req_\d+", t.text))
+    if t.pri and t.pri not in PRIS:
+        rep.add(t.file, t.line, "bad-pri", f"{t.id} has Pri '{t.pri}', expected P0..P3")
+    if t.section in ("pending", "chores", "bugs") and not t.pri:
+        rep.add(t.file, t.line, "bad-pri", f"{t.id} has no Pri")
+    # Source
+    src = t.source
+    if not src or src in ("—", "-"):
+        rep.add(t.file, t.line, "no-source", f"{t.id} has no Source")
+    else:
+        m = SOURCE_KIND.match(src)
+        if not m:
+            rep.add(t.file, t.line, "bad-source-kind",
+                    f"{t.id} Source '{src[:50]}' does not start with req_N, design, review-gate, build, user, drift-audit or legacy")
+        elif src.strip() == m.group(1) and m.group(1) not in ("legacy",):
+            rep.add(t.file, t.line, "source-no-origin",
+                    f"{t.id} Source '{src}' names no origin (decision rows, gate run, ticket or date)", warn=True)
+    # Model
+    if t.section in ("pending", "done", "shipped"):
+        if t.model not in MODELS:
+            rep.add(t.file, t.line, "bad-model", f"{t.id} Model '{t.model}' is not one of {', '.join(sorted(MODELS))}")
+    elif t.model:
+        if t.model not in MODELS:
+            rep.add(t.file, t.line, "bad-model", f"{t.id} Model '{t.model}' is not one of {', '.join(sorted(MODELS))}")
+    elif req_driven and t.state == "open":
+        rep.add(t.file, t.line, "no-model", f"{t.id} is requirement-driven but names no 'Model: <X>'", warn=True)
+    # ref
+    if t.kind == "F" and t.section in ("pending", "done", "shipped"):
+        ref = t.cells.get("ref", "").strip()
+        if req_driven and not re.search(r"req_\d+", ref + " " + t.source):
+            rep.add(t.file, t.line, "no-ref", f"{t.id} is requirement-driven but its Ref cell has no 'req_N D-NN'")
+        if SOURCE_KIND.match(t.source or "") and (t.source or "").startswith(("req_", "design")) and not ref.strip("—- "):
+            rep.add(t.file, t.line, "no-ref", f"{t.id} has Source '{t.source[:30]}' but an empty Ref cell")
+
+
+# ------------------------------------------------------------------ worklog
+
+def check_worklog(rep, ph, pts, work, by_id):
+    wl = ph / "worklog.md"
+    rows_by_id = {}
+    for r in work:
+        for i in r.ids:
+            rows_by_id.setdefault(i, []).append(r)
+            if i not in by_id:
+                rep.add(r.file, r.line, "worklog-unknown-id", f"worklog row names {i}, which is not a ticket")
+    for t in pts:
+        rows = [r for r in rows_by_id.get(t.id, []) if r.type == WORK_TYPE[t.kind]]
+        if t.state == "done":
+            named = [r for r in rows_by_id.get(t.id, []) if r.status in STATUS_DONE]
+            # a done row of another ticket that folds this one in (its title or notes name it) also counts
+            mentioned = [r for r in work if r.status in STATUS_DONE and t.id in L.ids_in(r.text)]
+            if not named and not mentioned:
+                if rows_by_id.get(t.id):
+                    rep.add(t.file, t.line, "no-worklog-row",
+                            f"{t.id} is {t.raw_status} but no worklog row naming it has a done status")
+                else:
+                    rep.add(t.file, t.line, "no-worklog-row", f"{t.id} is {t.raw_status} but has no worklog row")
+        elif t.state == "open" and rows:
+            last = rows[-1]
+            if last.status in STATUS_DONE:
+                rep.add(wl, last.line, "worklog-says-done",
+                        f"last worklog row for {t.id} is '{last.status}' but {L.rel(t.file)}:{t.line} still has it open")
+    if not wl.exists():
+        rep.add(wl, 1, "missing-file", "worklog.md not found")
+
+
+# ------------------------------------------------------------------ implementation-status.md
+
+def check_status(rep, ph, pts):
+    f = ph / "implementation-status.md"
+    if not f.exists():
+        rep.add(f, 1, "missing-file", "implementation-status.md not found")
+        return
+    by = {t.id: t for t in pts}
+    seen = set()
+    for tb in L.parse_tables(f):
+        hdr = [h.strip().lower() for h in tb.header]
+        if "ticket" not in hdr or "status" not in hdr:
+            continue
+        ti, si = hdr.index("ticket"), hdr.index("status")
+        mi = hdr.index("model") if "model" in hdr else None
+        for ln, cells in tb.rows:
+            if len(cells) != len(hdr):
+                rep.add(f, ln, "malformed-row", f"{len(cells)} cells, header has {len(hdr)}")
+                continue
+            ids = L.expand_ids(cells[ti])
+            word = re.sub(r"[`*_~(]", " ", cells[si]).split()
+            word = word[0].lower() if word else ""
+            for i in ids:
+                seen.add(i)
+                t = by.get(i)
+                if t is None:
+                    rep.add(f, ln, "status-unknown-id", f"status row names {i}, which is not a ticket of this phase")
+                    continue
+                ok = True
+                if t.state == "done":
+                    ok = word in STATUS_DONE
+                elif t.state == "dropped":
+                    ok = word == "dropped"
+                elif t.kind == "F":
+                    ok = word in ("idea", "designed", "building")
+                else:
+                    ok = word == t.raw_status.lower() or (t.kind == "C" and word in STATUS_OPEN)
+                    if t.kind == "B":
+                        ok = word == t.raw_status.lower()
+                if not ok:
+                    rep.add(f, ln, "status-mismatch",
+                            f"{i} is '{t.raw_status}' in {L.rel(t.file)}:{t.line} but the status table says '{word}'")
+                if mi is not None:
+                    sm = cells[mi].strip()
+                    if sm and sm not in ("—", "-") and t.model and sm != t.model and len(ids) == 1:
+                        rep.add(f, ln, "status-model", f"{i} Model is {t.model} in the ticket row but {sm} in the status table")
+    for t in pts:
+        if t.id not in seen:
+            rep.add(f, 1, "status-missing-ticket",
+                    f"{t.id} ({t.raw_status}, {L.rel(t.file)}:{t.line}) is not in the status table; regenerate implementation-status.md")
+    # headline counts
+    text = "\n".join(L.read_lines(f))
+    m = re.search(r"(\d+) ticket rows are tracked: (\d+) features.*?(\d+) chores and (\d+) bugs", text)
+    if m:
+        n = {k: sum(1 for t in pts if t.kind == k) for k in "FCB"}
+        got = (int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)))
+        want = (len(pts), n["F"], n["C"], n["B"])
+        if got != want:
+            rep.add(f, line_of(f, "ticket rows are tracked"), "status-count",
+                    f"Position says {got[0]} rows / {got[1]} features / {got[2]} chores / {got[3]} bugs; tables hold {want[0]} / {want[1]} / {want[2]} / {want[3]}")
+    m = re.search(r"Built: (\d+) features", text)
+    if m:
+        done = sum(1 for t in pts if t.kind == "F" and t.state == "done")
+        if int(m.group(1)) != done:
+            rep.add(f, line_of(f, "Built:"), "status-count", f"Position says {m.group(1)} features built; backlog has {done} done")
+
+
+def line_of(f, needle):
+    for i, ln in enumerate(L.read_lines(f), 1):
+        if needle in ln:
+            return i
+    return 1
+
+
+# ------------------------------------------------------------------ sizes
+
+def check_sizes(rep, ph, pts, totals):
+    sm = L.load_sizes(ph)
+    open_fc = [t for t in pts if t.kind in FEAT_TYPES and t.state == "open"]
+    if not sm.exists:
+        if open_fc:
+            rep.add(sm.path, 1, "no-size-map", f"{L.SIZE_FILE} not found but {len(open_fc)} features and chores are open")
+        return
+    for ln, code, msg in sm.bad:
+        rep.add(sm.path, ln, code, msg)
+    if not sm.covers:
+        rep.add(sm.path, 1, "size-header", "header has no 'Covers ids up to:' line; newer tickets cannot be told from missing ones")
+    known = {t.id for t in pts}
+    for tid, (size, ln) in sm.sizes.items():
+        if tid not in known:
+            rep.add(sm.path, ln, "size-unknown-id", f"{tid} is not a ticket of this phase", warn=True)
+    for t in open_fc:
+        ent = sm.sizes.get(t.id)
+        if ent is None:
+            key, n = L.id_key(t.id)
+            newer = n > sm.covers.get(key, 0)
+            rep.add(sm.path, 1, "unsized",
+                    f"{t.id} ({L.rel(t.file)}:{t.line}) has no entry in {L.SIZE_FILE}"
+                    + (f"; newer than the map (covers up to {key[0]}-{key[1]}-{sm.covers.get(key, 0):03d}), the orchestrate session adds it next run" if newer else ""),
+                    warn=newer)
+        elif ent[0] in totals:
+            totals[ent[0]] += 1
+
+
+# ------------------------------------------------------------------ commits
+
+def check_commits(rep, since, by_id):
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", since):
+        r = L.git("log", f"--since={since}", "--format=%h%x09%s")
+    else:
+        if not L.git_ok_ref(since):
+            L.die(f"--since {since}: not a commit")
+        r = L.git("log", f"{since}..HEAD", "--format=%h%x09%s")
+    if r.returncode != 0:
+        L.die(f"git log failed: {r.stderr.strip()}")
+    for line in r.stdout.splitlines():
+        sha, _, subj = line.partition("\t")
+        for i in L.ids_in(subj):
+            if i not in by_id:
+                rep.add("git-log", 0, "unknown-commit-ticket", f"commit {sha} names {i}, which is not a ticket")
+
+
+def show(tid, by_id, phases):
+    t = by_id.get(tid)
+    if not t:
+        L.die(f"{tid}: no such ticket", 1)
+    print(f"{L.rel(t.file)}:{t.line}: {t.id} {t.section} state={t.state} status={t.raw_status} model={t.model or '-'} pri={t.pri or '-'}")
+    print(f"  depends on: {', '.join(t.deps) or '-'}")
+    for r in L.load_worklog(t.phase):
+        if tid in r.ids:
+            print(f"  {L.rel(r.file)}:{r.line}: worklog {r.type} {r.status} {r.ref}")
+    sm = L.load_sizes(t.phase)
+    if tid in sm.sizes:
+        print(f"  size: {sm.sizes[tid][0]}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

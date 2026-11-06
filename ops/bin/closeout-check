@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""closeout-check: the close-out gate the orchestrate-implement skill reads."""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+
+import re
+import subprocess
+
+import _opslib as L
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+FEATFIX = re.compile(r"^(feat|fix)(\([^)]*\))?!?:", re.I)
+ALLOWED_DIRTY = ("implementation-status.md",)
+
+
+def base_from_closeout(scope):
+    """The end of the 'a..b' range (or the lone sha) in the header of previous-session-closeout.md."""
+    for ph in scope:
+        f = ph / "previous-session-closeout.md"
+        head = "\n".join(L.read_lines(f)[:8])
+        for m in re.finditer(r"\b([0-9a-f]{7,40})\.\.([0-9a-f]{7,40})\b", head):
+            if L.git_ok_ref(m.group(2)):
+                return m.group(2), f"header of {L.rel(f)}"
+        for m in re.finditer(r"\b[0-9a-f]{7,40}\b", head):
+            if re.search(r"\d", m.group(0)) and L.git_ok_ref(m.group(0)):
+                return m.group(0), f"header of {L.rel(f)}"
+    return None, ""
+
+
+def main():
+    ap = L.base_parser(
+        "closeout-check",
+        "Close-out gate. Fails when a ticket id in a feat/fix commit subject since the base has no "
+        "worklog row, implementation-status.md was not regenerated after the last feat/fix commit, the "
+        "working tree is dirty outside implementation-status.md, or ticket-drift, naming-check or "
+        "docs-drift fail. Prints each sub-check's result and ends with a one-line summary.",
+        epilog=("--base defaults to the end sha of the 'a..b' range in the header of "
+                "previous-session-closeout.md, else HEAD~1. With several phases in scope the first "
+                "phase that has a closeout header decides; narrow with --track/--phase."))
+    ap.add_argument("--base", metavar="SHA", help="first commit excluded: checks run over BASE..HEAD")
+    ap.add_argument("--max-lines", type=int, default=12, metavar="N",
+                    help="findings shown per failed sub-check (default 12; the full list is one command away)")
+    args = ap.parse_args()
+    scope = L.phase_dirs(args.track, args.phase)
+    scope_args = (["--track", args.track] if args.track else []) + (["--phase", str(args.phase)] if args.phase is not None else [])
+
+    if args.base:
+        base, why = args.base, "--base"
+        if not L.git_ok_ref(base):
+            L.die(f"--base {base}: not a commit")
+    else:
+        base, why = base_from_closeout(scope)
+        if not base:
+            base, why = "HEAD~1", "default"
+            if not L.git_ok_ref(base):
+                L.die("no previous-session-closeout header sha and HEAD~1 does not exist; pass --base")
+    head = L.git("rev-parse", "--short", "HEAD").stdout.strip()
+    base_short = L.git("rev-parse", "--short", base).stdout.strip()
+    print(f"closeout-check: base {base_short} ({why}) .. HEAD {head}")
+
+    log = L.git("log", f"{base}..HEAD", "--format=%H%x09%h%x09%s")
+    if log.returncode != 0:
+        L.die(f"git log {base}..HEAD: {log.stderr.strip()}")
+    commits = [ln.split("\t", 2) for ln in log.stdout.splitlines() if ln.count("\t") >= 2]
+    featfix = [(h, s, subj) for h, s, subj in commits if FEATFIX.match(subj)]
+
+    results = []   # (name, ok, [lines], note)
+
+    # 1. worklog rows for the ids in feat/fix subjects
+    rows = []
+    for ph in scope:
+        rows += L.load_worklog(ph)
+    covered = set()
+    for r in rows:
+        covered.update(r.ids)
+        covered.update(L.ids_in(r.text))
+    lines, n_ids = [], 0
+    for h, s, subj in featfix:
+        for tid in dict.fromkeys(L.expand_ids(subj)):
+            n_ids += 1
+            if tid not in covered:
+                lines.append(f"git-log:0: no-worklog-row: {tid} in {s} '{subj[:60]}' has no worklog row")
+    results.append(("worklog rows for feat/fix commits", not lines, lines,
+                    f"{len(featfix)} feat/fix commit(s), {n_ids} ticket id(s)"))
+
+    # 2. implementation-status.md regenerated after the last feat/fix commit
+    lines = []
+    status_files = [ph / "implementation-status.md" for ph in scope if (ph / "implementation-status.md").exists()]
+    dirty = porcelain()
+    if featfix:
+        last = featfix[0][0]
+        for f in status_files:
+            r = rel_in_repo(f)
+            if r in dirty:
+                continue  # regenerated and not yet committed
+            c = L.git("log", "-1", "--format=%H", "--", r).stdout.strip()
+            if not c or (c != last and L.git("merge-base", "--is-ancestor", last, c).returncode != 0):
+                lines.append(f"{r}:1: status-stale: not regenerated after the last feat/fix commit {featfix[0][1]}")
+    results.append(("implementation-status.md regenerated", not lines, lines,
+                    f"last feat/fix {featfix[0][1]}" if featfix else "no feat/fix commits"))
+
+    # 3. clean tree outside implementation-status.md
+    allowed = {rel_in_repo(f) for f in status_files}
+    lines = [f"{p}:1: dirty-tree: uncommitted change ({code.strip() or '?'}) outside implementation-status.md"
+             for p, code in sorted(dirty.items()) if p not in allowed]
+    results.append(("working tree clean outside implementation-status.md", not lines, lines, f"{len(dirty)} changed path(s)"))
+
+    # 4. the three other checks
+    for name, extra in (("ticket-drift", []), ("naming-check", ["--since", base]), ("docs-drift", [])):
+        cmd = [sys.executable, os.path.join(BIN, name), *scope_args, *extra, "--quiet"] + (["--strict"] if args.strict else [])
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        out = [ln for ln in r.stdout.splitlines() if ln.strip()]
+        findings = [ln for ln in out if not re.match(r"^[^:]+:\d+: WARN-", ln)]
+        warns = len(out) - len(findings)
+        if r.returncode == 2:
+            findings = (r.stderr.strip().splitlines() or ["usage or IO error"])
+        results.append((name, r.returncode == 0, findings, f"exit {r.returncode}, {warns} warning(s)"))
+
+    failed = []
+    for name, ok, lines, note in results:
+        print(f"{'PASS' if ok else 'FAIL'}  {name} ({note})")
+        if not ok:
+            failed.append(name)
+            for ln in lines[: args.max_lines]:
+                print(f"      {ln}")
+            if len(lines) > args.max_lines:
+                print(f"      ... {len(lines) - args.max_lines} more")
+    if failed:
+        print(f"closeout-check: FAIL, {len(failed)} of {len(results)} checks failed: {', '.join(failed)}")
+        return 1
+    print(f"closeout-check: PASS, {len(results)} of {len(results)} checks passed")
+    return 0
+
+
+def rel_in_repo(p):
+    return os.path.relpath(os.path.realpath(p), str(L.ROOT))
+
+
+def porcelain():
+    """{path: status code} of tracked changes and untracked files."""
+    out = {}
+    r = L.git("status", "--porcelain", "-uall")
+    for ln in r.stdout.splitlines():
+        code, path = ln[:2], ln[3:].split(" -> ")[-1].strip('"')
+        out[path] = code
+    return out
+
+
+if __name__ == "__main__":
+    sys.exit(main())
