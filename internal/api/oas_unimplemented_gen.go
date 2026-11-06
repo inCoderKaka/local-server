@@ -394,7 +394,9 @@ func (UnimplementedHandler) AdminReplaceNotificationPreferences(ctx context.Cont
 
 // AdminReplacePolicyRule implements adminReplacePolicyRule operation.
 //
-// Stores a new version of the rule. Audited.
+// Replaces the rule. A new immutable version is stored only when the name, position or rule document
+// differs from the current version; changing only `enabled`, or sending the current values again,
+// keeps the version number. Audited.
 //
 // PUT /admin/v1/policy-rules/{policy_rule_id}
 func (UnimplementedHandler) AdminReplacePolicyRule(ctx context.Context, req *PolicyRuleUpdate, params AdminReplacePolicyRuleParams) (r *PolicyRule, _ error) {

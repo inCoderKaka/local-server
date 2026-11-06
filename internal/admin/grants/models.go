@@ -2,6 +2,7 @@ package grants
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 
@@ -17,6 +18,11 @@ import (
 // defaultEngineName is the engine adapter named in a HostModel when the engine does not name
 // itself (an engine may have a `Name() string` method).
 const defaultEngineName = "ollama"
+
+// errPreloadChanged is returned from inside UpdateModel's unit of work when scheduler.preload_models
+// is no longer the list the new one was built from. The unit rolls back and UpdateModel tries again
+// from a fresh read.
+var errPreloadChanged = errors.New("admin grants: preload list changed")
 
 // HostModel is one engine model and how the host shares it.
 type HostModel struct {
@@ -92,6 +98,18 @@ func (s *Service) storeModels(ctx context.Context, installed []engine.Model) err
 	})
 }
 
+// parsePreload reads a scheduler.preload_models value as the scheduler does: a comma-separated
+// list, blanks dropped.
+func parsePreload(raw string) []string {
+	var out []string
+	for _, m := range strings.Split(raw, ",") {
+		if m = strings.TrimSpace(m); m != "" {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // preloadSet reads scheduler.preload_models as the scheduler does: a comma-separated list,
 // blanks dropped.
 func (s *Service) preloadList(ctx context.Context) ([]string, error) {
@@ -99,13 +117,7 @@ func (s *Service) preloadList(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []string
-	for _, m := range strings.Split(raw, ",") {
-		if m = strings.TrimSpace(m); m != "" {
-			out = append(out, m)
-		}
-	}
-	return out, nil
+	return parsePreload(raw), nil
 }
 
 // ListModels returns the engine's models with the host's configuration, by name, adding the ones
@@ -167,68 +179,124 @@ func (s *Service) hostModel(r grants.Model, installedSize int64, installed bool,
 
 // UpdateModel changes a model's configuration and audits it (model.updated: the model's id and
 // name and the names of the fields that changed). Preload rewrites scheduler.preload_models in
-// the same unit of work; the scheduler applies it when it changes (req_001 D-22). A model that
+// the same unit of work; the scheduler applies it when it changes (req_001 D-22). When the list
+// changes under it, it reads again and retries, so two simultaneous edits both land. A model that
 // does not exist or is retired is not found.
 func (s *Service) UpdateModel(ctx context.Context, actor, id string, ch ModelChange) (HostModel, error) {
 	if ch.KeepAliveSeconds.Set && !ch.KeepAliveSeconds.Null && ch.KeepAliveSeconds.Value < 0 {
 		return HostModel{}, invalid("keep_alive_seconds", "The value is below the lowest allowed.")
 	}
-	cur, err := s.cfg.Grants.Models.Get(ctx, s.cfg.DB.Reader(), id)
-	if isNotFound(err) || (err == nil && cur.RetiredAt != nil) {
-		return HostModel{}, errNoModel
-	}
-	if err != nil {
-		return HostModel{}, err
-	}
-	pre, err := s.preloadList(ctx)
-	if err != nil {
-		return HostModel{}, err
-	}
-	var changed []string
-	allowed, keep := cur.Allowed, cur.KeepAliveSeconds
-	if ch.Allowed != nil && *ch.Allowed != allowed {
-		allowed = *ch.Allowed
-		changed = append(changed, "allowed")
-	}
-	if ch.KeepAliveSeconds.Set {
-		var next *int64
-		if !ch.KeepAliveSeconds.Null {
-			v := ch.KeepAliveSeconds.Value
-			next = &v
+	for {
+		cur, err := s.cfg.Grants.Models.Get(ctx, s.cfg.DB.Reader(), id)
+		if isNotFound(err) || (err == nil && cur.RetiredAt != nil) {
+			return HostModel{}, errNoModel
 		}
-		if (next == nil) != (keep == nil) || (next != nil && *next != *keep) {
-			keep = next
-			changed = append(changed, "keep_alive_seconds")
+		if err != nil {
+			return HostModel{}, err
 		}
-	}
-	var updates []settings.Update
-	if ch.Preload != nil && *ch.Preload != slices.Contains(pre, cur.Name) {
-		next := slices.Clone(pre)
-		if *ch.Preload {
-			if strings.Contains(cur.Name, ",") {
-				return HostModel{}, invalid("preload", "A model whose name has a comma cannot be preloaded.")
+		pre, err := s.preloadList(ctx)
+		if err != nil {
+			return HostModel{}, err
+		}
+		var changed []string
+		allowed, keep := cur.Allowed, cur.KeepAliveSeconds
+		if ch.Allowed != nil && *ch.Allowed != allowed {
+			allowed = *ch.Allowed
+			changed = append(changed, "allowed")
+		}
+		if ch.KeepAliveSeconds.Set {
+			var next *int64
+			if !ch.KeepAliveSeconds.Null {
+				v := ch.KeepAliveSeconds.Value
+				next = &v
 			}
-			next = append(next, cur.Name)
-		} else {
-			next = slices.DeleteFunc(next, func(n string) bool { return n == cur.Name })
+			if (next == nil) != (keep == nil) || (next != nil && *next != *keep) {
+				keep = next
+				changed = append(changed, "keep_alive_seconds")
+			}
 		}
-		updates = append(updates, settings.Update{Key: scheduler.KeyPreloadModels, Value: strings.Join(next, ",")})
-		changed = append(changed, "preload")
-	}
-	if len(changed) == 0 {
-		return s.oneModel(ctx, id)
-	}
-	_, err = s.cfg.Settings.Apply(ctx, settings.Host, updates, func(tx *storage.Tx, _ []settings.Change) error {
-		if slices.Contains(changed, "allowed") || slices.Contains(changed, "keep_alive_seconds") {
-			if err := s.cfg.Grants.Models.SetConfig(tx, id, allowed, keep); err != nil {
+		var updates []settings.Update
+		if ch.Preload != nil && *ch.Preload != slices.Contains(pre, cur.Name) {
+			next := slices.Clone(pre)
+			if *ch.Preload {
+				if strings.Contains(cur.Name, ",") {
+					return HostModel{}, invalid("preload", "A model whose name has a comma cannot be preloaded.")
+				}
+				next = append(next, cur.Name)
+			} else {
+				next = slices.DeleteFunc(next, func(n string) bool { return n == cur.Name })
+			}
+			updates = append(updates, settings.Update{Key: scheduler.KeyPreloadModels, Value: strings.Join(next, ",")})
+			changed = append(changed, "preload")
+		}
+		if len(changed) == 0 {
+			return s.oneModel(ctx, id)
+		}
+		_, err = s.cfg.Settings.Apply(ctx, settings.Host, updates, func(tx *storage.Tx, changes []settings.Change) error {
+			// What the request leaves out keeps its value as of this transaction, not the earlier read,
+			// so an edit does not undo a concurrent one.
+			head, err := s.cfg.Grants.Models.GetTx(tx, id)
+			if err != nil {
 				return err
 			}
+			if head.RetiredAt != nil {
+				return grants.ErrNotFound
+			}
+			allowed, keep := head.Allowed, head.KeepAliveSeconds
+			if ch.Allowed != nil {
+				allowed = *ch.Allowed
+			}
+			if ch.KeepAliveSeconds.Set {
+				keep = nil
+				if !ch.KeepAliveSeconds.Null {
+					v := ch.KeepAliveSeconds.Value
+					keep = &v
+				}
+			}
+			var fields []string
+			if allowed != head.Allowed {
+				fields = append(fields, "allowed")
+			}
+			if (keep == nil) != (head.KeepAliveSeconds == nil) || (keep != nil && *keep != *head.KeepAliveSeconds) {
+				fields = append(fields, "keep_alive_seconds")
+			}
+			if len(fields) > 0 {
+				if err := s.cfg.Grants.Models.SetConfig(tx, id, allowed, keep); err != nil {
+					return err
+				}
+			}
+			if len(updates) > 0 {
+				// The new list was built from the list read before the transaction. If the stored list
+				// is not that one, someone else changed it; the whole unit rolls back and the caller reads again.
+				for _, c := range changes {
+					if c.Key != scheduler.KeyPreloadModels {
+						continue
+					}
+					if !slices.Equal(parsePreload(c.Old), pre) {
+						return errPreloadChanged
+					}
+					fields = append(fields, "preload")
+				}
+			}
+			if len(fields) == 0 {
+				return nil
+			}
+			return s.record(tx, audit.Event{Action: ActionModelUpdated, ActorID: actor,
+				Detail: map[string]any{"model_id": id, "model": cur.Name, "changed": fields}})
+		})
+		if errors.Is(err, errPreloadChanged) {
+			if ctx.Err() != nil {
+				return HostModel{}, ctx.Err()
+			}
+			continue // the list changed under this pass: read it again
 		}
-		return s.record(tx, audit.Event{Action: ActionModelUpdated, ActorID: actor,
-			Detail: map[string]any{"model_id": id, "model": cur.Name, "changed": changed}})
-	})
-	if err != nil {
-		return HostModel{}, wrap("update model", err)
+		if isNotFound(err) {
+			return HostModel{}, errNoModel
+		}
+		if err != nil {
+			return HostModel{}, wrap("update model", err)
+		}
+		break
 	}
 	return s.oneModel(ctx, id)
 }

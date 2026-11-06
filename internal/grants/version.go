@@ -148,7 +148,7 @@ func scanVersionModel(r storage.Row) (VersionModel, error) {
 	return m, err
 }
 
-// sortQuotas orders entries by metric (tokens first), then window, so reads are deterministic.
+// SortQuotas orders entries by metric (tokens first), then window, so reads are deterministic.
 func SortQuotas(q []QuotaEntry) {
 	slices.SortFunc(q, func(a, b QuotaEntry) int {
 		if c := strings.Compare(b.Metric, a.Metric); c != 0 { // "tokens" before "requests"

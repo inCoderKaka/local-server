@@ -5405,7 +5405,9 @@ func (s *Server) handleAdminReplaceNotificationPreferencesRequest(args [0]string
 
 // handleAdminReplacePolicyRuleRequest handles adminReplacePolicyRule operation.
 //
-// Stores a new version of the rule. Audited.
+// Replaces the rule. A new immutable version is stored only when the name, position or rule document
+// differs from the current version; changing only `enabled`, or sending the current values again,
+// keeps the version number. Audited.
 //
 // PUT /admin/v1/policy-rules/{policy_rule_id}
 func (s *Server) handleAdminReplacePolicyRuleRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

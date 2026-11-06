@@ -27,15 +27,10 @@ func (b By) column() (string, error) {
 	return "", fmt.Errorf("usage: unknown subject %d", int(b))
 }
 
-// Tokens returns the sum of total_tokens of the records of id that finished in [from, to).
-func Tokens(ctx context.Context, rd *storage.Reader, by By, id string, from, to time.Time) (int64, error) {
-	return read(ctx, rd, "COALESCE(SUM(total_tokens), 0)", by, id, from, to)
-}
-
 // TokensStartedIn returns the sum of total_tokens of the records of id that started in [from, to).
 // started_at is when the call was admitted, so a call admitted near the end of a window and
 // finished in the next belongs to the window it was admitted in. The token quota reads this one
-// (req_001 D-107); Tokens, by finished_at, stays for other callers.
+// (req_001 D-107).
 func TokensStartedIn(ctx context.Context, rd *storage.Reader, by By, id string, from, to time.Time) (int64, error) {
 	col, err := by.column()
 	if err != nil {

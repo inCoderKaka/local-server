@@ -191,8 +191,9 @@ func (s *Service) CreateRule(ctx context.Context, actor string, in NewRule) (Pol
 }
 
 // ReplaceRule stores a new immutable version of a rule (when its name, order or document differ
-// from the current one), applies the switch, and audits it. After the commit it forgets the
-// rule's failed evaluations when its document changed or the rule is off (req_001 D-73).
+// from the current one), applies the switch, and audits it. In the same unit of work it forgets
+// the rule's failed evaluations when its document changed or the rule is off, so a sweep can
+// never see the new version with the old document's count (req_001 D-73).
 func (s *Service) ReplaceRule(ctx context.Context, actor, id string, ch RuleChange) (PolicyRule, error) {
 	cur, err := s.cfg.Grants.PolicyRules.Get(ctx, s.cfg.DB.Reader(), id)
 	if isNotFound(err) || (err == nil && cur.DeletedAt != nil) {
@@ -205,23 +206,43 @@ func (s *Service) ReplaceRule(ctx context.Context, actor, id string, ch RuleChan
 	if err != nil {
 		return PolicyRule{}, err
 	}
-	name, position, enabled := cur.Name, cur.Position, cur.Enabled
+	var newName string
 	if ch.Name != nil {
-		if name, err = checkName(*ch.Name); err != nil {
+		if newName, err = checkName(*ch.Name); err != nil {
 			return PolicyRule{}, err
 		}
 	}
+	var newPos int64
 	if ch.Position != nil {
 		if err := checkPosition(*ch.Position); err != nil {
 			return PolicyRule{}, err
 		}
-		position = *ch.Position
-	}
-	if ch.Enabled != nil {
-		enabled = *ch.Enabled
+		newPos = *ch.Position
 	}
 	var out grants.PolicyRule
+	var enabled, bodyChanged bool
 	err = s.write(ctx, func(tx *storage.Tx) error {
+		// What the omitted fields keep is the head as of this transaction, not the earlier read, so
+		// an edit does not undo a concurrent rename, reorder or auto-disable.
+		head, err := s.cfg.Grants.PolicyRules.GetTx(tx, id)
+		if err != nil {
+			return err
+		}
+		if head.DeletedAt != nil {
+			return grants.ErrNotFound
+		}
+		name, position := head.Name, head.Position
+		enabled = head.Enabled
+		if ch.Name != nil {
+			name = newName
+		}
+		if ch.Position != nil {
+			position = newPos
+		}
+		if ch.Enabled != nil {
+			enabled = *ch.Enabled
+		}
+		bodyChanged = head.Body != string(ch.Body)
 		no, err := s.cfg.Grants.PolicyRules.UpdateBy(tx, actorPtr(actor), id, name, position, fv, string(ch.Body), enabled)
 		if err != nil {
 			return err
@@ -229,17 +250,22 @@ func (s *Service) ReplaceRule(ctx context.Context, actor, id string, ch RuleChan
 		if out, err = s.cfg.Grants.PolicyRules.GetTx(tx, id); err != nil {
 			return err
 		}
-		return s.record(tx, audit.Event{Action: ActionPolicyRuleUpdated, ActorID: actor,
-			Detail: map[string]any{"rule_id": id, "version": no, "enabled": enabled}})
+		if err := s.record(tx, audit.Event{Action: ActionPolicyRuleUpdated, ActorID: actor,
+			Detail: map[string]any{"rule_id": id, "version": no, "enabled": enabled}}); err != nil {
+			return err
+		}
+		// Forgetting the failures here, before the commit, means a sweep never sees the new
+		// version with the old document's count.
+		if s.cfg.RuleFailures != nil && (bodyChanged || !enabled) {
+			s.cfg.RuleFailures.ClearRuleFailures(id)
+		}
+		return nil
 	})
 	if isNotFound(err) {
 		return PolicyRule{}, errNoRule
 	}
 	if err != nil {
 		return PolicyRule{}, wrap("replace rule", err)
-	}
-	if s.cfg.RuleFailures != nil && (cur.Body != string(ch.Body) || !enabled) {
-		s.cfg.RuleFailures.ClearRuleFailures(id)
 	}
 	return ruleView(out), nil
 }

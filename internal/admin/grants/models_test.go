@@ -1,12 +1,15 @@
 package grants_test
 
 import (
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	admingrants "github.com/inCoderKaka/local-server/internal/admin/grants"
 	"github.com/inCoderKaka/local-server/internal/engine/fake"
+	"github.com/inCoderKaka/local-server/internal/storage"
 )
 
 func modelByName(t *testing.T, ms []admingrants.HostModel, name string) admingrants.HostModel {
@@ -134,4 +137,48 @@ func TestUpdateModel(t *testing.T) {
 	wantKind(t, err, admingrants.KindInvalid, "keep_alive_seconds")
 	_, err = e.svc.UpdateModel(ctx, e.admin, "0192e5a0-000c-7000-8000-00000000000c", admingrants.ModelChange{Allowed: &yes})
 	wantKind(t, err, admingrants.KindNotFound, "")
+	// A retired model is not found either.
+	if err := e.db.Write(ctx, func(tx *storage.Tx) error { return e.gr.Models.Retire(tx, m2.ID) }); err != nil {
+		t.Fatal(err)
+	}
+	_, err = e.svc.UpdateModel(ctx, e.admin, m2.ID, admingrants.ModelChange{Allowed: &yes})
+	wantKind(t, err, admingrants.KindNotFound, "")
+}
+
+// Two preload edits at the same time both land: the one that finds the list changed reads it again
+// and tries once more (PLT-B-058).
+func TestSimultaneousPreloadEditsBothLand(t *testing.T) {
+	e := newEnv(t)
+	ms, err := e.svc.ListModels(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{modelByName(t, ms, "m1").ID, modelByName(t, ms, "m2").ID}
+	yes := true
+	for round := 0; round < 20; round++ {
+		e.set("scheduler.preload_models", "")
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for _, id := range ids {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				if _, err := e.svc.UpdateModel(ctx, e.admin, id, admingrants.ModelChange{Preload: &yes}); err != nil {
+					t.Error(err)
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		v, err := e.st.String(ctx, "scheduler.preload_models", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.Split(v, ",")
+		slices.Sort(got)
+		if !slices.Equal(got, []string{"m1", "m2"}) {
+			t.Fatalf("round %d: preload_models = %q, want m1 and m2", round, v)
+		}
+	}
 }

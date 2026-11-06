@@ -12,22 +12,23 @@ import (
 // Keys of the limits settings. All are owned by the host (req_001 D-38, D-54) and read at the
 // moment of use, so a change applies to the next decision.
 const (
-	KeyQuotaWindow       = "limits.quota_window"
-	KeyQuotaWindowMin    = "limits.quota_window_min"
-	KeyQuotaWindowMax    = "limits.quota_window_max"
-	KeyCounterRetention  = "limits.counter_retention"
-	KeyNearLimitPercent  = "limits.near_limit_percent"
-	KeyRateEnabled       = "limits.rate_enabled"
-	KeyRateCapacity      = "limits.rate_capacity"
-	KeyRateWindow        = "limits.rate_window"
-	KeyBodyLimitEnabled  = "limits.body_limit_enabled"
-	KeyMaxBodyBytes      = "limits.max_body_bytes"
-	KeyLockoutEnabled    = "limits.lockout_enabled"
-	KeyLockoutFailures   = "limits.lockout_failures"
-	KeyLockoutWindow     = "limits.lockout_window"
-	KeyLockoutDuration   = "limits.lockout_duration"
-	KeyTrackerIdleTTL    = "limits.tracker_idle_ttl"
-	KeyTrackerMaxEntries = "limits.tracker_max_entries"
+	KeyQuotaWindow          = "limits.quota_window"
+	KeyQuotaWindowMin       = "limits.quota_window_min"
+	KeyQuotaWindowMax       = "limits.quota_window_max"
+	KeyCounterRetention     = "limits.counter_retention"
+	KeyCounterPruneInterval = "limits.counter_prune_interval"
+	KeyNearLimitPercent     = "limits.near_limit_percent"
+	KeyRateEnabled          = "limits.rate_enabled"
+	KeyRateCapacity         = "limits.rate_capacity"
+	KeyRateWindow           = "limits.rate_window"
+	KeyBodyLimitEnabled     = "limits.body_limit_enabled"
+	KeyMaxBodyBytes         = "limits.max_body_bytes"
+	KeyLockoutEnabled       = "limits.lockout_enabled"
+	KeyLockoutFailures      = "limits.lockout_failures"
+	KeyLockoutWindow        = "limits.lockout_window"
+	KeyLockoutDuration      = "limits.lockout_duration"
+	KeyTrackerIdleTTL       = "limits.tracker_idle_ttl"
+	KeyTrackerMaxEntries    = "limits.tracker_max_entries"
 )
 
 // Defs are the limits settings; New registers them.
@@ -42,6 +43,8 @@ func Defs() []settings.Def {
 			Description: "Longest window a quota entry may have. A change applies to quota entries written after it; entries already stored keep working. Must be at least 1s, and at least limits.quota_window_min or no window is allowed."},
 		{Key: KeyCounterRetention, Kind: settings.Duration, Default: "168h", Owner: h,
 			Description: "How long the request counter of a quota window is kept after the window ended. The counter of a window that is still running is never removed. Must be greater than 0."},
+		{Key: KeyCounterPruneInterval, Kind: settings.Duration, Default: "42h", Owner: h,
+			Description: "How often this process prunes the request counters whose window ended more than limits.counter_retention ago: at most once per this interval. Must be greater than 0."},
 		{Key: KeyNearLimitPercent, Kind: settings.Int, Default: "80", Owner: h,
 			Description: "Percent of a quota used at which one quota.near_limit notification is raised for that window. 0 turns the notification off."},
 		{Key: KeyRateEnabled, Kind: settings.Bool, Default: "true", Owner: h,
@@ -100,7 +103,7 @@ func setValidators(st *settings.Store) error {
 		min time.Duration // the value must be at least min; 0 means greater than 0
 	}{
 		{KeyRateWindow, 0}, {KeyLockoutWindow, 0}, {KeyLockoutDuration, 0}, {KeyTrackerIdleTTL, 0},
-		{KeyCounterRetention, 0},
+		{KeyCounterRetention, 0}, {KeyCounterPruneInterval, 0},
 		{KeyQuotaWindow, time.Second}, {KeyQuotaWindowMin, time.Second}, {KeyQuotaWindowMax, time.Second},
 	}
 	for _, k := range durations {
@@ -154,6 +157,9 @@ func CheckWindow(ctx context.Context, st *settings.Store, w time.Duration) error
 	hi, err := st.Duration(ctx, KeyQuotaWindowMax, "")
 	if err != nil {
 		return err
+	}
+	if lo > hi {
+		return &WindowError{Reason: fmt.Sprintf("This host allows no quota window: its shortest window (%s) is longer than its longest (%s).", lo, hi)}
 	}
 	switch {
 	case w < lo:

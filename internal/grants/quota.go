@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"slices"
 	"time"
 )
@@ -44,6 +45,9 @@ func (q *QuotaEntry) UnmarshalJSON(b []byte) error {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&j); err != nil {
 		return err
+	}
+	if j.WindowSeconds > math.MaxInt64/int64(time.Second) || j.WindowSeconds < math.MinInt64/int64(time.Second) {
+		return fmt.Errorf("window_seconds %d is out of range", j.WindowSeconds)
 	}
 	*q = QuotaEntry{Metric: j.Metric, Limit: j.Limit, Window: time.Duration(j.WindowSeconds) * time.Second}
 	return nil

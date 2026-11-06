@@ -411,6 +411,9 @@ func TestAccessKeyQuotaEntriesOverHTTP(t *testing.T) {
 		warns[0] != "quota is deprecated and ignored because quotas is given" {
 		t.Fatalf("both = %s", r.Body.String())
 	}
+	if _, present := nar["quota"]; !present {
+		t.Errorf("the narrowing leaves out quota, want null: %s", r.Body.String())
+	}
 	kid, _ := k["id"].(string)
 	r = e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":`+both+`}`)
 	status(t, r, http.StatusOK)
@@ -485,6 +488,30 @@ func TestConsumerBillingModeOverHTTP(t *testing.T) {
 	}
 	if list := e.call(token, "GET", "/admin/v1/consumers", "").Body.String(); !strings.Contains(list, `"billing_mode":"postpaid"`) {
 		t.Errorf("the list lacks billing_mode: %s", list)
+	}
+}
+
+func TestConsumerUpdateKeepsBillingMode(t *testing.T) {
+	e := newEnv(t)
+	token := e.setup()
+
+	c := e.createConsumer(token, `{"kind":"application","display_name":"Paying App","billing_mode":"postpaid"}`)
+	id, _ := c["id"].(string)
+
+	r := e.call(token, "PATCH", "/admin/v1/consumers/"+id, `{"display_name":"Renamed App"}`)
+	status(t, r, http.StatusOK)
+	if r.json()["billing_mode"] != "postpaid" || r.json()["display_name"] != "Renamed App" {
+		t.Fatalf("rename = %s", r.Body.String())
+	}
+	r = e.call(token, "PATCH", "/admin/v1/consumers/"+id, `{"email":"user@example.invalid"}`)
+	status(t, r, http.StatusOK)
+	if r.json()["billing_mode"] != "postpaid" {
+		t.Fatalf("email change = %s", r.Body.String())
+	}
+	r = e.call(token, "GET", "/admin/v1/consumers/"+id, "")
+	status(t, r, http.StatusOK)
+	if r.json()["billing_mode"] != "postpaid" {
+		t.Fatalf("get = %s", r.Body.String())
 	}
 }
 

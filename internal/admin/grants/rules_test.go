@@ -2,8 +2,10 @@ package grants_test
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -64,18 +66,18 @@ func TestCreateRuleStoresTheValidatorsFormatVersionAndDefaults(t *testing.T) {
 func TestCreateRuleRefusesWhatTheValidatorRefusesWithoutEchoingIt(t *testing.T) {
 	e := newEnv(t)
 	secret := "SECRET-PROMPT-TEXT"
-	bodies := []string{
-		`{"format_version":1,"priority":"` + secret + `"}`,
-		`{"format_version":2,"x":"` + secret + `"}`,
-		`{"format_version":1,"` + secret + `":1}`,
-		`not json ` + secret,
-		`{"format_version":1,"when":{"properties":{"a":"` + strings.Repeat("x", 9000) + secret + `"}}}`,
+	bodies := []struct{ body, param string }{
+		{`{"format_version":1,"priority":"` + secret + `"}`, "rule"},
+		{`{"format_version":2,"x":"` + secret + `"}`, "rule.format_version"},
+		{`{"format_version":1,"` + secret + `":1}`, "rule"},
+		{`not json ` + secret, "rule"},
+		{`{"format_version":1,"when":{"properties":{"a":"` + strings.Repeat("x", 9000) + secret + `"}}}`, "rule"},
 	}
-	for _, b := range bodies {
-		_, err := e.svc.CreateRule(ctx, e.admin, admingrants.NewRule{Body: []byte(b)})
+	for _, c := range bodies {
+		_, err := e.svc.CreateRule(ctx, e.admin, admingrants.NewRule{Body: []byte(c.body)})
 		var ge *admingrants.Error
-		if !errorsAs(err, &ge) || ge.Kind != admingrants.KindInvalid || !strings.HasPrefix(ge.Param, "rule") {
-			t.Fatalf("error = %#v for %.40s", err, b)
+		if !errors.As(err, &ge) || ge.Kind != admingrants.KindInvalid || ge.Param != c.param {
+			t.Fatalf("error = %#v for %.40s", err, c.body)
 		}
 		if strings.Contains(err.Error(), secret) || strings.Contains(ge.Message, secret) || strings.Contains(ge.Param, secret) {
 			t.Fatalf("the refusal quotes the document: %v", err)
@@ -269,6 +271,11 @@ func TestBrokenRuleWithoutDenyIsSwitchedOffAfterFiveFailures(t *testing.T) {
 	if n := e.count(`SELECT count(*) FROM aud_event WHERE action = 'policy_rule.auto_disabled' AND actor_id IS NULL`); n != 2 {
 		t.Fatalf("%d auto_disabled audit rows, want 2 by the system", n)
 	}
+	// The audit row names the version of the document that was counted. policy_rule.created rows
+	// also carry "version":1, so only the auto_disabled rows are counted.
+	if n := e.count(`SELECT count(*) FROM aud_event WHERE action = 'policy_rule.auto_disabled' AND detail LIKE '%"version":1%'`); n != 2 {
+		t.Fatalf("%d auto_disabled audit rows name version 1, want 2", n)
+	}
 	txt := e.auditText()
 	if !strings.Contains(txt, `"failures":5`) || strings.Contains(txt, "nonsense") || strings.Contains(txt, "not json") || strings.Contains(txt, `"broken"`) {
 		t.Fatalf("audit = %s", txt)
@@ -284,10 +291,158 @@ func TestBrokenRuleWithoutDenyIsSwitchedOffAfterFiveFailures(t *testing.T) {
 	// The limit is a host setting.
 	e.fail.set(healthy, 2)
 	e.set("policy.rule.max_failures", "2")
-	// A healthy rule that parses can only have failures from a document that changed; here the
-	// counter alone decides, so it is switched off, as the gateway would only count real failures.
+	// The sweeper trusts the gateway's count, and the gateway counts only evaluations that failed to
+	// parse; a count set by hand on a rule that parses therefore switches it off too.
 	if off, err := e.svc.DisableFailingRules(ctx); err != nil || len(off) != 1 || off[0] != healthy {
 		t.Fatalf("with max_failures 2: %v, %v", off, err)
+	}
+}
+
+// hookFailures reports a stale count of 5 for one rule and runs once, on the first question about
+// it and without holding any lock, a callback that edits the rule. ClearRuleFailures does nothing:
+// the count is stale because the edit committed before the count was cleared.
+type hookFailures struct {
+	mu   sync.Mutex
+	id   string
+	hook func()
+}
+
+func (h *hookFailures) RuleFailures(id string) int64 {
+	h.mu.Lock()
+	hook := h.hook
+	if id == h.id {
+		h.hook = nil
+	}
+	h.mu.Unlock()
+	if hook != nil && id == h.id {
+		hook()
+	}
+	return 5
+}
+
+func (h *hookFailures) ClearRuleFailures(string) {}
+
+// A rule edited after it was listed is not switched off on the count of its older document, and
+// no audit row is written for it.
+func TestEditedRuleIsNotSwitchedOffOnAStaleCount(t *testing.T) {
+	e := newEnv(t)
+	id := e.storeBroken(brokenRule)
+	h := &hookFailures{id: id}
+	svc, err := admingrants.New(admingrants.Config{DB: e.db, Settings: e.st, Identity: e.ir, Grants: e.gr, Auth: e.au, Events: e.bus,
+		Engine: e.eng, RuleFailures: h, Clock: func() time.Time { return e.now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.hook = func() {
+		e.tick()
+		if _, err := svc.ReplaceRule(ctx, e.admin, id, admingrants.RuleChange{Body: []byte(bgRule)}); err != nil {
+			t.Error(err)
+		}
+	}
+	off, err := svc.DisableFailingRules(ctx)
+	if err != nil || len(off) != 0 {
+		t.Fatalf("disabled %v, %v", off, err)
+	}
+	if e.count(`SELECT enabled FROM grt_policy_rule WHERE id = ?`, id) != 1 {
+		t.Fatal("an edited rule was switched off")
+	}
+	if n := e.count(`SELECT count(*) FROM aud_event WHERE action = 'policy_rule.auto_disabled'`); n != 0 {
+		t.Fatalf("%d auto_disabled audit rows, want none", n)
+	}
+}
+
+// forgetfulFailures reports a count of 5 the first time it is asked about a rule and 0 after:
+// the count was forgotten between the sweep's listing and its write.
+type forgetfulFailures struct {
+	mu    sync.Mutex
+	asked bool
+}
+
+func (f *forgetfulFailures) RuleFailures(string) int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.asked {
+		f.asked = true
+		return 5
+	}
+	return 0
+}
+
+func (f *forgetfulFailures) ClearRuleFailures(string) {}
+
+// A count that was forgotten after the sweep listed the rule does not switch it off, and no audit
+// row is written for it.
+func TestRuleWhoseCountWasForgottenIsNotSwitchedOff(t *testing.T) {
+	e := newEnv(t)
+	id := e.storeBroken(brokenRule)
+	svc, err := admingrants.New(admingrants.Config{DB: e.db, Settings: e.st, Identity: e.ir, Grants: e.gr, Auth: e.au, Events: e.bus,
+		Engine: e.eng, RuleFailures: &forgetfulFailures{}, Clock: func() time.Time { return e.now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, err := svc.DisableFailingRules(ctx)
+	if err != nil || len(off) != 0 {
+		t.Fatalf("disabled %v, %v", off, err)
+	}
+	if e.count(`SELECT enabled FROM grt_policy_rule WHERE id = ?`, id) != 1 {
+		t.Fatal("a rule whose count was forgotten was switched off")
+	}
+	if n := e.count(`SELECT count(*) FROM aud_event WHERE action = 'policy_rule.auto_disabled'`); n != 0 {
+		t.Fatalf("%d auto_disabled audit rows, want none", n)
+	}
+}
+
+// orderFailures reports a count of 5 until it is cleared, and records which version of the rule
+// the database held, for readers outside the writer, at the moment of the clear.
+type orderFailures struct {
+	t         *testing.T
+	e         *env
+	mu        sync.Mutex
+	n         int64
+	clearedAt int
+}
+
+func (o *orderFailures) RuleFailures(string) int64 {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.n
+}
+
+func (o *orderFailures) ClearRuleFailures(id string) {
+	var v int
+	// The read pool sees only committed data, so this is the version before the edit's commit.
+	if err := o.e.db.Reader().QueryRow(ctx, `SELECT version_no FROM grt_policy_rule WHERE id = ?`, id).Scan(&v); err != nil {
+		o.t.Error(err)
+	}
+	o.mu.Lock()
+	o.n, o.clearedAt = 0, v
+	o.mu.Unlock()
+}
+
+// Fixing a rule forgets its failures in the same unit of work as the edit, before the new version
+// is committed, so a sweep never sees the new version with the old document's count.
+func TestReplaceRuleForgetsFailuresBeforeTheCommit(t *testing.T) {
+	e := newEnv(t)
+	id := e.storeBroken(brokenRule)
+	o := &orderFailures{t: t, e: e, n: 5, clearedAt: -1}
+	svc, err := admingrants.New(admingrants.Config{DB: e.db, Settings: e.st, Identity: e.ir, Grants: e.gr, Auth: e.au, Events: e.bus,
+		Engine: e.eng, RuleFailures: o, Clock: func() time.Time { return e.now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.tick()
+	if _, err := svc.ReplaceRule(ctx, e.admin, id, admingrants.RuleChange{Body: []byte(bgRule)}); err != nil {
+		t.Fatal(err)
+	}
+	if o.clearedAt != 1 {
+		t.Fatalf("failures were cleared when the stored version was %d, want 1 (before the commit)", o.clearedAt)
+	}
+	off, err := svc.DisableFailingRules(ctx)
+	if err != nil || len(off) != 0 {
+		t.Fatalf("disabled %v, %v", off, err)
+	}
+	if e.count(`SELECT enabled FROM grt_policy_rule WHERE id = ?`, id) != 1 {
+		t.Fatal("a fixed rule was switched off")
 	}
 }
 

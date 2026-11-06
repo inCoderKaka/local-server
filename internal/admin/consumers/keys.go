@@ -103,10 +103,12 @@ func keyStatus(k identity.AccessKey, now time.Time) string {
 
 // modelNames maps model ids to names for the keys of one answer.
 type modelNames struct {
-	s     *Service
-	ctx   context.Context
-	rd    *storage.Reader
-	names map[string]string
+	s          *Service
+	ctx        context.Context
+	rd         *storage.Reader
+	names      map[string]string
+	legacy     time.Duration
+	haveLegacy bool
 }
 
 func (s *Service) modelNames(ctx context.Context) *modelNames {
@@ -130,6 +132,18 @@ func (m *modelNames) name(id string) (string, error) {
 	return n, nil
 }
 
+// legacyWindow returns the host quota window, read once for the keys of one answer.
+func (m *modelNames) legacyWindow() (time.Duration, error) {
+	if !m.haveLegacy {
+		w, err := limits.LegacyWindow(m.ctx, m.s.cfg.Settings)
+		if err != nil {
+			return 0, err
+		}
+		m.legacy, m.haveLegacy = w, true
+	}
+	return m.legacy, nil
+}
+
 // view builds the admin view of a stored key. A narrowing that cannot be read is shown as none
 // and logged by key id: the auth service refuses such a key, so it cannot be used.
 func (m *modelNames) view(k identity.AccessKey, now time.Time) (Key, error) {
@@ -145,7 +159,7 @@ func (m *modelNames) view(k identity.AccessKey, now time.Time) (Key, error) {
 	}
 	nv := &Narrowing{ContextLimit: n.ContextCap, MaxOutputTokens: n.MaxOutputTokens, Concurrency: n.MaxConcurrency}
 	if len(n.Quotas) > 0 || n.QuotaTokensPerDay != nil || n.QuotaRequestsPerDay != nil {
-		legacy, err := limits.LegacyWindow(m.ctx, m.s.cfg.Settings)
+		legacy, err := m.legacyWindow()
 		if err != nil {
 			return Key{}, err
 		}
@@ -408,7 +422,7 @@ func (s *Service) RevokeAccessKey(ctx context.Context, actor, keyID string) (Key
 // own window, on the access keys of consumer c. Only a chargeable consumer (prepaid or postpaid)
 // may do it on its own keys; the host sets them for every other consumer, and the host admin acting
 // through the admin API is never the consumer's own principal (req_001 D-107). The resource-request
-// ask uses the same rule.
+// ask (PLT-F-028, not built yet) is to use the same rule.
 func MaySetQuotaWindows(c identity.Consumer, actor string) bool {
 	return c.Chargeable() || c.PrincipalID != actor
 }
@@ -500,15 +514,16 @@ func (s *Service) narrowingFor(ctx context.Context, actor string, c identity.Con
 			}
 		}
 	}
-	grants.SortQuotas(entries)
+	sorted := slices.Clone(entries) // entries keeps the request order, paired with params, for refusals
+	grants.SortQuotas(sorted)
 	view := &Narrowing{ContextLimit: n.ContextLimit, MaxOutputTokens: n.MaxOutputTokens, Concurrency: n.Concurrency}
 	if len(entries) > 0 {
-		view.Quotas = entries
+		view.Quotas = sorted
 		legacy, err := limits.LegacyWindow(ctx, s.cfg.Settings)
 		if err != nil {
 			return auth.Narrowing{}, nil, nil, err
 		}
-		view.Quota = QuotaAlias(entries, legacy)
+		view.Quota = QuotaAlias(sorted, legacy)
 	}
 	for _, c := range []struct {
 		param string
@@ -524,7 +539,7 @@ func (s *Service) narrowingFor(ctx context.Context, actor string, c identity.Con
 		}
 	}
 	rd := s.cfg.DB.Reader()
-	st := auth.Narrowing{Quotas: entries, MaxConcurrency: view.Concurrency, ContextCap: view.ContextLimit, MaxOutputTokens: view.MaxOutputTokens}
+	st := auth.Narrowing{Quotas: sorted, MaxConcurrency: view.Concurrency, ContextCap: view.ContextLimit, MaxOutputTokens: view.MaxOutputTokens}
 	for _, name := range n.Models {
 		if strings.TrimSpace(name) == "" {
 			return auth.Narrowing{}, nil, nil, invalid("narrowing.models", "A model name must not be empty.")

@@ -186,6 +186,8 @@ func narrowingOut(n consumers.Narrowing) api.AccessKeyNarrowing {
 			q.Requests = api.NewOptInt64(*n.Quota.Requests)
 		}
 		out.Quota = api.NewOptNilQuota(q)
+	} else {
+		out.Quota.SetToNull()
 	}
 	if n.ContextLimit != nil {
 		out.ContextLimit = api.NewOptInt(int(*n.ContextLimit))

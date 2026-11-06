@@ -316,6 +316,10 @@ func TestQuotaEntryJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(`[{"metric":"tokens","limit":1,"window_seconds":60,"extra":1}]`), &back); err == nil {
 		t.Error("unknown field accepted")
 	}
+	// 2^55+1 seconds times 1e9 wraps to exactly one second: it must not decode.
+	if err := json.Unmarshal([]byte(`[{"metric":"requests","limit":1,"window_seconds":36028797018963969}]`), &back); err == nil {
+		t.Error("window_seconds that overflows a time.Duration accepted")
+	}
 }
 
 func TestWithLegacy(t *testing.T) {

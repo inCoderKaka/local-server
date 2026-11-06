@@ -15,7 +15,9 @@
 //   - Limiter.Check after auth: rate limit, then a fresh check that the key and consumer are
 //     still active, then quotas. A refusal is a *RateLimitError, *QuotaError, or one of
 //     auth.ErrRevoked, auth.ErrExpired and auth.ErrConsumerNotActive;
-//   - Limiter.CountAdmitted when the scheduler has admitted the call (the request counter, D-107);
+//   - Limiter.CountAdmitted when the scheduler has admitted the call: it re-checks the request
+//     entries and raises the request counter in one unit of work, and may refuse with a
+//     *QuotaError (D-107);
 //   - Limiter.Record after the metering transaction has committed, to raise quota.near_limit.
 //
 // # Quotas
@@ -43,9 +45,10 @@
 // within that gap before a boundary may count its request in one window and its tokens in the
 // next. Tokens only appear once the record is written, after
 // the call ends, so the tokens of a call still running count in no window until then. Check runs
-// before the scheduler admits a call and counts neither the tokens of calls still running nor,
-// for the request entries, calls still queued, so concurrent calls can overshoot a quota by what
-// is queued or in flight.
+// before the scheduler admits a call, as the early refusal. A request entry cannot be overshot by
+// calls that are queued, because CountAdmitted re-checks it atomically at admission, on the single
+// writer. A token entry can still be overshot by calls in flight, since tokens are only known once
+// the record is written.
 //
 // The deprecated single figures (grants.Version.LegacyQuotaTokensPerDay and
 // LegacyQuotaRequestsPerDay, and auth.Narrowing.QuotaTokensPerDay and QuotaRequestsPerDay) are
@@ -56,7 +59,8 @@
 // # Persisted and in-memory state
 //
 // The request counters are persisted, so they survive a restart; CountAdmitted prunes the ones
-// whose window ended more than limits.counter_retention ago. Rate buckets, failure counters and
+// whose window ended more than limits.counter_retention ago, at most once per
+// limits.counter_prune_interval per process. Rate buckets, failure counters and
 // near-limit marks live in memory and start empty after a restart. A restart therefore forgets a
 // lockout, and can raise one more quota.near_limit event for a window that already raised one.
 // Failure counters are keyed by remote host and key prefix only (never the secret) and are evicted

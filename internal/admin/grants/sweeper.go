@@ -24,10 +24,10 @@ func hasDeny(body string) bool {
 // DisableFailingRules switches off every enabled rule without `deny` whose failed evaluations
 // have reached policy.rule.max_failures, and returns their ids (req_001 D-73, PLT-B-020). Each
 // rule is one unit of work: the switch and a policy_rule.auto_disabled audit row (the system as
-// actor; the rule id, the failure count and the limit, no name, no document). The host admin
-// sees the policy.rule_invalid event the gateway raised when the rule first failed, and this
-// row. The rule's failures are forgotten afterwards. A rule with `deny` is never switched off:
-// a broken deny rule keeps refusing. With no RuleFailures it does nothing.
+// actor; the rule id and version, the failure count and the limit, no name, no document). The
+// host admin sees the policy.rule_invalid event the gateway raised when the rule first failed,
+// and this row. The rule's failures are forgotten afterwards. A rule with `deny` is never
+// switched off: a broken deny rule keeps refusing. With no RuleFailures it does nothing.
 func (s *Service) DisableFailingRules(ctx context.Context) ([]string, error) {
 	if s.cfg.RuleFailures == nil {
 		return nil, nil
@@ -47,6 +47,7 @@ func (s *Service) DisableFailingRules(ctx context.Context) ([]string, error) {
 			continue
 		}
 		did := false
+		var failures int64
 		err := s.write(ctx, func(tx *storage.Tx) error {
 			did = false
 			cur, err := s.cfg.Grants.PolicyRules.GetTx(tx, r.ID)
@@ -56,12 +57,20 @@ func (s *Service) DisableFailingRules(ctx context.Context) ([]string, error) {
 			if cur.DeletedAt != nil || !cur.Enabled || hasDeny(cur.Body) {
 				return nil // changed since it was listed
 			}
+			if cur.VersionNo != r.VersionNo {
+				return nil // edited since it was listed: the count belongs to an older document
+			}
+			m := s.cfg.RuleFailures.RuleFailures(r.ID)
+			if m < limit {
+				return nil // forgotten since it was counted
+			}
+			failures = m
 			if err := s.cfg.Grants.PolicyRules.SetEnabled(tx, r.ID, false); err != nil {
 				return err
 			}
 			did = true
 			return s.record(tx, audit.Event{Action: ActionPolicyRuleDisabled,
-				Detail: map[string]any{"rule_id": r.ID, "failures": n, "max_failures": limit}})
+				Detail: map[string]any{"rule_id": r.ID, "version": cur.VersionNo, "failures": m, "max_failures": limit}})
 		})
 		if err != nil {
 			return disabled, wrap("disable rule", err)
@@ -69,7 +78,7 @@ func (s *Service) DisableFailingRules(ctx context.Context) ([]string, error) {
 		if !did {
 			continue
 		}
-		s.log.WarnContext(ctx, "admin grants: policy rule switched off after failed evaluations", "rule_id", r.ID, "failures", n)
+		s.log.WarnContext(ctx, "admin grants: policy rule switched off after failed evaluations", "rule_id", r.ID, "failures", failures)
 		s.cfg.RuleFailures.ClearRuleFailures(r.ID)
 		disabled = append(disabled, r.ID)
 	}

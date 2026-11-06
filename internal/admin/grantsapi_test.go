@@ -237,7 +237,9 @@ func TestPolicyRulesOverHTTP(t *testing.T) {
 	} {
 		r = e.call(token, "POST", "/admin/v1/policy-rules", body)
 		status(t, r, http.StatusBadRequest)
-		if inner := r.errBody(t); !strings.HasPrefix(inner["param"].(string), "rule") || strings.Contains(r.Body.String(), "SECRET") {
+		inner := r.errBody(t)
+		param, _ := inner["param"].(string)
+		if !strings.HasPrefix(param, "rule") || strings.Contains(r.Body.String(), "SECRET") {
 			t.Fatalf("error = %s", r.Body.String())
 		}
 	}

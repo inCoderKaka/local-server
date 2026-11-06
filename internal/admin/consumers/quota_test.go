@@ -130,11 +130,12 @@ func TestKeyEntryWiderThanGrantByMetricAndWindow(t *testing.T) {
 		qs    []grants.QuotaEntry
 		param string // "" means accepted
 	}{
-		"equal":                       {[]grants.QuotaEntry{entry(grants.MetricTokens, 1000, 24*time.Hour)}, ""},
-		"wider, same window":          {[]grants.QuotaEntry{entry(grants.MetricTokens, 101, time.Hour)}, "narrowing.quotas.0.limit"},
-		"second entry wider":          {[]grants.QuotaEntry{entry(grants.MetricTokens, 1, 24*time.Hour), entry(grants.MetricRequests, 51, 24*time.Hour)}, "narrowing.quotas.1.limit"},
-		"larger number, other window": {[]grants.QuotaEntry{entry(grants.MetricTokens, 5000, 2*time.Hour)}, ""},
-		"requests, other window":      {[]grants.QuotaEntry{entry(grants.MetricRequests, 99999, time.Hour)}, ""},
+		"equal":                        {[]grants.QuotaEntry{entry(grants.MetricTokens, 1000, 24*time.Hour)}, ""},
+		"wider, same window":           {[]grants.QuotaEntry{entry(grants.MetricTokens, 101, time.Hour)}, "narrowing.quotas.0.limit"},
+		"second entry wider":           {[]grants.QuotaEntry{entry(grants.MetricTokens, 1, 24*time.Hour), entry(grants.MetricRequests, 51, 24*time.Hour)}, "narrowing.quotas.1.limit"},
+		"wider entry that sorts first": {[]grants.QuotaEntry{entry(grants.MetricRequests, 1, 24*time.Hour), entry(grants.MetricTokens, 101, time.Hour)}, "narrowing.quotas.1.limit"},
+		"larger number, other window":  {[]grants.QuotaEntry{entry(grants.MetricTokens, 5000, 2*time.Hour)}, ""},
+		"requests, other window":       {[]grants.QuotaEntry{entry(grants.MetricRequests, 99999, time.Hour)}, ""},
 	} {
 		err := issue(tc.qs...)
 		if tc.param == "" && err != nil {

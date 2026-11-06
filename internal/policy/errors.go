@@ -39,6 +39,8 @@ type Error struct {
 	// RuleID and RuleName name the rule that refused the request or is invalid, if any.
 	RuleID   string
 	RuleName string
+	// RuleVersion is the version of that rule that was evaluated, 0 if unknown (req_001 D-87).
+	RuleVersion int64
 	// Property is the property name concerned, if any.
 	Property string
 	// Properties are the property names concerned, sorted (CodePropertyNotAllowed).

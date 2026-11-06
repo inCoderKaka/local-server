@@ -10,12 +10,13 @@ import (
 	"github.com/inCoderKaka/local-server/internal/storage"
 )
 
-// ruleInvalidPayload carries the rule id, the failure kind and the failure count: no rule
-// body, no name, no request content (req_001 D-31, D-73).
+// ruleInvalidPayload carries the rule id and version, the failure kind and the failure count: no
+// rule body, no name, no request content (req_001 D-31, D-73, D-87).
 type ruleInvalidPayload struct {
-	RuleID   string `json:"rule_id"`
-	Code     string `json:"code"`
-	Failures int64  `json:"failures"`
+	RuleID      string `json:"rule_id"`
+	RuleVersion int64  `json:"rule_version"`
+	Code        string `json:"code"`
+	Failures    int64  `json:"failures"`
 }
 
 // noteRuleFailure handles an Evaluate error that means an enabled policy rule does not parse
@@ -39,11 +40,11 @@ func (g *Gateway) noteRuleFailure(ctx context.Context, cfg config, err error) {
 		g.ruleEventAt[pe.RuleID] = now
 	}
 	g.mu.Unlock()
-	g.log.WarnContext(ctx, "gateway: a policy rule failed to parse and refused a request", "rule_id", pe.RuleID, "code", string(pe.Code), "failures", failures)
+	g.log.WarnContext(ctx, "gateway: a policy rule failed to parse and refused a request", "rule_id", pe.RuleID, "rule_version", pe.RuleVersion, "code", string(pe.Code), "failures", failures)
 	if !emit {
 		return
 	}
-	payload, merr := json.Marshal(ruleInvalidPayload{RuleID: pe.RuleID, Code: string(pe.Code), Failures: failures})
+	payload, merr := json.Marshal(ruleInvalidPayload{RuleID: pe.RuleID, RuleVersion: pe.RuleVersion, Code: string(pe.Code), Failures: failures})
 	if merr == nil {
 		actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.meteringTimeout)
 		defer cancel()

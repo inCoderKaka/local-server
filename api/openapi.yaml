@@ -2129,7 +2129,7 @@ paths:
       operationId: adminReplacePolicyRule
       tags: [admin-grants]
       summary: Replace a policy rule
-      description: Stores a new version of the rule. Audited.
+      description: Replaces the rule. A new immutable version is stored only when the name, position or rule document differs from the current version; changing only `enabled`, or sending the current values again, keeps the version number. Audited.
       security:
         - adminSessionAuth: []
       parameters:
@@ -2146,7 +2146,7 @@ paths:
                 $ref: '#/components/examples/PolicyRuleUpdate'
       responses:
         '200':
-          description: The rule's new version.
+          description: The rule as stored.
           content:
             application/json:
               schema:
@@ -6195,9 +6195,8 @@ components:
           example: null
     BillingMode:
       type: string
-      description: "Set by the host admin only. A consumer with a billing mode other than `none` (`prepaid` or `postpaid`) may set its own quota windows on its keys; for a consumer with `none` the host sets them (D-107). No balances, invoices or prices exist in this version (D-02)."
+      description: "Set by the host admin only. A consumer with a billing mode other than `none` (`prepaid` or `postpaid`) may set its own quota windows on its keys; for a consumer with `none` the host sets them (D-107). No balances, invoices or prices exist in this version (D-02). When a new consumer leaves it out, the host uses `none`."
       enum: [none, prepaid, postpaid]
-      default: none
     ConsumerList:
       type: object
       description: A page of consumers.
@@ -7214,7 +7213,7 @@ components:
           example: 0
         enabled:
           type: boolean
-          description: Whether the rule applies. Switching it on or off does not make a new version. A rule that does not parse and has no `deny` is switched off by the host after it fails too many times.
+          description: Whether the rule applies. Switching it on or off does not make a new version. A rule that does not parse and has no `deny` is switched off by the host after it fails too many times. It describes the rule now, so in a rule's history (GET /admin/v1/policy-rules/{policy_rule_id}/versions) only the current version carries it.
           example: true
         version:
           type: integer
@@ -7299,7 +7298,7 @@ components:
               max_output_tokens: 512
     PolicyRuleUpdate:
       type: object
-      description: A new version of a policy rule. Fields left out keep their current value.
+      description: A replacement for a policy rule. `rule` is always sent; `name`, `position` and `enabled` left out keep their current value.
       required: [rule]
       properties:
         name:

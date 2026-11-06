@@ -892,6 +892,7 @@ func TestSettingsRejectUnusableValues(t *testing.T) {
 		{limits.KeyRateWindow, "0s"},
 		{limits.KeyMaxBodyBytes, "-1"},
 		{limits.KeyCounterRetention, "0s"},
+		{limits.KeyCounterPruneInterval, "0s"},
 		{limits.KeyQuotaWindowMin, "500ms"},
 		{limits.KeyQuotaWindowMax, "0s"},
 	} {

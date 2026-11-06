@@ -2,12 +2,15 @@ package gateway_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/engine/fake"
+	"github.com/inCoderKaka/local-server/internal/gateway"
 	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
@@ -165,6 +168,51 @@ func TestRequestQuotaSkipsRefusedCallsAndCountsFailedOnes(t *testing.T) {
 	}
 	if r.Header().Get("Retry-After") == "" {
 		t.Fatal("no Retry-After")
+	}
+}
+
+// countFake is the real limiter with CountAdmitted replaced by a fixed answer.
+type countFake struct {
+	gateway.Limiter
+	err error
+}
+
+func (f countFake) CountAdmitted(context.Context, *auth.Identity) error { return f.err }
+
+// req_001 D-107: when counting the admitted call finds a request quota used up, the call is
+// refused with 429 quota_exceeded and the scheduler slot it took is freed.
+func TestCountAdmittedQuotaRefusalIs429AndFreesTheSlot(t *testing.T) {
+	qe := &limits.QuotaError{Scope: limits.ScopeAccessKey, Unit: limits.UnitRequests, Limit: 1, Used: 1, Window: time.Hour,
+		ResetsAt: time.Now().Add(time.Hour), RetryAfter: time.Hour}
+	e := newEnv(t, func(o *envOpts) {
+		o.limiter = func(real gateway.Limiter) gateway.Limiter { return countFake{Limiter: real, err: qe} }
+	})
+	r := e.chat(okChat)
+	statusIs(t, r, http.StatusTooManyRequests)
+	if eb := r.errBody(); eb["code"] != "quota_exceeded" || eb["type"] != "insufficient_quota" {
+		t.Fatalf("error = %v", eb)
+	}
+	if r.Header().Get("Retry-After") == "" {
+		t.Fatal("no Retry-After")
+	}
+	if st := e.sched.Stats(); st.Running != 0 || st.Queued != 0 {
+		t.Fatalf("scheduler stats = %+v, want nothing running or queued", st)
+	}
+	if n := e.useRecords(); n != 0 {
+		t.Fatalf("a refused call wrote %d records", n)
+	}
+}
+
+// Any other counting error fails open: the call is served and the failure is logged.
+func TestCountAdmittedOtherErrorFailsOpen(t *testing.T) {
+	e := newEnv(t, func(o *envOpts) {
+		o.limiter = func(real gateway.Limiter) gateway.Limiter {
+			return countFake{Limiter: real, err: errors.New("counter store down")}
+		}
+	})
+	statusIs(t, e.chat(okChat), http.StatusOK)
+	if st := e.sched.Stats(); st.Running != 0 {
+		t.Fatalf("scheduler stats = %+v, want nothing running", st)
 	}
 }
 

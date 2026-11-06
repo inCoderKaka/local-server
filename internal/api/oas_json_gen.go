@@ -4148,7 +4148,6 @@ func (s *Consumer) Decode(d *jx.Decoder) error {
 		return errors.New("invalid: unable to decode Consumer to nil")
 	}
 	var requiredBitSet [2]uint8
-	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -4359,7 +4358,6 @@ func (s *ConsumerCreate) Decode(d *jx.Decoder) error {
 		return errors.New("invalid: unable to decode ConsumerCreate to nil")
 	}
 	var requiredBitSet [1]uint8
-	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -4744,7 +4742,6 @@ func (s *ConsumerUpdate) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode ConsumerUpdate to nil")
 	}
-	s.setDefaults()
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {

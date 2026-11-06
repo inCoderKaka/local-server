@@ -243,3 +243,27 @@ func TestDecideIsDeterministicAcrossRefusals(t *testing.T) {
 		}
 	}
 }
+
+// req_001 D-87: a refusal names the version of the rule that was evaluated.
+func TestRefusalsCarryTheRuleVersion(t *testing.T) {
+	in := policy.Input{Properties: []string{"background"}, Model: "llama3.1:8b", Time: at(12, 0), Grant: grant()}
+	for _, tc := range []struct {
+		name string
+		body string
+		code error
+	}{
+		{"deny", `{"format_version":1,"deny":true}`, policy.ErrDenied},
+		{"outside window", backgroundHours, policy.ErrOutsideWindow},
+		{"invalid rule", `{"format_version":1,"deny":"yes"}`, policy.ErrInvalidRule},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := global("r1", 0, tc.body)
+			r.VersionNo = 7
+			_, err := policy.Decide([]policy.StoredRule{r}, in, lim)
+			var pe *policy.Error
+			if !errors.Is(err, tc.code) || !errors.As(err, &pe) || pe.RuleID != "r1" || pe.RuleVersion != 7 {
+				t.Fatalf("err = %#v, want %v naming rule r1 version 7", err, tc.code)
+			}
+		})
+	}
+}

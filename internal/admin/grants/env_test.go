@@ -25,9 +25,7 @@ import (
 
 var ctx = context.Background()
 
-func i64(v int64) *int64    { return &v }
-func bptr(v bool) *bool     { return &v }
-func sptr(v string) *string { return &v }
+func i64(v int64) *int64 { return &v }
 
 // countingAuth counts the key cache clears the service asks for, and passes them on.
 type countingAuth struct {
@@ -141,7 +139,8 @@ func (e *env) newConsumer(name string) identity.ConsumerAccount {
 	return c
 }
 
-// open allows models the host has not opened yet, as the host would in the admin API.
+// openModels turns on admin.model_default_allowed, so every model stored from now on is open for
+// sharing; models already stored keep their switch.
 func (e *env) openModels() {
 	e.t.Helper()
 	e.set(admingrants.KeyModelDefaultAllowed, "true")
@@ -234,8 +233,6 @@ func rebuildWith(t *testing.T, e *env, eng admingrants.Engine) *env {
 	cp.svc = svc
 	return &cp
 }
-
-func errorsAs(err error, target any) bool { return errors.As(err, target) }
 
 // newServiceWithoutCounter is e's service with no RuleFailures.
 func newServiceWithoutCounter(t *testing.T, e *env) *admingrants.Service {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/ledger"
+	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
 	"github.com/inCoderKaka/local-server/internal/policy"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
@@ -71,12 +72,13 @@ func (g *Gateway) evaluateFor(ctx context.Context, cfg config, id *auth.Identity
 	return dec, err
 }
 
-// admit is F1 step 5. A refusal is a *scheduler.Error. The call is counted once admitted
-// (req_001 D-100). It returns how long Admit took. A synchronous call is never a job: whatever
-// its priority class it gets host_paused while paused and waits at most the queue-wait limit. A
-// job's call is background class with scheduler.Request.Job set, so it stays queued while the host
-// is paused or quiet and waits without a limit (req_001 D-26, D-38); its wait is not an
-// admission-latency sample.
+// admit is F1 step 5. A refusal is a *scheduler.Error. Once admitted, the call's request-quota
+// entries are checked and counted in one unit of work (limits.CountAdmitted, req_001 D-107); a
+// used-up entry releases the ticket and refuses with *limits.QuotaError. It returns how long Admit
+// took. A synchronous call is never a job: whatever its priority class it gets host_paused while
+// paused and waits at most the queue-wait limit. A job's call is background class with
+// scheduler.Request.Job set, so it stays queued while the host is paused or quiet and waits
+// without a limit (req_001 D-26, D-38); its wait is not an admission-latency sample.
 func (g *Gateway) admit(ctx context.Context, c call, model string, dec policy.Decision, p plan) (*scheduler.Ticket, time.Duration, error) {
 	class := scheduler.ClassInteractive
 	if p.background || c.jobID != "" {
@@ -96,8 +98,13 @@ func (g *Gateway) admit(ctx context.Context, c call, model string, dec policy.De
 	if err != nil {
 		return nil, d, err
 	}
-	if err := g.cfg.Limits.CountAdmitted(ctx, c.id); err != nil {
-		g.log.WarnContext(ctx, "gateway: request counter could not be raised", "err", err)
+	if err := g.cfg.Limits.CountAdmitted(context.WithoutCancel(ctx), c.id); err != nil {
+		if errors.Is(err, limits.ErrQuotaExceeded) {
+			tk.Release()
+			return nil, d, err
+		}
+		g.log.WarnContext(ctx, "gateway: request counter could not be raised",
+			"consumer_id", c.id.ConsumerID, "access_key_id", c.id.KeyID, "err", err)
 	}
 	return tk, d, nil
 }

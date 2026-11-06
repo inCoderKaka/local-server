@@ -261,6 +261,8 @@ type envOpts struct {
 	policy  policy.Policy // replaces the real policy service
 	engine  []fake.Option // added to the fake engine's options
 	noJobs  bool          // build the gateway without a jobs service
+	// limiter wraps the real limiter before the gateway gets it.
+	limiter func(real gateway.Limiter) gateway.Limiter
 }
 
 func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
@@ -328,7 +330,11 @@ func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
 	if !o.noJobs {
 		jobsSvc = e.jobs
 	}
-	e.gw, err = gateway.New(gateway.Config{DB: db, Settings: e.st, Events: e.bus, Grants: e.gr, Auth: e.au, Limits: e.lim, Policy: pol,
+	var lim gateway.Limiter = e.lim
+	if o.limiter != nil {
+		lim = o.limiter(e.lim)
+	}
+	e.gw, err = gateway.New(gateway.Config{DB: db, Settings: e.st, Events: e.bus, Grants: e.gr, Auth: e.au, Limits: lim, Policy: pol,
 		Scheduler: e.timed, Sharing: e.share, Engine: e.eng, Ledger: e.meter, Checkpoints: e.cps, Jobs: jobsSvc, Telemetry: e.tel})
 	if err != nil {
 		t.Fatal(err)

@@ -932,7 +932,8 @@ func (s *AuditEventList) SetNextCursor(val NilNextCursor) {
 
 // Set by the host admin only. A consumer with a billing mode other than `none` (`prepaid` or
 // `postpaid`) may set its own quota windows on its keys; for a consumer with `none` the host sets them
-// (D-107). No balances, invoices or prices exist in this version (D-02).
+// (D-107). No balances, invoices or prices exist in this version (D-02). When a new consumer leaves it
+// out, the host uses `none`.
 // Ref: #/components/schemas/BillingMode
 type BillingMode string
 
@@ -7610,7 +7611,9 @@ type PolicyRule struct {
 	// Evaluation order, lowest first.
 	Position OptInt `json:"position"`
 	// Whether the rule applies. Switching it on or off does not make a new version. A rule that does not
-	// parse and has no `deny` is switched off by the host after it fails too many times.
+	// parse and has no `deny` is switched off by the host after it fails too many times. It describes the
+	// rule now, so in a rule's history (GET /admin/v1/policy-rules/{policy_rule_id}/versions) only the
+	// current version carries it.
 	Enabled OptBool `json:"enabled"`
 	// 1 for the first version, then up by one.
 	Version int `json:"version"`
@@ -7794,7 +7797,8 @@ func (s *PolicyRuleRule) init() PolicyRuleRule {
 	return m
 }
 
-// A new version of a policy rule. Fields left out keep their current value.
+// A replacement for a policy rule. `rule` is always sent; `name`, `position` and `enabled` left out
+// keep their current value.
 // Ref: #/components/schemas/PolicyRuleUpdate
 type PolicyRuleUpdate struct {
 	// The rule's name, 1 to 120 characters.

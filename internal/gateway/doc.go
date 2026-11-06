@@ -17,7 +17,7 @@
 //   - step 4, validate: fields the engine port cannot carry are refused (never silently ignored,
 //     D-32), max_tokens is capped, the prompt size is pre-checked against the context cap
 //     (context_too_long unless the grant's on_context_overflow is truncate, D-48);
-//   - step 5, admit: scheduler.Admit with the grant's concurrency limit, then limits.CountAdmitted (D-100);
+//   - step 5, admit: scheduler.Admit with the grant's concurrency limit, then limits.CountAdmitted (D-107);
 //   - step 6, the engine call;
 //   - step 7, SSE, for stream: true (package stream, PLT-F-019): chunks flushed as they arrive, the
 //     receipt as the comment line ": ls-receipt <JWS>" before data: [DONE]. The first-token, idle

@@ -207,16 +207,15 @@ func TestCountersSurviveRestart(t *testing.T) {
 	if qe.Unit != limits.UnitRequests || qe.Used != 2 || qe.Limit != 2 {
 		t.Fatalf("after restart: %+v, want the 2 counted calls to still count", qe)
 	}
-	if err := lim2.CountAdmitted(ctx(), k.id); err != nil {
-		t.Fatal(err)
-	}
+	// The key's entry is full: counting a third call is refused and raises neither entry.
+	quotaErr(t, lim2.CountAdmitted(ctx(), k.id))
 	st, err := lim2.StatusOf(ctx(), k.id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, q := range st.Quotas {
-		if q.Window == time.Hour && *q.UsedRequests != 3 {
-			t.Errorf("grant counter after restart = %d, want 3", *q.UsedRequests)
+		if q.Window == time.Hour && *q.UsedRequests != 2 {
+			t.Errorf("grant counter after restart = %d, want 2", *q.UsedRequests)
 		}
 	}
 }
@@ -341,6 +340,30 @@ func TestCountAdmittedCountsEveryAdmittedCall(t *testing.T) {
 	}
 }
 
+// CountAdmitted re-checks the request entries and the check and the count are one unit of work:
+// a full window refuses with a *QuotaError and no entry of either scope is raised.
+func TestCountAdmittedRefusesAFullWindowAndCountsNothing(t *testing.T) {
+	e := setupVersion(t, grants.NewVersion{Quotas: []grants.QuotaEntry{entry(grants.MetricRequests, 100, time.Hour)}})
+	k := e.issue(narrowing(entry(grants.MetricRequests, 2, time.Hour)))
+	for i := 0; i < 2; i++ {
+		if err := e.lim.CountAdmitted(ctx(), k.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	qe := quotaErr(t, e.lim.CountAdmitted(ctx(), k.id))
+	if qe.Unit != limits.UnitRequests || qe.Limit != 2 || qe.Used != 2 || qe.Scope != limits.ScopeAccessKey || qe.RetryAfter <= 0 {
+		t.Fatalf("QuotaError = %+v, want the key's request entry, 2 of 2", qe)
+	}
+	rd := e.db.Reader()
+	start := e.clock().Truncate(time.Hour)
+	if n, err := usage.RequestCount(ctx(), rd, usage.ByConsumer, k.id.ConsumerID, time.Hour, start); err != nil || n != 2 {
+		t.Errorf("consumer counter = %d, %v; want 2 (the refused call counted nothing)", n, err)
+	}
+	if n, err := usage.RequestCount(ctx(), rd, usage.ByAccessKey, k.id.KeyID, time.Hour, start); err != nil || n != 2 {
+		t.Errorf("key counter = %d, %v; want 2", n, err)
+	}
+}
+
 func TestCountAdmittedWithoutRequestEntriesWritesNothing(t *testing.T) {
 	e := setup(t, i64(100))
 	k := e.issue(keyDay(grants.MetricTokens, 10))
@@ -380,6 +403,7 @@ func TestCountAdmittedConcurrentIsExact(t *testing.T) {
 func TestCountersArePrunedByRetention(t *testing.T) {
 	e := setup(t, nil)
 	e.set(limits.KeyCounterRetention, "4h")
+	e.set(limits.KeyCounterPruneInterval, "1h")
 	k := e.issue(narrowing(entry(grants.MetricRequests, 1_000_000, time.Hour)))
 	counters := func() int {
 		var n int
@@ -395,7 +419,7 @@ func TestCountersArePrunedByRetention(t *testing.T) {
 		}
 		e.advance(time.Hour)
 	}
-	// Now 16:30. The prune runs at most every retention/4 = 1h: the window 10:00-11:00 ended 5h30m
+	// Now 16:30. The prune runs at most every limits.counter_prune_interval = 1h: the window 10:00-11:00 ended 5h30m
 	// ago and is gone once a prune has run at or after 15:00; windows ending within 4h are kept.
 	if err := e.lim.CountAdmitted(ctx(), k.id); err != nil {
 		t.Fatal(err)
@@ -410,7 +434,7 @@ func TestCountersArePrunedByRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := counters(); got != before+1 {
-		t.Fatalf("counters = %d, want %d: a prune ran again within retention/4", got, before+1)
+		t.Fatalf("counters = %d, want %d: a prune ran again within the prune interval", got, before+1)
 	}
 }
 
@@ -477,6 +501,22 @@ func TestCheckWindowAndLegacyWindow(t *testing.T) {
 	}
 	if err := e.st.Set(ctx(), settings.Host, limits.KeyQuotaWindow, "", "500ms"); !errors.Is(err, settings.ErrRejected) {
 		t.Errorf("quota_window 500ms: %v, want ErrRejected", err)
+	}
+}
+
+// A maximum below the minimum allows no window, and the refusal says so.
+func TestCheckWindowSaysWhenTheBoundsAllowNoWindow(t *testing.T) {
+	e := setup(t, nil)
+	e.set(limits.KeyQuotaWindowMax, "10m")
+	e.set(limits.KeyQuotaWindowMin, "1h")
+	err := limits.CheckWindow(ctx(), e.st, 30*time.Minute)
+	var we *limits.WindowError
+	if !errors.As(err, &we) {
+		t.Fatalf("err = %v, want *WindowError", err)
+	}
+	want := "This host allows no quota window: its shortest window (1h0m0s) is longer than its longest (10m0s)."
+	if we.Reason != want {
+		t.Fatalf("reason = %q, want %q", we.Reason, want)
 	}
 }
 

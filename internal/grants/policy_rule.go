@@ -198,8 +198,3 @@ func (r *PolicyRuleRepo) Versions(ctx context.Context, rd *storage.Reader, id st
 	}
 	return collect(rows, scanRuleVersion)
 }
-
-// GetVersion returns one version of a rule.
-func (r *PolicyRuleRepo) GetVersion(ctx context.Context, rd *storage.Reader, id string, versionNo int64) (PolicyRuleVersion, error) {
-	return first[PolicyRuleVersion](rd.Query(ctx, `SELECT `+ruleVersionCols+` FROM grt_policy_rule_version WHERE rule_id = ? AND version_no = ?`, id, versionNo))(scanRuleVersion)
-}

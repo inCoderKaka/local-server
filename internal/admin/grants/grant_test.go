@@ -1,12 +1,16 @@
 package grants_test
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	admingrants "github.com/inCoderKaka/local-server/internal/admin/grants"
+	"github.com/inCoderKaka/local-server/internal/engine"
+	"github.com/inCoderKaka/local-server/internal/engine/fake"
 	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/storage"
 )
@@ -204,6 +208,15 @@ func TestGrantDeprecatedQuota(t *testing.T) {
 	if len(v.Limits.Quotas) != 1 || v.Limits.Quotas[0].Limit != 7 || v.Limits.Quota != nil {
 		t.Fatalf("quotas win: %+v alias %+v", v.Limits.Quotas, v.Limits.Quota)
 	}
+	// The changed window applies to the deprecated quota too.
+	in.Quotas, in.Quota = nil, &consumers.Quota{Tokens: i64(1000)}
+	v, err = e.svc.SetGrant(ctx, e.admin, c.ID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Limits.Quotas) != 1 || v.Limits.Quotas[0].Window != 12*time.Hour || v.Limits.Quotas[0].Limit != 1000 {
+		t.Fatalf("legacy quota with the changed window: %+v", v.Limits.Quotas)
+	}
 	in.Quotas, in.Quota = nil, &consumers.Quota{Tokens: i64(-1)}
 	_, err = e.svc.SetGrant(ctx, e.admin, c.ID, in)
 	wantKind(t, err, admingrants.KindInvalid, "limits.quota.tokens")
@@ -258,6 +271,95 @@ func TestGrantModelsAreChecked(t *testing.T) {
 	// The old version still names it.
 	if cur, err = e.svc.GetGrant(ctx, c.ID); err != nil || cur.Limits.Models[0].Model != "m1" {
 		t.Fatalf("grant = %+v, %v", cur, err)
+	}
+}
+
+// hookEngine is an engine whose model hide is not listed until the one-shot hook has run. The hook
+// runs on the first ListModels call after it is armed, so a test can change the host while a grant
+// edit is between its checks and its write.
+type hookEngine struct {
+	*fake.Engine
+	hide     string
+	mu       sync.Mutex
+	hook     func()
+	revealed bool
+}
+
+func (h *hookEngine) arm(hook func()) {
+	h.mu.Lock()
+	h.hook = hook
+	h.mu.Unlock()
+}
+
+func (h *hookEngine) ListModels(ctx context.Context) ([]engine.Model, error) {
+	h.mu.Lock()
+	hook := h.hook
+	if hook != nil {
+		h.hook = nil
+		h.revealed = true
+	}
+	revealed := h.revealed
+	h.mu.Unlock()
+	if hook != nil {
+		hook() // never with the lock held: the hook may call back into the service
+	}
+	all, err := h.Engine.ListModels(ctx)
+	if err != nil || revealed {
+		return all, err
+	}
+	out := all[:0:0]
+	for _, m := range all {
+		if m.Name != h.hide {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+// A model closed between the grant edit's checks and its write is refused, and nothing is written.
+func TestGrantModelClosedDuringTheEditIsRefused(t *testing.T) {
+	e := newEnv(t)
+	e.openModels()
+	c := e.newConsumer("App")
+	he := &hookEngine{Engine: e.eng, hide: "m2"}
+	e2 := rebuildWith(t, e, he)
+	ms, err := e2.svc.ListModels(ctx) // stores m1 only: m2 is hidden
+	if err != nil {
+		t.Fatal(err)
+	}
+	m1 := modelByName(t, ms, "m1")
+	// m2 is unknown to the host, so the edit asks the engine, and that is when m1 is closed.
+	he.arm(func() {
+		if err := e.db.Write(ctx, func(tx *storage.Tx) error { return e.gr.Models.SetConfig(tx, m1.ID, false, nil) }); err != nil {
+			t.Error(err)
+		}
+	})
+	_, err = e2.svc.SetGrant(ctx, e.admin, c.ID, limits("m1", "m2"))
+	wantKind(t, err, admingrants.KindInvalid, "limits.models.0.model")
+	if n := e.count(`SELECT count(*) FROM grt_version`); n != 0 {
+		t.Fatalf("%d grant versions stored, want none", n)
+	}
+}
+
+// A consumer deleted between the grant edit's checks and its write gets no version.
+func TestGrantConsumerDeletedDuringTheEditIsRefused(t *testing.T) {
+	e := newEnv(t)
+	e.openModels()
+	c := e.newConsumer("App")
+	he := &hookEngine{Engine: e.eng, hide: "m2"}
+	e2 := rebuildWith(t, e, he)
+	if _, err := e2.svc.ListModels(ctx); err != nil { // stores m1 only: m2 is hidden
+		t.Fatal(err)
+	}
+	he.arm(func() {
+		if err := e.cons.DeleteConsumer(ctx, e.admin, c.ID); err != nil {
+			t.Error(err)
+		}
+	})
+	_, err := e2.svc.SetGrant(ctx, e.admin, c.ID, limits("m1", "m2"))
+	wantKind(t, err, admingrants.KindConflict, "")
+	if n := e.count(`SELECT count(*) FROM grt_version`); n != 0 {
+		t.Fatalf("%d grant versions stored, want none", n)
 	}
 }
 

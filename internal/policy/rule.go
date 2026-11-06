@@ -22,6 +22,7 @@ const FormatV1 int64 = 1
 type rule struct {
 	id, name string
 	position int64
+	version  int64
 
 	props  map[string]Value // nil: any properties
 	models []string         // nil: any model
@@ -92,7 +93,7 @@ func parseRule(sr StoredRule, maxBytes int) (*rule, error) {
 	if err := dec.Decode(&d); err != nil {
 		return nil, ruleErr("%v", err)
 	}
-	r := &rule{id: sr.ID, name: sr.Name, position: sr.Position}
+	r := &rule{id: sr.ID, name: sr.Name, position: sr.Position, version: sr.VersionNo}
 	if err := r.fromV1(d); err != nil {
 		return nil, err
 	}

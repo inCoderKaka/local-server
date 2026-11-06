@@ -56,10 +56,6 @@ VALUES (?, ?, ?, 'gv', 'chat.completions', 'm', 'completed', 0, ?, ?, 5, ?, ?, '
 			t.Errorf("%s: TokensStartedIn = %d, %v; want %d", tc.name, got, err, tc.want)
 		}
 	}
-	// The finished_at variant still sees the spanning record in the later window.
-	if got, err := Tokens(ctx, rd, ByConsumer, consA, boundary, boundary.Add(time.Hour)); err != nil || got != 110 {
-		t.Errorf("Tokens by finished_at = %d, %v; want 110", got, err)
-	}
 	if _, err := TokensStartedIn(ctx, rd, By(99), consA, t0, boundary); err == nil {
 		t.Error("an unknown subject kind was accepted")
 	}

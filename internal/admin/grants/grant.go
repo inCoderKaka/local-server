@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -209,6 +210,33 @@ func (s *Service) SetGrant(ctx context.Context, actor, consumerID string, in Lim
 	nv.CreatedBy = ptrOrNil(actor)
 	var created grants.Version
 	err = s.write(ctx, func(tx *storage.Tx) error {
+		// The consumer as this transaction sees it: it may have been deleted since the check above.
+		a, err := s.cfg.Identity.Consumers.GetAccountTx(tx, consumerID)
+		if errors.Is(err, identity.ErrNotFound) {
+			return errNoConsumer
+		}
+		if err != nil {
+			return err
+		}
+		if a.Status == identity.StatusDeleted {
+			return errDeleted
+		}
+		// The models as this transaction sees them: one may have been retired or closed since the
+		// check in newVersion. versionModels made one entry per requested model, in order.
+		for i, vm := range nv.Models {
+			param := "limits.models." + strconv.Itoa(i) + ".model"
+			row, err := s.cfg.Grants.Models.GetTx(tx, vm.ModelID)
+			switch {
+			case isNotFound(err):
+				return invalid(param, "The host does not know this model.")
+			case err != nil:
+				return err
+			case row.RetiredAt != nil:
+				return invalid(param, "This model is retired.")
+			case !row.Allowed:
+				return invalid(param, "The host has not opened this model for sharing.")
+			}
+		}
 		g, err := s.cfg.Grants.Grants.GetByConsumerTx(tx, consumerID)
 		if isNotFound(err) {
 			g, err = s.cfg.Grants.Grants.Create(tx, consumerID)

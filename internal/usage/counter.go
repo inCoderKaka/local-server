@@ -58,6 +58,29 @@ func RequestCount(ctx context.Context, rd *storage.Reader, by By, id string, win
 	return n, rows.Err()
 }
 
+// RequestCountTx is RequestCount in the caller's unit of work: it sees the unit's own earlier
+// writes and the writer's state, so a check made here and an AddRequest after it cannot be
+// interleaved with another unit.
+func RequestCountTx(tx *storage.Tx, by By, id string, window time.Duration, start time.Time) (int64, error) {
+	kind, err := by.kind()
+	if err != nil {
+		return 0, err
+	}
+	rows, err := tx.Query(`SELECT request_count FROM use_request_counter WHERE subject_kind = ? AND subject_id = ? AND window_ms = ? AND window_start_ms = ?`,
+		kind, id, window.Milliseconds(), start.UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var n int64
+	if rows.Next() {
+		if err := rows.Scan(&n); err != nil {
+			return 0, err
+		}
+	}
+	return n, rows.Err()
+}
+
 // PruneRequestCounters deletes the counters whose window ended before cutoff and returns how many.
 // A window that has not ended is never deleted.
 func PruneRequestCounters(tx *storage.Tx, cutoff time.Time) (int64, error) {

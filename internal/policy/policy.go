@@ -88,6 +88,9 @@ type StoredRule struct {
 	FormatVersion int64
 	Body          string
 	Enabled       bool
+	// VersionNo is the rule's live version in grt_policy_rule_version; 0 when the source does
+	// not know it (req_001 D-87).
+	VersionNo int64
 }
 
 // RuleSource loads the stored rules that apply to a grant: its own and the global ones.
@@ -138,11 +141,11 @@ func Decide(rules []StoredRule, in Input, lim Limits) (Decision, error) {
 			continue
 		}
 		if r.deny {
-			return Decision{}, &Error{Code: CodeDenied, RuleID: r.id, RuleName: r.name, Message: "a rule refuses this request"}
+			return Decision{}, &Error{Code: CodeDenied, RuleID: r.id, RuleName: r.name, RuleVersion: r.version, Message: "a rule refuses this request"}
 		}
 		if r.windows != nil && !r.inWindows(in.Time) {
 			if outside == nil {
-				outside = &Error{Code: CodeOutsideWindow, RuleID: r.id, RuleName: r.name, Opens: r.nextOpen(in.Time),
+				outside = &Error{Code: CodeOutsideWindow, RuleID: r.id, RuleName: r.name, RuleVersion: r.version, Opens: r.nextOpen(in.Time),
 					Message: "this request is allowed only inside the rule's time windows"}
 			}
 			continue
@@ -212,7 +215,7 @@ func applicable(rules []StoredRule, grantID string, maxBytes int) ([]*rule, erro
 		if err != nil {
 			var e *Error
 			if errors.As(err, &e) {
-				e.RuleID, e.RuleName = sr.ID, sr.Name
+				e.RuleID, e.RuleName, e.RuleVersion = sr.ID, sr.Name, sr.VersionNo
 			}
 			return nil, err
 		}

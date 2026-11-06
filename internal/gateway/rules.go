@@ -28,7 +28,7 @@ func (s ruleSource) Rules(ctx context.Context, grantID string) ([]policy.StoredR
 	out := make([]policy.StoredRule, len(rows))
 	for i, r := range rows {
 		out[i] = policy.StoredRule{ID: r.ID, GrantID: r.GrantID, Name: r.Name, Position: r.Position,
-			FormatVersion: r.FormatVersion, Body: r.Body, Enabled: r.Enabled}
+			FormatVersion: r.FormatVersion, Body: r.Body, Enabled: r.Enabled, VersionNo: r.VersionNo}
 	}
 	return out, nil
 }

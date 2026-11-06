@@ -2,6 +2,7 @@ package gateway_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -141,6 +142,15 @@ func TestPolicyBackgroundPriorityAndCapsReachTheEngine(t *testing.T) {
 func TestBrokenPolicyRuleFailsClosedAndIsReported(t *testing.T) {
 	e := newEnv(t)
 	broken := e.addRule("broken", true, 0, `{"format_version":1,"deny":"yes"}`)
+	// One edit makes version 2, the live one; the event names it (req_001 D-87).
+	var liveVersion int64
+	err := e.db.Write(context.Background(), func(tx *storage.Tx) (err error) {
+		liveVersion, err = e.gr.PolicyRules.UpdateBy(tx, nil, broken.ID, "broken", 0, 1, `{"format_version":1,"deny":"no"}`, true)
+		return err
+	})
+	if err != nil || liveVersion != 2 {
+		t.Fatalf("UpdateBy = version %d, err %v; want version 2", liveVersion, err)
+	}
 	for i := 0; i < 3; i++ {
 		r := e.chat(okChat)
 		statusIs(t, r, http.StatusInternalServerError)
@@ -164,6 +174,12 @@ func TestBrokenPolicyRuleFailsClosedAndIsReported(t *testing.T) {
 	}
 	if p := string(evs[0].Payload); !strings.Contains(p, broken.ID) || strings.Contains(p, "deny") || strings.Contains(p, "broken") {
 		t.Fatalf("payload = %s, want the rule id and no body or name", p)
+	}
+	var got struct {
+		RuleVersion int64 `json:"rule_version"`
+	}
+	if err := json.Unmarshal(evs[0].Payload, &got); err != nil || got.RuleVersion != liveVersion {
+		t.Fatalf("payload = %s (err %v), want rule_version %d", evs[0].Payload, err, liveVersion)
 	}
 	if !strings.Contains(e.tel.logText(), broken.ID) {
 		t.Error("no log line names the broken rule")
