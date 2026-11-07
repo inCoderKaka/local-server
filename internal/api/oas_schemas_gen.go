@@ -8359,7 +8359,8 @@ type ResourceRequest struct {
 	Comments []Comment `json:"comments"`
 	// Only the answer to a create (fields of `ask` the host ignored, for example
 	// `ask.bogus is not a known field and was ignored`) or to an approval (fields of `limits` it ignored)
-	// fills it; it never quotes a value (D-105). Absent on every read.
+	// fills it; it never quotes a value (D-105). Planned under PLT-F-028, no handler fills it yet. Absent
+	// on every read.
 	Warnings []string `json:"warnings"`
 }
 
