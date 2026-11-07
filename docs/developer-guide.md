@@ -85,7 +85,7 @@ Errors use the OpenAI error envelope plus a typed `code`. Use `Retry-After` wher
 | `invalid_request_properties` | Fix the `LS-Request-Properties` header; it is malformed or over the host's limits |
 | `unsupported_parameter` | Remove the field named in `param` |
 | `invalid_api_key` | The access key is missing, unknown, expired or revoked; get a valid key from the host |
-| `rate_limit_exceeded` | Slow down and retry after `Retry-After`; after repeated failed key checks this is a lockout |
+| `rate_limit_exceeded` | Slow down and retry after `Retry-After`. One allowance per access key covers every `/v1` call made with the key, status reads such as `/v1/health`, `/v1/models` and `/v1/capabilities` included, so polling them spends it too. After repeated failed key checks this is a lockout |
 
 A good client:
 - checks `/v1/health` before falling back;

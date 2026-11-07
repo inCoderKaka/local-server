@@ -16,7 +16,7 @@ Only what is open. Rewritten whole at the end of each implementation session.
   1. PLT-F-097 (B4/S26c, D-106; owns the `identity` 0003 cascade migration).
   2. PLT-F-027 (B4/S29). No D-row records the PLT-C-002 draft approval or the `go-webauthn` dependency.
   3. PLT-F-028 (B4/S30), after F-027. It must fill `ResourceRequest.warnings` through the shared walker.
-- **Ruled but not built:** PLT-B-061 (D-132), the D-112..D-121 rulings (B-028, B-031, B-041, B-026, B-029, B-038, B-040, B-047, B-048, B-052) and the P3 ones. Their ticket rows do not point at the D-rows yet. A "bugs only" priority makes PLT-B-031, B-038, B-040, B-052, B-047 and B-029 eligible for a passive session.
+- **Ruled but not built:** PLT-B-061 (D-132), the D-112..D-121 rulings (B-028, B-031, B-041, B-026, B-029, B-038, B-040, B-047, B-048, B-052) and the P3 ones. Their ticket rows now point at the D-rows. A "bugs only" priority makes PLT-B-031, B-038, B-040, B-052, B-047 and B-029 eligible for a passive session.
 - **Captured and open from this session:** PLT-B-066 (the `prompt_tokens_estimated` marker is signed into a dropped receipt and not stored; needs `usage` migration 0005), PLT-B-067 (needs ruling), PLT-F-105, PLT-F-106.
 - **Drift not fixed:** D-46, D-47 and D-50 stale against their depends-on; the D-41..D-45 body paths; 31 `schema-table-missing` warnings; 18 `WARN-no-model` and 19 `WARN-source-no-origin` ticket warnings.
 - CI has never run on GitHub. The Windows sleep-lock adapter has never run on Windows. `ai-mirror` is not available in this repo.
@@ -27,6 +27,7 @@ Only what is open. Rewritten whole at the end of each implementation session.
 - **PLT-F-105 ruling.** Does a call that fails midway bill an estimated prompt under D-108? Recommended: yes, behind `gateway.chars_per_token`, decided together with PLT-B-067.
 - **PLT-B-066:** your go to apply `usage` migration 0005. A passive session cannot. Recommended: apply it with the four pending migrations in one back-up-first run.
 - **D-132's audit row** (blocks PLT-B-061). Recorded as no audit row for an identical PUT. Confirm or correct.
+- **PLT-C-002 drafts and `go-webauthn`** (block PLT-F-027). Approve the Terms and Privacy drafts (open points in each draft's review note) and allow the `go-webauthn` dependency, so both can be recorded as D-rows before PLT-F-027 builds.
 - Skim D-109..D-130 in `req_001.decisions.md` (written from summaries; `depends-on` cells are best-effort).
 - Review I-387..I-402. Recommended: accept. Look first at I-387, I-388, I-392, I-399 (marker outside the canonical leaf) and I-402.
 - Say when to apply the four pending migrations to a real data dir (back up first).

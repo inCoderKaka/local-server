@@ -30,6 +30,8 @@ Open the admin page in your browser. It only opens on your own computer, unless 
 - **Pick the models** you allow, and for each person or app, how long their messages may be (the **context limit**) and how much they may use (**quotas**: a limit on tokens or requests for a time window you choose, such as an hour or a day; a person or app can have several). A person or app marked **prepaid** or **postpaid** may choose the windows of its own keys; for everyone else you choose them. No money is handled yet.
 - **Choose when.** Pause sharing at any time with one switch, set **quiet hours**, or allow heavy background work only at night (**background-work hours**).
 
+If the admin password is typed wrongly too many times, the admin page stops accepting logins from your computer for a while. Every program on your computer counts as the same visitor, so another program can cause this too. Restarting local-server lifts it at once.
+
 ### Invite people and apps
 
 - **People:** create an **invite** and send them the link. They sign up with a password or a passkey and get their own page.
@@ -46,7 +48,7 @@ The dashboard shows current use and use over time: per person, per app and per m
 
 ### Backups
 
-Turn on backups to a folder or to a storage bucket you own (Cloudflare R2 or Google Cloud Storage). Backups are encrypted on your computer before they leave it. You choose what goes in: by default, background-job content and login sessions are left out, and you can keep or leave out any kind of data, with one limit: you can leave a kind of data out only if everything that depends on it is left out too. If you try otherwise, local-server refuses the change and names the data involved. If background-job content was left out of a backup, jobs that were still waiting or running when it was taken come back as failed after a restore, so apps send them again. Keep the **recovery code** you are shown; it is the only way to restore.
+Turn on backups to a folder or to a storage bucket you own (Cloudflare R2 or Google Cloud Storage). Backups are encrypted on your computer before they leave it. You choose what goes in: by default, background-job content and login sessions are left out, and you can keep or leave out any kind of data, with one limit: you can leave a kind of data out only if everything that depends on it is left out too. If you try otherwise, local-server refuses the change and names the data involved. If background-job content was left out of a backup, jobs that were still waiting or running when it was taken come back as failed after a restore, so apps send them again. Restoring an older backup takes the **usage ledger** back to the moment that backup was taken. When you restore, local-server warns you that receipts issued after that moment will no longer verify. Keep the **recovery code** you are shown; it is the only way to restore.
 
 ## For consumers
 
