@@ -13,6 +13,8 @@ import (
 	"github.com/inCoderKaka/local-server/internal/usage"
 )
 
+//go:generate go test -run TestSchemaDoc -update .
+
 // registry is the module registry: one line per module that owns tables, in migration order
 // (req_001 D-39 F9 step 2). storage.Open applies the storage module's own migrations first and
 // then these, in this order, and refuses a table that references a table of a module listed

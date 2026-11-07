@@ -57,5 +57,3 @@
 //
 // Prompts and responses are never written by this package (D-31, D-40).
 package storage
-
-//go:generate go test -run TestSchemaDoc -update .

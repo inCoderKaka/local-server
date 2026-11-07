@@ -8,11 +8,11 @@ import (
 
 // SchemaDoc renders the schema reference (Markdown) from the live schema and
 // ops_data_catalog. The output is deterministic: no timestamps, sorted by table and
-// column position. docs/schema-reference.md is kept equal to it by TestSchemaDoc.
+// column position. docs/schema-reference.md is kept equal to it, for every registered module, by TestSchemaDoc in cmd/local-server.
 func (db *DB) SchemaDoc(ctx context.Context) (string, error) {
 	var b strings.Builder
 	b.WriteString("# Schema reference\n\n")
-	b.WriteString("Generated from the migrations by `go generate ./internal/storage` (storage module, D-44). Do not edit by hand.\n")
+	b.WriteString("Generated from the migrations by `go generate ./cmd/local-server` (storage module, D-44). Do not edit by hand.\n")
 	b.WriteString("Classification: public, internal, personal, sensitive or content. Billable: whether the data may be billed for later.\n")
 	trows, err := db.read.QueryContext(ctx, `SELECT table_name, module, classification, billable, comment FROM ops_data_catalog WHERE column_name='' ORDER BY table_name`)
 	if err != nil {

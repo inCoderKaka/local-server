@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"flag"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -16,8 +15,6 @@ import (
 	"testing/fstest"
 	"time"
 )
-
-var update = flag.Bool("update", false, "regenerate docs/schema-reference.md")
 
 const demoSQL = `CREATE TABLE tst_item (id INTEGER PRIMARY KEY, name TEXT NOT NULL) STRICT;
 --@table tst_item classification=personal billable=true | A test item.
@@ -456,31 +453,6 @@ func TestApplySkipsMigrationAppliedMeanwhile(t *testing.T) {
 	}
 	if n := count(t, db, `SELECT count(*) FROM ops_migration_run WHERE outcome='failed'`); n != 0 {
 		t.Fatalf("%d failed rows", n)
-	}
-}
-
-// TestSchemaDoc regenerates the schema reference and compares it with the committed file.
-// Run `go generate ./internal/storage` (or go test -run TestSchemaDoc -update) to rewrite it.
-// It covers the storage module's own tables; modules add theirs when they register in cmd/.
-func TestSchemaDoc(t *testing.T) {
-	db := open(t, filepath.Join(t.TempDir(), "d.db"))
-	got, err := db.SchemaDoc(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	file := filepath.Join("..", "..", "docs", "schema-reference.md")
-	if *update {
-		if err := os.WriteFile(file, []byte(got), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	want, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatalf("%v (run go generate ./internal/storage)", err)
-	}
-	if string(want) != got {
-		t.Fatal("docs/schema-reference.md is out of date; run go generate ./internal/storage")
 	}
 }
 
