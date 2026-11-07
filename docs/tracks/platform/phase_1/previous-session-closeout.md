@@ -22,7 +22,7 @@ Session: 2026-11-07 · passive · f696e97..c65cfae · tree clean · 148 unpushed
 | small tickets | 0 | 0 | 58 | 1 | 58 |
 | bugs | 2 | 0 | 34 | 2 | 34 |
 
-Dropped: PLT-B-045 (phase bugs; dropped by the docs gate under D-111). PLT-C-017 was closed by the docs gate, not built, so the phase small row reads 58 open instead of 59. PLT-B-051 was closed by the docs gate (D-124), so the phase bug row reads 34: 34 + 2 new − 2 gated (B-054, B-035) − 1 dropped − 1 closed by the gate = 32 by arithmetic; the status file's own count is authoritative and `ticket-drift` reports no mismatch. Gated: PLT-B-054 and PLT-B-035 (`bc26451`). Ungated: none built.
+Dropped: PLT-B-045 (dropped by the docs gate under D-111). The docs gate also closed PLT-C-017 and PLT-B-051 (not built this session), so the small-ticket and bug rows above, taken from the report call before the gate, are one to two higher than `implementation-status.md` now says; regenerate the status for the exact figures. Gated: PLT-B-054 and PLT-B-035 (`bc26451`). Ungated: none built.
 
 **Bugs seen**
 - PLT-B-066: the `prompt_tokens_estimated` marker is signed into a dropped receipt and not stored on `use_record` (captured).
