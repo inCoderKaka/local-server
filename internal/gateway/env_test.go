@@ -192,6 +192,19 @@ type flakyMeter struct {
 	calls    int
 	// signFails makes SignUnmetered fail.
 	signFails bool
+	// recorded is every Usage Record committed, and receipts their receipts, in order.
+	recorded []ledger.Usage
+	receipts []string
+}
+
+// lastRecorded is the latest committed Usage and its receipt.
+func (m *flakyMeter) lastRecorded() (ledger.Usage, string, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.recorded) == 0 {
+		return ledger.Usage{}, "", false
+	}
+	return m.recorded[len(m.recorded)-1], m.receipts[len(m.receipts)-1], true
 }
 
 func (m *flakyMeter) SignUnmetered(u ledger.Usage) (ledger.Signed, error) {
@@ -215,7 +228,13 @@ func (m *flakyMeter) Record(ctx context.Context, u ledger.Usage) (ledger.Recorde
 	if fail {
 		return ledger.Recorded{}, io.ErrUnexpectedEOF
 	}
-	return m.Ledger.Record(ctx, u)
+	rec, err := m.Ledger.Record(ctx, u)
+	if err == nil {
+		m.mu.Lock()
+		m.recorded, m.receipts = append(m.recorded, u), append(m.receipts, rec.Receipt.JWS)
+		m.mu.Unlock()
+	}
+	return rec, err
 }
 
 func (m *flakyMeter) set(n int) { m.mu.Lock(); m.failures = n; m.mu.Unlock() }

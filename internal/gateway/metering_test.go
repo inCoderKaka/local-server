@@ -2,6 +2,7 @@ package gateway_test
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"strings"
 	"testing"
@@ -172,8 +173,9 @@ func (s slowStream) Recv() (engine.ChatChunk, error) {
 	return s.ChatStream.Recv()
 }
 
-// D-38 interactive-request machine: a client disconnect during the engine call is metered as
-// aborted with the tokens so far.
+// D-38 interactive-request machine, D-108: a client disconnect during the engine call is metered
+// as aborted with the completion tokens so far and an estimated prompt (okChat's prompt is 11
+// bytes, 3 tokens at the default 4 bytes per token); the receipt marks the prompt as estimated.
 func TestClientDisconnectMetersAbortedChat(t *testing.T) {
 	e := newEnv(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -191,9 +193,73 @@ func TestClientDisconnectMetersAbortedChat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if outcome != string(ledger.OutcomeAborted) || prompt != 0 || completion != 3 {
-		t.Fatalf("row = %s, %d prompt, %d completion; want aborted, 0, 3", outcome, prompt, completion)
+	if outcome != string(ledger.OutcomeAborted) || prompt != 3 || completion != 3 {
+		t.Fatalf("row = %s, %d prompt, %d completion; want aborted, 3, 3", outcome, prompt, completion)
 	}
+	e.wantMarked(t, true)
+}
+
+// wantMarked checks the latest committed record's usage and receipt: the prompt count is marked
+// as estimated or not, on the Usage and on the signed receipt.
+func (e *env) wantMarked(t *testing.T, want bool) {
+	t.Helper()
+	u, jws, ok := e.meter.lastRecorded()
+	if !ok {
+		t.Fatal("no record was committed")
+	}
+	if u.PromptTokensEstimated != want {
+		t.Fatalf("usage marker = %v, want %v", u.PromptTokensEstimated, want)
+	}
+	rc := e.verify(jws)
+	if rc.PromptTokensEstimated != want {
+		t.Fatalf("receipt marker = %v, want %v", rc.PromptTokensEstimated, want)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.Split(jws, ".")[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has := strings.Contains(string(raw), "prompt_tokens_estimated"); has != want {
+		t.Fatalf("receipt payload names the marker = %v, want %v: %s", has, want, raw)
+	}
+}
+
+// The estimate follows gateway.chars_per_token (req_001 D-108, D-38): 11 bytes are 11 tokens at 1
+// byte per token, 6 at 2, 3 at 4 (the default) and 1 at 20; the setting is read for each call.
+func TestAbortedPromptEstimateFollowsTheSetting(t *testing.T) {
+	e := newEnv(t)
+	for i, c := range []struct {
+		perToken string
+		want     int64
+	}{{"1", 11}, {"2", 6}, {"20", 1}} {
+		e.set(gateway.KeyCharsPerToken, c.perToken)
+		ctx, cancel := context.WithCancel(context.Background())
+		e.eng.wrapChat = func(s engine.ChatStream) engine.ChatStream { return &cancelAfter{ChatStream: s, n: 2, cancel: cancel} }
+		statusIs(t, e.doCtx(ctx, "/v1/chat/completions", okChat), 499)
+		cancel()
+		rows := e.useRows()
+		if len(rows) != i+1 || rows[i] != (useRow{ledger.OutcomeAborted, c.want, 2}) {
+			t.Fatalf("chars_per_token %s: rows = %+v, want an aborted row with %d prompt and 2 completion tokens", c.perToken, rows, c.want)
+		}
+		e.wantMarked(t, true)
+	}
+	// Only a byte count reaches the metering: no prompt text in the logs (req_001 D-31, D-40).
+	if logs := e.tel.logText(); strings.Contains(logs, "hello there") {
+		t.Fatalf("the prompt text is in the logs: %s", logs)
+	}
+}
+
+// A completed call bills the engine's exact count and its receipt carries no marker.
+func TestCompletedCallReceiptHasNoEstimatedMarker(t *testing.T) {
+	e := newEnv(t)
+	statusIs(t, e.chat(okChat), http.StatusOK)
+	e.wantMarked(t, false)
+	if rows := e.useRows(); len(rows) != 1 || rows[0].outcome != ledger.OutcomeCompleted {
+		t.Fatalf("rows = %+v", rows)
+	}
+	statusIs(t, e.chat(streamChatBody), http.StatusOK)
+	e.wantMarked(t, false)
+	statusIs(t, e.embed(`{"model":"`+embedModel+`","input":"alpha"}`), http.StatusOK)
+	e.wantMarked(t, false)
 }
 
 func TestClientDisconnectMetersAbortedEmbeddings(t *testing.T) {
@@ -210,9 +276,11 @@ func TestClientDisconnectMetersAbortedEmbeddings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if outcome != string(ledger.OutcomeAborted) || prompt != 0 || completion != 0 {
-		t.Fatalf("row = %s, %d prompt, %d completion; want aborted, 0, 0", outcome, prompt, completion)
+	// "alpha" is 5 bytes: 2 tokens at the default 4 bytes per token (req_001 D-108).
+	if outcome != string(ledger.OutcomeAborted) || prompt != 2 || completion != 0 {
+		t.Fatalf("row = %s, %d prompt, %d completion; want aborted, 2, 0", outcome, prompt, completion)
 	}
+	e.wantMarked(t, true)
 }
 
 func TestEngineTimeoutWritesNoUsageRecord(t *testing.T) {

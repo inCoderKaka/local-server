@@ -54,7 +54,7 @@ func Defs() []settings.Def {
 		{Key: KeyDefaultContextTokens, Kind: settings.Int, Default: "4096", Owner: h,
 			Description: "Context size in tokens sent to the engine when neither the grant nor a policy rule sets a context cap."},
 		{Key: KeyCharsPerToken, Kind: settings.Int, Default: "4", Owner: h,
-			Description: "Bytes of prompt text counted as one token when the gateway estimates the prompt size before the engine runs. With on_context_overflow refuse, a prompt whose estimate exceeds the context cap is refused with context_too_long before the engine runs, so a higher value makes this pre-check more lenient. The engine's own count is exact."},
+			Description: "Bytes of prompt text counted as one token when the gateway estimates the prompt size without the engine's count. With on_context_overflow refuse, a prompt whose estimate exceeds the context cap is refused with context_too_long before the engine runs, so a higher value makes this pre-check more lenient. It also sets the estimated prompt tokens billed for a call the client abandoned (aborted), which the receipt marks with prompt_tokens_estimated, so a higher value bills fewer. The engine's own count is exact."},
 		{Key: KeyMaxEmbeddingInputs, Kind: settings.Int, Default: "128", Owner: h,
 			Description: "Most texts one embeddings request may carry."},
 		{Key: KeyEngineTimeout, Kind: settings.Duration, Default: "5m", Owner: h,

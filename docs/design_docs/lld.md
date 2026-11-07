@@ -175,7 +175,7 @@ stateDiagram-v2
   queued --> rejected: queue wait limit (queue_full)
   queued --> running: admitted
   running --> completed: done (metered, receipt)
-  running --> aborted: client disconnects (engine cancelled, tokens so far metered)
+  running --> aborted: client disconnects (engine cancelled, completion tokens so far plus an estimated prompt metered)
   rejected --> [*]
   completed --> [*]
   aborted --> [*]
@@ -365,7 +365,7 @@ Minimization (D-64) runs on the temp copy, never on the live database. The setti
 Rules:
 - **Context everywhere:** every blocking call takes a context.
 - **One writer:** no other goroutine writes to the database (D-28).
-- **Disconnects cancel:** a client disconnect cancels the engine call through the context. Tokens already produced are still metered.
+- **Disconnects cancel:** a client disconnect cancels the engine call through the context. Tokens already produced are still metered, with an estimated prompt count (the prompt's size in bytes over `gateway.chars_per_token`) that the receipt marks `prompt_tokens_estimated`.
 - **Shutdown** (**Judgement**, settled in PLT-F-020): stop accepting, drain in-flight requests up to a setting, stop the workers, then flush the writer.
 - **CI:** `go test -race` on Linux and macOS covers all of this (D-61).
 

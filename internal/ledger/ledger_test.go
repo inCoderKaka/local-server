@@ -587,6 +587,84 @@ func TestGoldenReceipts(t *testing.T) {
 	}
 }
 
+// TestEstimatedMarkerStaysOutOfTheLeaf guards the canonical leaf (req_001 D-108): the estimated
+// marker is on the signed receipt only, so the leaf bytes and hash are the same with it set and
+// the golden vector holds.
+func TestEstimatedMarkerStaysOutOfTheLeaf(t *testing.T) {
+	plain, est := goldenUsage(), goldenUsage()
+	est.PromptTokensEstimated = true
+	a, err := CanonicalLeaf(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := CanonicalLeaf(est)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(a) != string(b) {
+		t.Fatalf("the marker changed the leaf:\n plain %s\n marked %s", a, b)
+	}
+	if string(b) != goldenLeaf {
+		t.Fatalf("leaf = %s; want the golden vector %s", b, goldenLeaf)
+	}
+	if strings.Contains(string(b), "estimated") {
+		t.Fatalf("leaf names the marker: %s", b)
+	}
+}
+
+// TestEstimatedMarkerOnReceipts: both the metered and the unmetered receipt carry the marker as
+// true when the usage has it and omit it otherwise; the stored row has no column for it.
+func TestEstimatedMarkerOnReceipts(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	payload := func(jws string) map[string]any {
+		t.Helper()
+		raw, err := decodeB64(strings.Split(jws, ".")[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	est := sample(0)
+	est.Outcome, est.PromptTokensEstimated = OutcomeAborted, true
+	rec, err := e.l.Record(ctx, est)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := payload(rec.Receipt.JWS)["prompt_tokens_estimated"]; !ok || v != true {
+		t.Errorf("metered receipt marker = %v, %v; want true", v, ok)
+	}
+	r, err := Verify(rec.Receipt.JWS, e.receiptKey(t, rec.Receipt.KeyID))
+	if err != nil || !r.PromptTokensEstimated {
+		t.Errorf("Verify = %+v, %v; want the marker", r, err)
+	}
+	un, err := e.l.SignUnmetered(est)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := payload(un.JWS)["prompt_tokens_estimated"]; v != true {
+		t.Errorf("unmetered receipt marker = %v; want true", v)
+	}
+	plain, err := e.l.Record(ctx, sample(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload(plain.Receipt.JWS)["prompt_tokens_estimated"]; ok {
+		t.Error("a receipt of an exact count carries the marker")
+	}
+	pu, err := e.l.SignUnmetered(sample(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload(pu.JWS)["prompt_tokens_estimated"]; ok {
+		t.Error("an unmetered receipt of an exact count carries the marker")
+	}
+}
+
 // TestReceiptMatchesOpenAPISchema keeps Receipt equal to the UsageReceipt schema in
 // api/openapi.yaml until PLT-F-052 generates the type: same property names, same required
 // set, same enums.
@@ -630,6 +708,9 @@ func TestReceiptMatchesOpenAPISchema(t *testing.T) {
 	sort.Strings(specReq)
 	if !reflect.DeepEqual(required, specReq) {
 		t.Fatalf("Receipt required fields %v differ from the schema's %v", required, specReq)
+	}
+	if p := props["prompt_tokens_estimated"]; p == nil || p.Type != "boolean" {
+		t.Errorf("prompt_tokens_estimated in the schema = %+v; want an optional boolean", p)
 	}
 	enum := func(name string) []string {
 		var out []string

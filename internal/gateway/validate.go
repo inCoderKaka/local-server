@@ -157,6 +157,9 @@ type embedInput struct {
 	base64 bool
 	// maxInputBytes is the size of the largest input, the base of the prompt-size estimate.
 	maxInputBytes int64
+	// totalInputBytes is the size of all input texts, the base of the prompt count estimated for
+	// an aborted call (req_001 D-108). Only this number is kept, never the text.
+	totalInputBytes int64
 }
 
 func validateEmbed(req *api.EmbeddingRequest, maxInputs int64) (embedInput, *apiError) {
@@ -186,6 +189,7 @@ func validateEmbed(req *api.EmbeddingRequest, maxInputs int64) (embedInput, *api
 			return in, invalidParam("input", "A text in input is empty.")
 		}
 		in.maxInputBytes = max(in.maxInputBytes, int64(len(s)))
+		in.totalInputBytes += int64(len(s))
 	}
 	return in, nil
 }

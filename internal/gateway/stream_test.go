@@ -551,9 +551,10 @@ func TestStreamClientDisconnectCancelsTheEngineAndMetersAborted(t *testing.T) {
 	cancel()
 	resp.Body.Close()
 	rows := e.waitRows(1)
-	if len(rows) != 1 || rows[0] != (useRow{ledger.OutcomeAborted, 0, 2}) {
-		t.Fatalf("rows = %+v, want one aborted row with 2 completion tokens", rows)
+	if len(rows) != 1 || rows[0] != (useRow{ledger.OutcomeAborted, 3, 2}) {
+		t.Fatalf("rows = %+v, want one aborted row with 3 estimated prompt tokens (11 bytes) and 2 completion tokens", rows)
 	}
+	e.wantMarked(t, true)
 	var rowID string
 	if err := e.db.Reader().QueryRow(context.Background(), `SELECT id FROM use_record`).Scan(&rowID); err != nil {
 		t.Fatal(err)

@@ -155,13 +155,19 @@ func (g *Gateway) meter(ctx context.Context, c call, u ledger.Usage) (metered, e
 	return metered{usageID: u.UsageID, receipt: signed.JWS}, nil
 }
 
-// meterAborted meters a call the client abandoned while the engine ran (req_001 D-38, D-39). The
-// prompt is not counted: the engine reports its exact count only on the final chunk, and an
-// estimate is never billed. Completion tokens are the content chunks received, one token each on
-// Ollama's stream. The caller supplies the usage id (a streamed call keeps the id its chunks
-// carry). The receipt is dropped, because the client is gone.
-func (g *Gateway) meterAborted(ctx context.Context, c call, usageID, op, model string, completionTokens int64, startedAt time.Time) {
-	m, err := g.meterPartial(ctx, c, usageID, op, model, ledger.OutcomeAborted, completionTokens, startedAt)
+// meterAborted meters a call the client abandoned while the engine ran (req_001 D-38, D-39,
+// D-108). The engine reports its exact prompt count only on the final chunk, which an aborted
+// call never reaches, so the prompt is billed as an estimate and the receipt marks it
+// (prompt_tokens_estimated). The estimate is promptBytes, the prompt's size in bytes, over the
+// gateway.chars_per_token setting, rounded up (req_001 D-38). Only that integer reaches here:
+// the prompt text is never stored or logged (D-31, D-40). An empty prompt is 0 tokens and is not
+// marked. Completion tokens are the content chunks received, one token each on Ollama's stream.
+// The caller supplies the usage id (a streamed call keeps the id its chunks carry). The receipt
+// is dropped, because the client is gone. A call that ended in an engine error or timeout with
+// no stream started writes no record: its callers do not come here.
+func (g *Gateway) meterAborted(ctx context.Context, c call, usageID, op, model string, completionTokens, promptBytes int64, startedAt time.Time) {
+	prompt := estimateTokens(promptBytes, c.cfg.charsPerToken)
+	m, err := g.meterUsage(ctx, c, usageID, op, model, ledger.OutcomeAborted, prompt, prompt > 0, completionTokens, startedAt)
 	if err != nil {
 		return // meter already logged, counted and emitted the failure
 	}
@@ -170,13 +176,20 @@ func (g *Gateway) meterAborted(ctx context.Context, c call, usageID, op, model s
 	}
 }
 
-// meterPartial meters a call that ended before its final chunk, with the prompt uncounted and the
-// completion tokens received so far (the same rule as meterAborted). A streamed call that fails
-// midway is metered with it as outcome failed, and its receipt goes out on the stream (D-16).
+// meterPartial meters a call that failed before its final chunk, with the prompt uncounted (0
+// tokens, no estimate marker) and the completion tokens received so far. A streamed call that
+// fails midway is metered with it as outcome failed, and its receipt goes out on the stream
+// (D-16). Only an aborted call bills an estimated prompt (meterAborted, req_001 D-108).
 func (g *Gateway) meterPartial(ctx context.Context, c call, usageID, op, model, outcome string, completionTokens int64, startedAt time.Time) (metered, error) {
+	return g.meterUsage(ctx, c, usageID, op, model, outcome, 0, false, completionTokens, startedAt)
+}
+
+// meterUsage builds the Usage of a call that ended before its final chunk and meters it.
+func (g *Gateway) meterUsage(ctx context.Context, c call, usageID, op, model, outcome string, promptTokens int64, promptEstimated bool, completionTokens int64, startedAt time.Time) (metered, error) {
 	u := ledger.Usage{UsageID: usageID, ConsumerID: c.id.ConsumerID, AccessKeyID: c.id.KeyID,
 		GrantVersionID: c.id.GrantVersionID, JobID: c.jobID, Operation: op, Model: model, Outcome: outcome,
-		PromptTokens: 0, CompletionTokens: completionTokens, StartedAt: startedAt, FinishedAt: g.now()}
+		PromptTokens: promptTokens, PromptTokensEstimated: promptEstimated, CompletionTokens: completionTokens,
+		StartedAt: startedAt, FinishedAt: g.now()}
 	return g.meter(ctx, c, u)
 }
 

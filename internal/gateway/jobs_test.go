@@ -478,6 +478,11 @@ func TestCancelRunningJobStopsTheEngineAndMetersTheTokensSoFar(t *testing.T) {
 	if n := e.sqlInt(`SELECT completion_tokens FROM use_record WHERE job_id = ?`, id); n > 2 {
 		t.Fatalf("metered %d completion tokens, the engine had sent at most 2", n)
 	}
+	// jobBody's prompt is 22 bytes: 6 estimated tokens at the default 4 bytes per token (req_001 D-108).
+	if n := e.sqlInt(`SELECT prompt_tokens FROM use_record WHERE job_id = ?`, id); n != 6 {
+		t.Fatalf("metered %d prompt tokens, want the estimate 6", n)
+	}
+	e.wantMarked(t, true)
 	time.Sleep(30 * time.Millisecond)
 	if got := e.getJob(id).json(); got["status"] != "cancelled" || got["failure_reason"] != nil {
 		t.Fatalf("job = %v", got)

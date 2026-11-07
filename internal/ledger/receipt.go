@@ -29,6 +29,8 @@ const (
 // Receipt is the payload of a signed usage receipt: the UsageReceipt schema of
 // api/openapi.yaml (api has not generated a type for it yet, PLT-F-052; a golden test keeps
 // this type and the schema together). Timestamps are RFC 3339 UTC with milliseconds.
+// PromptTokensEstimated is an additive optional field (req_001 D-108): it is present, as true,
+// only when PromptTokens is an estimate, and it is not part of the canonical leaf.
 type Receipt struct {
 	V                int     `json:"v"`
 	Metering         string  `json:"metering"`
@@ -46,6 +48,9 @@ type Receipt struct {
 	TotalTokens      int64   `json:"total_tokens"`
 	StartedAt        string  `json:"started_at"`
 	FinishedAt       string  `json:"finished_at"`
+	// PromptTokensEstimated is true when PromptTokens was estimated from the prompt's length
+	// (an aborted call, req_001 D-108) and omitted when it is the engine's count.
+	PromptTokensEstimated bool `json:"prompt_tokens_estimated,omitempty"`
 	// LeafIndex and TreeSize are set on a metered receipt only (D-51, D-52). TreeSize is the
 	// size of the log once this leaf was appended, LeafIndex + 1; there is no checkpoint.
 	LeafIndex *int64 `json:"leaf_index,omitempty"`
@@ -72,7 +77,8 @@ func (u Usage) receipt(hostKID string) Receipt {
 	r := Receipt{V: LeafVersion, UsageID: u.UsageID, HostKID: hostKID, ConsumerID: u.ConsumerID,
 		AccessKeyID: u.AccessKeyID, GrantVersionID: u.GrantVersionID, Operation: u.Operation, Model: u.Model,
 		Outcome: u.Outcome, PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens,
-		TotalTokens: u.TotalTokens(), StartedAt: u.StartedAt.Format(timeLayout), FinishedAt: u.FinishedAt.Format(timeLayout)}
+		TotalTokens: u.TotalTokens(), StartedAt: u.StartedAt.Format(timeLayout), FinishedAt: u.FinishedAt.Format(timeLayout),
+		PromptTokensEstimated: u.PromptTokensEstimated}
 	if u.JobID != "" {
 		j := u.JobID
 		r.JobID = &j

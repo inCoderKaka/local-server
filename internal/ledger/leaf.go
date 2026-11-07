@@ -42,8 +42,12 @@ type Usage struct {
 	Outcome          string // OutcomeCompleted, OutcomeAborted or OutcomeFailed
 	PromptTokens     int64
 	CompletionTokens int64
-	StartedAt        time.Time // when the call was admitted
-	FinishedAt       time.Time // when it ended
+	// PromptTokensEstimated is true when PromptTokens is an estimate from the prompt's length
+	// and not the engine's count (an aborted call, req_001 D-108). It goes on the signed receipt
+	// only: it is not in the canonical leaf, so LeafVersion and every leaf hash stay as they are.
+	PromptTokensEstimated bool
+	StartedAt             time.Time // when the call was admitted
+	FinishedAt            time.Time // when it ended
 }
 
 // NewUsageID returns a fresh usage id.

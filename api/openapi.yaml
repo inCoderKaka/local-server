@@ -4985,11 +4985,11 @@ components:
           description: The model.
         outcome:
           type: string
-          description: '`completed`, `aborted` (the client disconnected; tokens so far are counted) or `failed` (the engine failed; tokens used are counted).'
+          description: '`completed`, `aborted` (the client disconnected; the completion tokens so far are counted, and the prompt tokens are an estimate marked by `prompt_tokens_estimated`) or `failed` (the engine failed; tokens used are counted).'
           enum: [completed, aborted, failed]
         prompt_tokens:
           type: integer
-          description: Prompt tokens, from the engine.
+          description: Prompt tokens, from the engine, or an estimate when `prompt_tokens_estimated` is `true`.
           format: int64
         completion_tokens:
           type: integer
@@ -4999,6 +4999,14 @@ components:
           type: integer
           description: The sum.
           format: int64
+        prompt_tokens_estimated:
+          type: boolean
+          description: |
+            Present, as `true`, only when `prompt_tokens` is an estimate from the prompt's length
+            and not the engine's count: a call the client abandoned (`aborted`), because the
+            engine reports its exact prompt count only on its final chunk. The host's
+            `gateway.chars_per_token` setting sets the ratio. Absent when `prompt_tokens` is the
+            engine's count. It is not part of the ledger leaf.
         started_at:
           type: string
           description: When the call was admitted.

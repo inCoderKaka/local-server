@@ -16,8 +16,9 @@ import (
 type Result struct {
 	// Outcome is ledger.OutcomeCompleted, OutcomeFailed or OutcomeAborted.
 	Outcome string
-	// PromptTokens is the engine's exact count on a completed call, else 0: an estimate is
-	// never billed (req_001 D-38).
+	// PromptTokens is the engine's exact count on a completed call, else 0: the engine reports
+	// it only on its final chunk. The gateway meters an aborted call with an estimate from the
+	// prompt's length instead (req_001 D-108).
 	PromptTokens int64
 	// CompletionTokens is the engine's count on a completed call, else the chunks with text
 	// that arrived, one token each on Ollama's stream.
