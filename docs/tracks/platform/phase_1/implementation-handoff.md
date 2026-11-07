@@ -18,7 +18,7 @@ Only what is open. Rewritten whole at the end of each implementation session.
   3. PLT-F-028 (B4/S30), after F-027. It must fill `ResourceRequest.warnings` through the shared walker.
 - **Ruled but not built:** PLT-B-061 (D-132), the D-112..D-121 rulings (B-028, B-031, B-041, B-026, B-029, B-038, B-040, B-047, B-048, B-052) and the P3 ones. Their ticket rows now point at the D-rows. A "bugs only" priority makes PLT-B-031, B-038, B-040, B-052, B-047 and B-029 eligible for a passive session.
 - **Captured and open from this session:** PLT-B-066 (the `prompt_tokens_estimated` marker is signed into a dropped receipt and not stored; needs `usage` migration 0005), PLT-B-067 (needs ruling), PLT-F-105, PLT-F-106.
-- **Drift not fixed:** D-41..D-47 and D-50 are flagged stale by `docs-drift` against their depends-on files (a file move and later doc edits); only you can re-confirm them. The D-41..D-45 body still names the old `docs/reqs/phase1/` path.
+- **Drift still flagged:** `docs-drift` keeps 8 `stale-decision` warnings (D-41..D-47, D-50). You reaffirmed them in D-133, but the check compares each row's own date with its depends-on files, so the warnings stay until the tool or those rows change. The D-41..D-45 body still names the old `docs/reqs/phase1/` path. `ops/bin/ai-mirror --check` crashes on a missing `.claude/commands` directory.
 - CI has never run on GitHub. The Windows sleep-lock adapter has never run on Windows. `ai-mirror` is not available in this repo.
 
 ## Waiting on you
