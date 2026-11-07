@@ -3,7 +3,7 @@
 The persisted id → big|small map for every feature and chore ticket in `backlog.md`. Bugs are counted apart and are not in it. Convention: `docs/tracks/README.md` (Per-phase file set). Read by `ops/bin/ticket-drift`.
 
 **Map date:** 2026-11-06
-**Covers ids up to:** PLT-F-104, PLT-C-018
+**Covers ids up to:** PLT-F-104, PLT-C-019
 
 **Rule.** *big* = the ticket touches 3 or more files across 2 or more directories, or changes a shared contract (`api/openapi.yaml`, the storage unit of work and migration layout, the event catalog, the module-boundary config). *small* = anything else. Test files and tracking docs do not count as files. Only the orchestrate session edits this file (the plan call adds a row for each new ticket and moves the two header lines above); builders, reviewers and docs sessions do not. A ticket with an id above the header's "Covers ids up to" is reported by `ticket-drift` as a warning (`WARN-unsized`) until the next plan call adds it; an older open ticket without a row is a finding.
 
@@ -135,3 +135,4 @@ The persisted id → big|small map for every feature and chore ticket in `backlo
 | PLT-F-103 | small | Idea captured 2026-11-07 (P3); one test file. |
 | PLT-F-104 | small | Idea captured 2026-11-07 (P3); one test file. |
 | PLT-C-018 | small | Chore logged 2026-11-07; docs only. |
+| PLT-C-019 | big | Chore logged 2026-11-07; 85 code files reviewed and fixed across modules. |
