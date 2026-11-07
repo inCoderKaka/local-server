@@ -1,91 +1,44 @@
 # platform / phase_1 — previous session closeout
 
-Session: 2026-11-06 · semi-live · 638f76b..9a6134f · tree clean · 130 unpushed commits · migrations: not available (the repo names no migration-status command; 4 new ones are applied to no real data dir)
+Session: 2026-11-07 · live · 46c90d8..3f23862 · tree clean · 139 unpushed commits · migrations: not available (the repo names no migration-status command; 4 are written and applied to no real data dir)
 
 **Open items**
-- The code gate is owed for the set PLT-F-096 + PLT-F-026 over `a0124e8^..79d0973` (94 files, four migrations, `api/openapi.yaml` and the regenerated `internal/api`). It was deferred for budget. `a0124e8` holds only the counter removal, so read it with `400ee0b`.
-- The docs gate is owed over `638f76b..HEAD`, including the `ops/bin` scripts.
-- PLT-B-053, PLT-B-054 and PLT-F-097 are specified but not built. PLT-B-055 to B-060 and ideas PLT-F-098 to F-101 are captured.
-- Five fixable doc drifts remain: PLT-B-030, B-032 and B-035 status in `bugs.md`; `docs/modules/gateway.md:5`; the depends-on path of D-41 to D-45.
-- CI has never run on GitHub; the Windows sleep-lock adapter has never run on Windows.
+- Code gate owed over PLT-B-053: `05bf043..46015cc`. It changes `api/openapi.yaml` and the regenerated `internal/api`. Deferred for budget (about 90% of the window used, ceiling 95%).
+- Docs gate owed over `638f76b..HEAD`, plus this session's close-out commits. Deferred for budget. The session's commits are ungated.
+- `implementation-status.md` was patched by hand at the end (PLT-C-019 row and counts), not regenerated.
+- Not started: PLT-B-054, PLT-F-097, PLT-F-027 (now unblocked) and PLT-F-028.
+- D-132's audit-row half is my reading of your answer (no audit row for an identical PUT); open to correction.
 
 **Next steps**
-- Run the owed code gate, then build PLT-B-053, PLT-B-054, PLT-F-097, PLT-F-028; PLT-F-027 after you approve the PLT-C-002 legal drafts.
-- Waiting on you: the legal drafts; rulings on PLT-B-027, PLT-F-052, PLT-B-045; whether to ticket the older gate findings; reviewing I-346 to I-386; when to apply the migrations; PLT-F-041, F-044, F-045, F-070 need a live go (dependency, security, privacy, root daemon).
+- Build PLT-B-054, then the code gate over it together with `46015cc`.
+- Then PLT-F-097 with PLT-F-027 in parallel, then PLT-F-028.
+- Waiting on you: confirm the D-132 audit row; skim D-109..D-130 (written from summaries, best-effort depends-on); review I-387..I-394; say when to apply the four migrations.
 
-**Where we stand**: phase_1 · batch B4 · slice S27 done (PLT-F-026), S29 (PLT-F-027) next. Built this session, all ungated: PLT-F-096, PLT-F-026, PLT-B-019, PLT-B-020, PLT-C-014, PLT-C-015.
+**Where we stand:** phase_1 · batch B4 · S25, S26 (B-053), S26b, S27, S28 built; S26c (PLT-F-097), S29 (PLT-F-027), S30 (PLT-F-028) not started. 35 of 104 features done. Built this session: PLT-B-053 (`46015cc`); gate fixes `05bf043` closed PLT-B-032, B-058, B-059; PLT-B-030 and B-060 closed by status fixes; PLT-C-018 (rulings) and PLT-C-019 (the code gate) done.
 
 | | Done: gated | Done: ungated | Open at start | New this session | Open now |
 |---|---|---|---|---|---|
-| **Batch B4** big tickets | 0 | 1 | 2 | 1 | 2 |
-| small tickets | 0 | 1 | 4 | 1 | 4 |
-| bugs | 0 | 0 | 0 | 7 | 7 |
-| **Phase 1** big tickets | 0 | 1 | 18 | 1 | 18 |
-| small tickets | 0 | 3 | 50 | 7 | 54 |
-| bugs | 0 | 2 | 29 | 8 | 35 |
+| **Batch B4** big tickets | 0 | 0 | 2 | 1 | 3 |
+| small tickets | 0 | 0 | 4 | 4 | 8 |
+| bugs | 2 | 2 | 7 | 5 | 8 |
+| **Phase 1** big tickets | 0 | 1 | 18 | 2 | 19 |
+| small tickets | 0 | 1 | 54 | 5 | 58 |
+| bugs | 4 | 2 | 35 | 5 | 34 |
 
-Dropped: 0 in both scopes. Ungated: PLT-F-096, F-026, B-019, B-020 (gate owed); PLT-C-014, C-015 are tooling chores. The id → big|small map is now persisted in `ticket-sizes.md`; that is what fixed the 19/49 vs 18/50 mismatch (the old map was never saved; PLT-C-004 is small).
+Dropped: 0. The agent's table was written before PLT-C-019 existed; the big-ticket phase row is hand-adjusted for it. Ungated: PLT-B-053, B-060, C-018, C-019.
 
-**Bugs seen**: PLT-B-055 (quota window clock vs `started_at`), PLT-B-056 (model caps required in the spec, nullable in storage), PLT-B-057 to B-059 (keep_alive not wired, preload not atomic, allowed-model check before the write), PLT-B-060 (gateway.md says `/v1/capabilities` is planned) — all captured.
+**Bugs seen**
+- PLT-B-061 identical rule PUT writes an audit row (gate, captured).
+- PLT-B-062 deprecated `quota` with `window_seconds` applied at the default window with only a warning (captured).
+- PLT-B-063 settings, models, login and password bodies carry no `warnings` (captured).
+- PLT-B-064 `TestErrorEnvelopeUnknownField` name no longer fits (captured).
+- PLT-B-065 `AccessKey.warnings` has no spec example (captured).
+- Ideas captured: PLT-F-102..F-104, PLT-C-016, PLT-C-017.
 
-**Verification**: track-work (worklog rows for PLT-F-096, F-026, B-019, B-020, C-014, C-015) · sync-docs (`closeout-check --base 638f76b` exit 0, 6 of 6) · ticket-drift exit 0 (40 old warnings) · ai-mirror --check not available · naming-check exit 0 · drift audit: 5 fixable items open (above) · budget (about $24 of the $27.58 ceiling = 95% of the calibrated window, `docs/ops/plan-window.md`: 6,201,248 tokens) · gate (built 6: gated 0, ungated 6, owed: code gate F-096 + F-026; docs gate) · docs drift (fixed: status counts and a retired name | still open: five items above)
+**Verification**: track-work (worklog rows for PLT-B-053, PLT-B-060, PLT-C-018, PLT-C-019, gate row) · sync-docs (closeout-check exit 0, 6 of 6) · ticket-drift ok (38 warnings) · ai-mirror --check not available · naming-check exit 0 · docs-drift exit 0 (39 warnings) · budget (measured $26.11 = 89.9% of the calibrated window, ceiling 95% = $27.58) · gate (built 1: gated 0, ungated 1, owed: PLT-B-053 code gate, session docs gate) · docs drift (fixed: gate-owed wording, B-060 worklog row, D-41..D-45 depends-on path, PLT-C-019; still open: D-46, D-47, D-50 staleness, D-41..D-45 body text path, 31 schema-table-missing warnings)
 
 **Decisions**
-
-Needs ruling: none.
-
-New this session (all `unreviewed`; the seven earlier rulings are recorded as D-105 to D-108):
-- I-346 (new) · design · old `quota` and `quota_requests_per_day` stay as deprecated aliases of list entries (D-107 vs D-105)
-- I-347 (new) · design · quota entry wire form is `{metric, limit, window_seconds}`
-- I-348 (new) · design · key entries in the narrowing JSON, grant-version entries in `grt_version_quota`
-- I-349 (new) · design · migration copies no legacy figures; aliases read with window = `limits.quota_window`
-- I-350 (new) · design · `use_request_counter` owned by the usage module
-- I-351 (new) · design · tokens summed by `started_at`, one call charged once
-- I-352 (new) · design · settings `limits.quota_window_min` 1m, `quota_window_max` 720h, `counter_retention` 168h
-- I-353 (new) · design · `CountAdmitted` prunes counters at most once per retention/4
-- I-354 (new) · design · `CountAdmitted` reads the key and grant version (two extra reads)
-- I-355 (new) · design · `grants.QuotaEntry`; `ValidateQuotas` also called by `auth.ParseNarrowing`, fails closed
-- I-356 (new) · design · self-service rule: consumer principal, billing_mode none, any quota entry gets 403
-- I-357 (new) · design · narrowing vs grant compared only for identical (metric, window) pairs
-- I-358 (new) · design · `limits.StatusOf` returns one `QuotaStatus` per scope and window
-- I-359 (new) · copy · entry errors name a dotted param
-- I-360 (new) · scope · `warnings` only on `AccessKey` for now (PLT-B-053 builds the general mechanism)
-- I-361 (new) · design · `GrantLimits.required` no longer lists `quota`
-- I-362 (new) · design · `Consumer.billing_mode` optional in the view schema
-- I-363 (new) · design · 403 declared as `components/responses/Forbidden` on two key operations
-- I-364 (new) · design · `SetBillingMode` bumps `row_version` and captures a change
-- I-365 (new) · design · oversized `window_seconds` clamped then refused 400
-- I-366 (new) · copy · windows align from 0001-01-01 00:00 UTC
-- I-367 (new) · copy · fixed admin error texts for the deprecated `quota` and the 403
-- I-368 (new) · design · policy rules: mutable head row plus immutable `grt_policy_rule_version`, version 1 backfilled
-- I-369 (new) · design · `allowed_request_properties` required and nullable (null any, `[]` none)
-- I-370 (new) · scope · additive spec: `warnings` on `GrantVersion`, optional rule `name`/`position`/`enabled`, `GET /policy-rules/{id}/versions`
-- I-371 (new) · design · policy-rule delete is soft; callers get 404
-- I-372 (new) · copy · a rule without a name gets its id as name
-- I-373 (new) · design · versions of a deleted rule 404; unknown `grant_id` on rule create 400
-- I-374 (new) · design · refused rule document gets fixed text from the policy error code, never echoed
-- I-375 (new) · design · rule document stored with sorted keys
-- I-376 (new) · design · auto-disable tests a top-level `deny` key by presence; deny rules never auto-disabled; sweeper every 30s
-- I-377 (new) · design · no new event type: `policy.rule_invalid` event plus audit row `policy_rule.auto_disabled`
-- I-378 (new) · design · settings `policy.rule.max_failures` 5, `policy.rule.check_interval` 30s, `admin.model_default_allowed` false; `internal/admin/grants` imports `internal/scheduler`
-- I-379 (new) · design · grant-edit model names resolve via `grt_model` with one engine sync; bad names 400
-- I-380 (new) · design · closing a model does not edit existing grant versions
-- I-381 (new) · design · `GET /models` with the engine down lists stored models as not loaded
-- I-382 (new) · design · `PATCH /models` writes row, audit and preload setting in one `settings.Apply`; comma in a name 400
-- I-383 (new) · scope · grant PUT always a new version; consumer missing 404, deleted 409, past `expires_at` 400
-- I-384 (new) · design · stored `allowed_properties` that is not a JSON list shows as `[]`
-- I-385 (new) · design · grant versions paged by opaque `v<n>` cursor, `admin.list_page_size`
-- I-386 (new) · scope · `consumers.QuotaAlias` and `QuotaWarning` exported
-
-Older `unreviewed` design and scope rows, newest first:
-- I-345 · design · `InviteIssued.link` typed a URI reference
-- I-343 · design · an access-key PATCH narrowing replaces the stored narrowing whole
-- I-341 · design · `app.power` is an injection seam, tests never start a real helper
-- I-340 · design · gauge `power_sleep_lock_held` emitted through the Telemetry port
-- I-339 · design · sleep-lock helpers end with local-server (`caffeinate -i -w`, `systemd-inhibit`)
-- I-338 · design · a missing helper tool gives a lock that holds nothing, logged once
-- I-337 · design · an unreadable sharing state leaves the sleep lock as it is
-- I-336 · design · `power.check_interval` of zero or less turns the sleep lock off
-- and 289 more in `implicit-decisions.md`.
-
-Older `unreviewed` copy rows: 12, in `implicit-decisions.md`.
+- Needs ruling: none.
+- Added this session (new, all unreviewed, PLT-B-053, `46015cc`): I-387 design middleware walks the raw body by reflection · I-388 design `Invite` carries `warnings` · I-389 design service warnings before ignored-field warnings · I-390 design walker runs on every admin operation with a body · I-391 design one warning per ignored field, no dedup or cap · I-392 design names with U+FFFD or non-printable are never echoed · I-393 copy warning text `<path> is not a known field and was ignored` · I-394 scope unreachable `unexpectedField` regexp left in place.
+- Last session's 25 listed rows I-358..I-386 were accepted this session. Older unreviewed design and scope rows, newest first: I-357, I-356, I-355, I-354, I-353, I-352, I-351, I-350, I-349, I-348, I-347, I-346, and about 320 more in `implicit-decisions.md`.
+- 16 older unreviewed `copy` rows: see `implicit-decisions.md`.
