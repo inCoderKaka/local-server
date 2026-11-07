@@ -8357,6 +8357,10 @@ type ResourceRequest struct {
 	ResultingGrantVersionID OptNilUUID `json:"resulting_grant_version_id"`
 	// Comments, oldest first. Only on single-request responses.
 	Comments []Comment `json:"comments"`
+	// Only the answer to a create (fields of `ask` the host ignored, for example
+	// `ask.bogus is not a known field and was ignored`) or to an approval (fields of `limits` it ignored)
+	// fills it; it never quotes a value (D-105). Absent on every read.
+	Warnings []string `json:"warnings"`
 }
 
 // GetID returns the value of ID.
@@ -8409,6 +8413,11 @@ func (s *ResourceRequest) GetComments() []Comment {
 	return s.Comments
 }
 
+// GetWarnings returns the value of Warnings.
+func (s *ResourceRequest) GetWarnings() []string {
+	return s.Warnings
+}
+
 // SetID sets the value of ID.
 func (s *ResourceRequest) SetID(val uuid.UUID) {
 	s.ID = val
@@ -8457,6 +8466,11 @@ func (s *ResourceRequest) SetResultingGrantVersionID(val OptNilUUID) {
 // SetComments sets the value of Comments.
 func (s *ResourceRequest) SetComments(val []Comment) {
 	s.Comments = val
+}
+
+// SetWarnings sets the value of Warnings.
+func (s *ResourceRequest) SetWarnings(val []string) {
+	s.Warnings = val
 }
 
 // The host's approval, with the limits of the new grant version.

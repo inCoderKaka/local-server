@@ -340,7 +340,7 @@ func (s *jobSlot) Run(ctx context.Context) (jobs.Output, error) {
 	s.tk.Release()
 	if err != nil {
 		if ctx.Err() != nil { // cancelled by the consumer, or the host is stopping
-			g.meterAborted(ctx, c, ledger.NewUsageID(), ledger.OpChatCompletions, in.model, int64(chunks), in.promptBytes, startedAt)
+			g.meterAborted(ctx, c, ledger.NewUsageID(), ledger.OpChatCompletions, in.model, int64(chunks), abortedPromptTokens(in.promptBytes, c.cfg.charsPerToken, int64(s.p.numCtx)), startedAt)
 			return jobs.Output{}, ctx.Err()
 		}
 		e, internal := classify(err, g.now())

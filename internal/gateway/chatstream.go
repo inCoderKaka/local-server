@@ -32,7 +32,7 @@ func (g *Gateway) streamChat(ctx context.Context, c call, in chatInput, p plan, 
 		engineTime := time.Since(t0)
 		switch r.Outcome {
 		case ledger.OutcomeAborted: // the client went away; the receipt has nowhere to go
-			g.meterAborted(ctx, c, usageID, op, model, r.CompletionTokens, in.promptBytes, startedAt)
+			g.meterAborted(ctx, c, usageID, op, model, r.CompletionTokens, abortedPromptTokens(in.promptBytes, c.cfg.charsPerToken, int64(p.numCtx)), startedAt)
 			return "", nil
 		case ledger.OutcomeFailed:
 			m, err := g.meterPartial(ctx, c, usageID, op, model, ledger.OutcomeFailed, r.CompletionTokens, startedAt)
@@ -68,7 +68,7 @@ func (g *Gateway) streamChat(ctx context.Context, c call, in chatInput, p plan, 
 	})
 	if err != nil {
 		if ctx.Err() != nil { // the client went away before the first chunk (req_001 D-38 aborted)
-			g.meterAborted(ctx, c, usageID, op, model, 0, in.promptBytes, startedAt)
+			g.meterAborted(ctx, c, usageID, op, model, 0, abortedPromptTokens(in.promptBytes, c.cfg.charsPerToken, int64(p.numCtx)), startedAt)
 		}
 		return nil, err
 	}

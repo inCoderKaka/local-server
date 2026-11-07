@@ -208,7 +208,23 @@ func estimateTokens(bytes, charsPerToken int64) int64 {
 	if bytes <= 0 {
 		return 0
 	}
-	return (bytes + charsPerToken - 1) / charsPerToken
+	n := bytes / charsPerToken
+	if bytes%charsPerToken != 0 {
+		n++
+	}
+	return n
+}
+
+// abortedPromptTokens is the prompt count billed for an aborted call (req_001 D-108): the
+// estimate of promptBytes, never more than limit, the most prompt tokens the engine could
+// have processed (its context size; with on_context_overflow truncate it drops the rest).
+// With refuse the pre-check already keeps the estimate within limit. limit <= 0 means no cap.
+func abortedPromptTokens(promptBytes, charsPerToken, limit int64) int64 {
+	t := estimateTokens(promptBytes, charsPerToken)
+	if limit > 0 && t > limit {
+		return limit
+	}
+	return t
 }
 
 // planCommon fixes the context size and the overflow policy, and pre-checks the prompt size

@@ -158,16 +158,15 @@ func (g *Gateway) meter(ctx context.Context, c call, u ledger.Usage) (metered, e
 // meterAborted meters a call the client abandoned while the engine ran (req_001 D-38, D-39,
 // D-108). The engine reports its exact prompt count only on the final chunk, which an aborted
 // call never reaches, so the prompt is billed as an estimate and the receipt marks it
-// (prompt_tokens_estimated). The estimate is promptBytes, the prompt's size in bytes, over the
-// gateway.chars_per_token setting, rounded up (req_001 D-38). Only that integer reaches here:
-// the prompt text is never stored or logged (D-31, D-40). An empty prompt is 0 tokens and is not
-// marked. Completion tokens are the content chunks received, one token each on Ollama's stream.
+// (prompt_tokens_estimated). The caller passes promptTokens from abortedPromptTokens: the
+// prompt's size in bytes over the gateway.chars_per_token setting, rounded up and capped at the
+// context size (req_001 D-38). Only that integer reaches here: the prompt text is never stored
+// or logged (D-31, D-40). An empty prompt is 0 tokens and is not marked. Completion tokens are the content chunks received, one token each on Ollama's stream.
 // The caller supplies the usage id (a streamed call keeps the id its chunks carry). The receipt
 // is dropped, because the client is gone. A call that ended in an engine error or timeout with
 // no stream started writes no record: its callers do not come here.
-func (g *Gateway) meterAborted(ctx context.Context, c call, usageID, op, model string, completionTokens, promptBytes int64, startedAt time.Time) {
-	prompt := estimateTokens(promptBytes, c.cfg.charsPerToken)
-	m, err := g.meterUsage(ctx, c, usageID, op, model, ledger.OutcomeAborted, prompt, prompt > 0, completionTokens, startedAt)
+func (g *Gateway) meterAborted(ctx context.Context, c call, usageID, op, model string, completionTokens, promptTokens int64, startedAt time.Time) {
+	m, err := g.meterUsage(ctx, c, usageID, op, model, ledger.OutcomeAborted, promptTokens, promptTokens > 0, completionTokens, startedAt)
 	if err != nil {
 		return // meter already logged, counted and emitted the failure
 	}

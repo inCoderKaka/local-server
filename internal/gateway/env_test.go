@@ -207,6 +207,13 @@ func (m *flakyMeter) lastRecorded() (ledger.Usage, string, bool) {
 	return m.recorded[len(m.recorded)-1], m.receipts[len(m.receipts)-1], true
 }
 
+// recordedLen is the number of committed Usages the meter has seen.
+func (m *flakyMeter) recordedLen() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.recorded)
+}
+
 func (m *flakyMeter) SignUnmetered(u ledger.Usage) (ledger.Signed, error) {
 	m.mu.Lock()
 	fail := m.signFails

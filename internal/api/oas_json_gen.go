@@ -15767,19 +15767,30 @@ func (s *ResourceRequest) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.Warnings != nil {
+			e.FieldStart("warnings")
+			e.ArrStart()
+			for _, elem := range s.Warnings {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfResourceRequest = [10]string{
-	0: "id",
-	1: "consumer_id",
-	2: "status",
-	3: "message",
-	4: "ask",
-	5: "created_at",
-	6: "expires_at",
-	7: "decided_at",
-	8: "resulting_grant_version_id",
-	9: "comments",
+var jsonFieldsNameOfResourceRequest = [11]string{
+	0:  "id",
+	1:  "consumer_id",
+	2:  "status",
+	3:  "message",
+	4:  "ask",
+	5:  "created_at",
+	6:  "expires_at",
+	7:  "decided_at",
+	8:  "resulting_grant_version_id",
+	9:  "comments",
+	10: "warnings",
 }
 
 // Decode decodes ResourceRequest from json.
@@ -15905,6 +15916,25 @@ func (s *ResourceRequest) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"comments\"")
+			}
+		case "warnings":
+			if err := func() error {
+				s.Warnings = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.Warnings = append(s.Warnings, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"warnings\"")
 			}
 		default:
 			return d.Skip()

@@ -5458,6 +5458,13 @@ components:
               display_name: Example Consumer
             body: Placeholder comment.
             created_at: '2026-01-15T10:05:00Z'
+        warnings:
+          type: array
+          description: Only the answer to a create (fields of `ask` the host ignored, for example `ask.bogus is not a known field and was ignored`) or to an approval (fields of `limits` it ignored) fills it; it never quotes a value (D-105). Absent on every read.
+          items:
+            type: string
+          example:
+            - ask.bogus is not a known field and was ignored
     ResourceRequestList:
       type: object
       description: A page of resource requests.

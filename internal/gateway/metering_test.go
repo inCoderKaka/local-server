@@ -203,6 +203,18 @@ func TestClientDisconnectMetersAbortedChat(t *testing.T) {
 // as estimated or not, on the Usage and on the signed receipt.
 func (e *env) wantMarked(t *testing.T, want bool) {
 	t.Helper()
+	// The meter appends to its in-memory record after the row is committed, and some callers meter
+	// on another goroutine, so wait until the meter has seen every committed row.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if n := e.meter.recordedLen(); n > 0 && int64(n) >= e.useRecords() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the committed record did not reach the test meter")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	u, jws, ok := e.meter.lastRecorded()
 	if !ok {
 		t.Fatal("no record was committed")
@@ -246,6 +258,29 @@ func TestAbortedPromptEstimateFollowsTheSetting(t *testing.T) {
 	if logs := e.tel.logText(); strings.Contains(logs, "hello there") {
 		t.Fatalf("the prompt text is in the logs: %s", logs)
 	}
+}
+
+// With on_context_overflow truncate the pre-check is skipped and the engine drops what does not fit,
+// so an aborted call bills no more than the context the engine ran with (req_001 D-108): a 1000
+// byte prompt is about 250 estimated tokens, capped at the grant's context cap of 100.
+func TestAbortedPromptEstimateIsCappedAtTheContext(t *testing.T) {
+	e := newEnv(t, func(o *envOpts) {
+		o.version = func(models []grantsModel) grantsNewVersion {
+			for i := range models {
+				models[i].ContextCap = i64(100)
+			}
+			return grantsNewVersion{Models: models, OnContextOverflow: "truncate"}
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	e.eng.wrapChat = func(s engine.ChatStream) engine.ChatStream { return &cancelAfter{ChatStream: s, n: 2, cancel: cancel} }
+	body := `{"model":"` + chatModel + `","messages":[{"role":"user","content":"` + strings.Repeat("a", 1000) + `"}]}`
+	statusIs(t, e.doCtx(ctx, "/v1/chat/completions", body), 499)
+	if rows := e.useRows(); len(rows) != 1 || rows[0] != (useRow{ledger.OutcomeAborted, 100, 2}) {
+		t.Fatalf("rows = %+v, want one aborted row with 100 prompt and 2 completion tokens", rows)
+	}
+	e.wantMarked(t, true)
 }
 
 // A completed call bills the engine's exact count and its receipt carries no marker.

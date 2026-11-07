@@ -46,7 +46,7 @@ func (g *Gateway) CreateChatCompletion(ctx context.Context, req *api.ChatComplet
 	tk.Release()
 	if err != nil {
 		if ctx.Err() != nil { // the client went away while the engine ran (req_001 D-38 aborted)
-			g.meterAborted(ctx, c, ledger.NewUsageID(), ledger.OpChatCompletions, in.model, int64(chunks), in.promptBytes, startedAt)
+			g.meterAborted(ctx, c, ledger.NewUsageID(), ledger.OpChatCompletions, in.model, int64(chunks), abortedPromptTokens(in.promptBytes, c.cfg.charsPerToken, int64(p.numCtx)), startedAt)
 		}
 		return nil, err
 	}
