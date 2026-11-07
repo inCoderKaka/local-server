@@ -9,7 +9,7 @@ The persisted id → big|small map for every feature and chore ticket in `backlo
 
 **Seeding.** The open rows are the plan call's classification of 2026-11-06 (Effort *Rich* → big, *Quick win* → small). Chores were not in that call, so their rows were classified by the rule and the Why says so. Closed rows were classified by the rule from their build commit.
 
-**Open totals (features and chores, 2026-11-07):** 20 big / 59 small (PLT-F-105 small, PLT-F-106 big added; PLT-B-054 is a bug and is not counted).
+**Open totals (features and chores, 2026-11-07):** 20 big / 57 small (PLT-F-105 small, PLT-F-106 big added; PLT-C-009 and PLT-C-017 closed; PLT-B-054 is a bug and is not counted).
 
 | ID | Size | Why |
 |---|---|---|
@@ -21,7 +21,7 @@ The persisted id → big|small map for every feature and chore ticket in `backlo
 | PLT-C-006 | small | Classified by the rule (not in the plan call): a legal review, no repo files. |
 | PLT-C-007 | big | Closed. By the rule from build commits 3056812, f1f417b, 95a2b00, 69f2daa, d4907c7: 21 non-test file(s) in 6 directories. |
 | PLT-C-008 | small | Classified by the rule (not in the plan call): one workflow file, `.github/workflows/fuzz.yml`. |
-| PLT-C-009 | small | Classified by the rule (not in the plan call): the existing generator is pointed at every module and the output regenerated, 2 files. |
+| PLT-C-009 | small | Closed. Classified by the rule: the existing generator is pointed at every module and the output regenerated; built 2026-11-07 (test moved to `cmd/local-server`). |
 | PLT-C-010 | big | Closed. By the rule from build commit 4f3c801: 2 non-test file(s) in 2 directories; changes `api/openapi.yaml`. |
 | PLT-C-011 | small | Classified by the rule (not in the plan call): runs an existing test against a real Ollama, no code change. |
 | PLT-C-012 | big | Closed. By the rule from build commits ebd5245, b1d7f4f: 31 non-test file(s) in 11 directories; changes `api/openapi.yaml`. |
