@@ -32,7 +32,8 @@ func (a *Admin) AdminListAccessKeys(ctx context.Context, params api.AdminListAcc
 
 // AdminIssueAccessKey implements POST /admin/v1/consumers/{consumer_id}/access-keys: 201 with
 // the whole key, which no later answer repeats. This is the one place the secret is revealed.
-// A consumer that may not set quota windows on its own keys is 403 (req_001 D-107).
+// A consumer that may not set quota windows on its own keys is 403 (req_001 D-107). An unknown
+// request field is ignored and named in warnings, after the warnings of the service (req_001 D-105).
 func (a *Admin) AdminIssueAccessKey(ctx context.Context, req *api.AccessKeyCreate, params api.AdminIssueAccessKeyParams) (api.AdminIssueAccessKeyRes, error) {
 	var in consumers.NewKey
 	if v, ok := req.Name.Get(); ok {
@@ -55,11 +56,13 @@ func (a *Admin) AdminIssueAccessKey(ctx context.Context, req *api.AccessKeyCreat
 	if err != nil {
 		return nil, err
 	}
+	k.Warnings = withIgnored(ctx, k.Warnings)
 	return &api.AccessKeyIssued{AccessKey: k, Secret: is.Secret.Reveal()}, nil
 }
 
 // AdminUpdateAccessKey implements PATCH /admin/v1/access-keys/{access_key_id}. A revoked or
-// expired key is 409, and a narrowing the consumer may not set is 403.
+// expired key is 409, and a narrowing the consumer may not set is 403. An unknown request field is
+// ignored and named in warnings, after the warnings of the service (req_001 D-105).
 func (a *Admin) AdminUpdateAccessKey(ctx context.Context, req *api.AccessKeyUpdate, params api.AdminUpdateAccessKeyParams) (api.AdminUpdateAccessKeyRes, error) {
 	ch := consumers.KeyChange{Name: nilString(req.Name), BoundNode: nilString(req.BoundNode)}
 	switch {
@@ -84,6 +87,7 @@ func (a *Admin) AdminUpdateAccessKey(ctx context.Context, req *api.AccessKeyUpda
 	if err != nil {
 		return nil, err
 	}
+	v.Warnings = withIgnored(ctx, v.Warnings)
 	return &v, nil
 }
 

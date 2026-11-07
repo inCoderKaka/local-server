@@ -40,8 +40,10 @@ type AccessKey struct {
 	ExpiresAt OptNilDateTime `json:"expires_at"`
 	// When it was revoked.
 	RevokedAt OptNilDateTime `json:"revoked_at"`
-	// Only an issue or a change fills it. Each entry names a field that was ignored or is deprecated, for
-	// example the deprecated `narrowing.quota` sent beside `narrowing.quotas`.
+	// Only an issue or a change fills it. Each entry names a field of the request that the host ignored
+	// because it does not know it (for example `narrowing.bogus is not a known field and was ignored`,
+	// never quoting a value) or that is deprecated (for example the deprecated `narrowing.quota` sent
+	// beside `narrowing.quotas`) (D-105, D-107). Absent on every read.
 	Warnings []string `json:"warnings"`
 }
 
@@ -1942,6 +1944,10 @@ type Consumer struct {
 	CreatedAt time.Time `json:"created_at"`
 	// When the account was deleted.
 	DeletedAt OptNilDateTime `json:"deleted_at"`
+	// Only a create or an update fills it. Each entry names a field of the request that the host ignored
+	// because it does not know it, for example `bogus is not a known field and was ignored`; it never
+	// quotes a value (D-105). Absent on every read.
+	Warnings []string `json:"warnings"`
 }
 
 // GetID returns the value of ID.
@@ -1994,6 +2000,11 @@ func (s *Consumer) GetDeletedAt() OptNilDateTime {
 	return s.DeletedAt
 }
 
+// GetWarnings returns the value of Warnings.
+func (s *Consumer) GetWarnings() []string {
+	return s.Warnings
+}
+
 // SetID sets the value of ID.
 func (s *Consumer) SetID(val uuid.UUID) {
 	s.ID = val
@@ -2042,6 +2053,11 @@ func (s *Consumer) SetCreatedAt(val time.Time) {
 // SetDeletedAt sets the value of DeletedAt.
 func (s *Consumer) SetDeletedAt(val OptNilDateTime) {
 	s.DeletedAt = val
+}
+
+// SetWarnings sets the value of Warnings.
+func (s *Consumer) SetWarnings(val []string) {
+	s.Warnings = val
 }
 
 // A new key-only consumer.
@@ -3252,8 +3268,9 @@ type GrantVersion struct {
 	// The resource request whose approval created it, if any.
 	ResourceRequestID OptNilUUID  `json:"resource_request_id"`
 	Limits            GrantLimits `json:"limits"`
-	// What the host ignored in the request that made this version, for example the deprecated `quota` when
-	// `quotas` was given too. Absent on a read.
+	// What the host ignored in the request that made this version: a field it does not know, named by its
+	// path and never quoting a value (for example `bogus is not a known field and was ignored`), or the
+	// deprecated `quota` when `quotas` was given too (D-105, D-107). Absent on a read.
 	Warnings []string `json:"warnings"`
 }
 
@@ -4300,6 +4317,10 @@ type Invite struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	// The consumer created from it.
 	RedeemedConsumerID OptNilUUID `json:"redeemed_consumer_id"`
+	// Only a create fills it. Each entry names a field of the request that the host ignored because it
+	// does not know it, for example `bogus is not a known field and was ignored`; it never quotes a value
+	// (D-105). Absent on every read.
+	Warnings []string `json:"warnings"`
 }
 
 // GetID returns the value of ID.
@@ -4332,6 +4353,11 @@ func (s *Invite) GetRedeemedConsumerID() OptNilUUID {
 	return s.RedeemedConsumerID
 }
 
+// GetWarnings returns the value of Warnings.
+func (s *Invite) GetWarnings() []string {
+	return s.Warnings
+}
+
 // SetID sets the value of ID.
 func (s *Invite) SetID(val uuid.UUID) {
 	s.ID = val
@@ -4360,6 +4386,11 @@ func (s *Invite) SetExpiresAt(val time.Time) {
 // SetRedeemedConsumerID sets the value of RedeemedConsumerID.
 func (s *Invite) SetRedeemedConsumerID(val OptNilUUID) {
 	s.RedeemedConsumerID = val
+}
+
+// SetWarnings sets the value of Warnings.
+func (s *Invite) SetWarnings(val []string) {
+	s.Warnings = val
 }
 
 // A new invite.

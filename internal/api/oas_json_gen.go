@@ -383,7 +383,7 @@ func (s *AccessKeyCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bound_node\"")
 			}
 		default:
-			return errors.Errorf("unexpected field %q", k)
+			return d.Skip()
 		}
 		return nil
 	}); err != nil {
@@ -772,7 +772,7 @@ func (s *AccessKeyNarrowing) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"concurrency\"")
 			}
 		default:
-			return errors.Errorf("unexpected field %q", k)
+			return d.Skip()
 		}
 		return nil
 	}); err != nil {
@@ -928,7 +928,7 @@ func (s *AccessKeyUpdate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"bound_node\"")
 			}
 		default:
-			return errors.Errorf("unexpected field %q", k)
+			return d.Skip()
 		}
 		return nil
 	}); err != nil {
@@ -4127,19 +4127,30 @@ func (s *Consumer) encodeFields(e *jx.Encoder) {
 			s.DeletedAt.Encode(e, json.EncodeDateTime)
 		}
 	}
+	{
+		if s.Warnings != nil {
+			e.FieldStart("warnings")
+			e.ArrStart()
+			for _, elem := range s.Warnings {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfConsumer = [10]string{
-	0: "id",
-	1: "kind",
-	2: "status",
-	3: "display_name",
-	4: "username",
-	5: "email",
-	6: "has_login",
-	7: "billing_mode",
-	8: "created_at",
-	9: "deleted_at",
+var jsonFieldsNameOfConsumer = [11]string{
+	0:  "id",
+	1:  "kind",
+	2:  "status",
+	3:  "display_name",
+	4:  "username",
+	5:  "email",
+	6:  "has_login",
+	7:  "billing_mode",
+	8:  "created_at",
+	9:  "deleted_at",
+	10: "warnings",
 }
 
 // Decode decodes Consumer from json.
@@ -4256,6 +4267,25 @@ func (s *Consumer) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"deleted_at\"")
+			}
+		case "warnings":
+			if err := func() error {
+				s.Warnings = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.Warnings = append(s.Warnings, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"warnings\"")
 			}
 		default:
 			return d.Skip()
@@ -4404,7 +4434,7 @@ func (s *ConsumerCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"billing_mode\"")
 			}
 		default:
-			return errors.Errorf("unexpected field %q", k)
+			return d.Skip()
 		}
 		return nil
 	}); err != nil {
@@ -4776,7 +4806,7 @@ func (s *ConsumerUpdate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"billing_mode\"")
 			}
 		default:
-			return errors.Errorf("unexpected field %q", k)
+			return d.Skip()
 		}
 		return nil
 	}); err != nil {
@@ -6336,7 +6366,7 @@ func (s *GrantLimits) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"expires_at\"")
 			}
 		default:
-			return errors.Errorf("unexpected field %q", k)
+			return d.Skip()
 		}
 		return nil
 	}); err != nil {
@@ -9184,15 +9214,26 @@ func (s *Invite) encodeFields(e *jx.Encoder) {
 			s.RedeemedConsumerID.Encode(e)
 		}
 	}
+	{
+		if s.Warnings != nil {
+			e.FieldStart("warnings")
+			e.ArrStart()
+			for _, elem := range s.Warnings {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfInvite = [6]string{
+var jsonFieldsNameOfInvite = [7]string{
 	0: "id",
 	1: "status",
 	2: "note",
 	3: "created_at",
 	4: "expires_at",
 	5: "redeemed_consumer_id",
+	6: "warnings",
 }
 
 // Decode decodes Invite from json.
@@ -9269,6 +9310,25 @@ func (s *Invite) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"redeemed_consumer_id\"")
+			}
+		case "warnings":
+			if err := func() error {
+				s.Warnings = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.Warnings = append(s.Warnings, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"warnings\"")
 			}
 		default:
 			return d.Skip()
@@ -9383,7 +9443,7 @@ func (s *InviteCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"expires_at\"")
 			}
 		default:
-			return errors.Errorf("unexpected field %q", k)
+			return d.Skip()
 		}
 		return nil
 	}); err != nil {
@@ -14941,7 +15001,7 @@ func (s *Quota) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"requests\"")
 			}
 		default:
-			return errors.Errorf("unexpected field %q", k)
+			return d.Skip()
 		}
 		return nil
 	}); err != nil {
@@ -15037,7 +15097,7 @@ func (s *QuotaEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"window_seconds\"")
 			}
 		default:
-			return errors.Errorf("unexpected field %q", k)
+			return d.Skip()
 		}
 		return nil
 	}); err != nil {
@@ -16193,7 +16253,7 @@ func (s *ResourceRequestAsk) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"request_properties\"")
 			}
 		default:
-			return errors.Errorf("unexpected field %q", k)
+			return d.Skip()
 		}
 		return nil
 	}); err != nil {

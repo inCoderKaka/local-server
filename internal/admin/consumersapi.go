@@ -53,7 +53,7 @@ func (a *Admin) AdminCreateConsumer(ctx context.Context, req *api.ConsumerCreate
 	if err != nil {
 		return nil, err
 	}
-	return consumerOut(c)
+	return consumerWithWarnings(ctx, c)
 }
 
 // AdminGetConsumer implements GET /admin/v1/consumers/{consumer_id}.
@@ -79,7 +79,7 @@ func (a *Admin) AdminUpdateConsumer(ctx context.Context, req *api.ConsumerUpdate
 	if err != nil {
 		return nil, err
 	}
-	return consumerOut(c)
+	return consumerWithWarnings(ctx, c)
 }
 
 // AdminDeleteConsumer implements DELETE /admin/v1/consumers/{consumer_id}: 204.
@@ -104,6 +104,17 @@ func (a *Admin) AdminReactivateConsumer(ctx context.Context, params api.AdminRea
 		return nil, err
 	}
 	return consumerOut(c)
+}
+
+// consumerWithWarnings is the answer of a create or an update: the consumer, and a warning for each
+// request field the host ignored (req_001 D-105). A read never carries warnings.
+func consumerWithWarnings(ctx context.Context, c identity.ConsumerAccount) (*api.Consumer, error) {
+	v, err := consumerOut(c)
+	if err != nil {
+		return nil, err
+	}
+	v.Warnings = withIgnored(ctx, nil)
+	return v, nil
 }
 
 func consumerOut(c identity.ConsumerAccount) (*api.Consumer, error) {

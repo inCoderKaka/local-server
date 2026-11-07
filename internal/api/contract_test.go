@@ -266,8 +266,8 @@ func TestQuotaInputShapeHoldsWindowedEntries(t *testing.T) {
 			t.Errorf("%s missing from the spec", name)
 			continue
 		}
-		if ap := s.AdditionalProperties; ap == nil || ap.Bool == nil || *ap.Bool {
-			t.Errorf("%s is not strict (additionalProperties: false); that changes only with PLT-B-053 (D-105)", name)
+		if ap := s.AdditionalProperties; ap != nil && ap.Bool != nil && !*ap.Bool {
+			t.Errorf("%s has additionalProperties: false; an older host must ignore an unknown field and name it in warnings (D-105)", name)
 		}
 		if name == "Quota" || name == "QuotaEntry" {
 			continue
@@ -291,8 +291,33 @@ func TestQuotaInputShapeHoldsWindowedEntries(t *testing.T) {
 		t.Error("GrantLimits requires the deprecated quota")
 	}
 
-	if props, ok := findProperty(schemas["AccessKey"], "warnings"); !ok || props.Type != "array" {
-		t.Error("AccessKey has no warnings list")
+	// The request bodies of the admin consumer, key and invite operations ignore an unknown field too
+	// (absent additionalProperties is what the spec uses), and the answers that name it have a warnings
+	// list. The OpenAI-compatible request bodies stay strict (D-32).
+	for _, name := range []string{"ConsumerCreate", "ConsumerUpdate", "AccessKeyCreate", "AccessKeyUpdate", "InviteCreate"} {
+		s := schemas[name]
+		if s == nil {
+			t.Errorf("%s missing from the spec", name)
+			continue
+		}
+		if ap := s.AdditionalProperties; ap != nil && ap.Bool != nil && !*ap.Bool {
+			t.Errorf("%s has additionalProperties: false; an older host must ignore an unknown field and name it in warnings (D-105)", name)
+		}
+	}
+	for _, name := range []string{"ChatCompletionRequest", "EmbeddingRequest"} {
+		s := schemas[name]
+		if s == nil {
+			t.Errorf("%s missing from the spec", name)
+			continue
+		}
+		if ap := s.AdditionalProperties; ap == nil || ap.Bool == nil || *ap.Bool {
+			t.Errorf("%s is not strict (additionalProperties: false); unsupported OpenAI fields stay rejected (D-32)", name)
+		}
+	}
+	for _, name := range []string{"AccessKey", "Consumer", "Invite", "GrantVersion"} {
+		if props, ok := findProperty(schemas[name], "warnings"); !ok || props.Type != "array" {
+			t.Errorf("%s has no warnings list", name)
+		}
 	}
 	for _, name := range []string{"Consumer", "ConsumerCreate", "ConsumerUpdate"} {
 		if _, ok := findProperty(schemas[name], "billing_mode"); !ok {
@@ -358,5 +383,39 @@ func TestQuotaRequestBodiesDecode(t *testing.T) {
 	old := `{"models":[],"quota":null,"concurrency":1,"on_context_overflow":"refuse","allowed_request_properties":[]}`
 	if err := new(GrantLimits).Decode(jx.DecodeStr(old)); err != nil {
 		t.Errorf("GrantLimits refused an older client's body: %v", err)
+	}
+}
+
+// An unknown field in a body is skipped by the decoder, never an error, so a newer client keeps
+// working against an older host; the admin API names it in warnings (D-105).
+func TestUnknownFieldsDecodeWithoutError(t *testing.T) {
+	entry := `{"metric":"tokens","limit":5,"window_seconds":60,"bogus":1}`
+	for name, decode := range map[string]func(string) error{
+		"Quota":              func(b string) error { return new(Quota).Decode(jx.DecodeStr(b)) },
+		"QuotaEntry":         func(b string) error { return new(QuotaEntry).Decode(jx.DecodeStr(b)) },
+		"GrantLimits":        func(b string) error { return new(GrantLimits).Decode(jx.DecodeStr(b)) },
+		"AccessKeyNarrowing": func(b string) error { return new(AccessKeyNarrowing).Decode(jx.DecodeStr(b)) },
+		"ResourceRequestAsk": func(b string) error { return new(ResourceRequestAsk).Decode(jx.DecodeStr(b)) },
+		"ConsumerCreate":     func(b string) error { return new(ConsumerCreate).Decode(jx.DecodeStr(b)) },
+		"ConsumerUpdate":     func(b string) error { return new(ConsumerUpdate).Decode(jx.DecodeStr(b)) },
+		"AccessKeyCreate":    func(b string) error { return new(AccessKeyCreate).Decode(jx.DecodeStr(b)) },
+		"AccessKeyUpdate":    func(b string) error { return new(AccessKeyUpdate).Decode(jx.DecodeStr(b)) },
+		"InviteCreate":       func(b string) error { return new(InviteCreate).Decode(jx.DecodeStr(b)) },
+	} {
+		body := map[string]string{
+			"Quota":              `{"tokens":5,"bogus":1}`,
+			"QuotaEntry":         entry,
+			"GrantLimits":        `{"models":[],"concurrency":1,"on_context_overflow":"refuse","allowed_request_properties":[],"bogus":{"a":[1]},"quotas":[` + entry + `]}`,
+			"AccessKeyNarrowing": `{"bogus":"x","quotas":[` + entry + `]}`,
+			"ResourceRequestAsk": `{"bogus":true,"quotas":[` + entry + `]}`,
+			"ConsumerCreate":     `{"kind":"individual","display_name":"x","bogus":1}`,
+			"ConsumerUpdate":     `{"bogus":1}`,
+			"AccessKeyCreate":    `{"bogus":1,"narrowing":{"bogus":2}}`,
+			"AccessKeyUpdate":    `{"bogus":1}`,
+			"InviteCreate":       `{"bogus":1}`,
+		}[name]
+		if err := decode(body); err != nil {
+			t.Errorf("%s refused an unknown field: %v", name, err)
+		}
 	}
 }

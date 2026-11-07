@@ -149,6 +149,7 @@ func New(cfg Config) (*Admin, error) {
 	a := &Admin{cfg: cfg, now: cfg.Clock, log: cfg.Telemetry.Logger(), auth: au, cons: cons, grs: grs}
 	srv, err := api.NewServer(a, a,
 		api.WithErrorHandler(a.errorHandler),
+		api.WithMiddleware(ignoredMiddleware),
 		api.WithNotFound(a.notFound),
 		api.WithMethodNotAllowed(a.methodNotAllowed),
 	)

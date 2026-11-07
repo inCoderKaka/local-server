@@ -29,3 +29,6 @@ func ClassifyError(err error) (status int, param, message string) {
 	e, _ := classify(err)
 	return e.status, e.param, e.message
 }
+
+// IgnoredFields exposes ignoredFields to the external tests.
+func IgnoredFields(raw []byte, req any) []string { return ignoredFields(raw, req) }

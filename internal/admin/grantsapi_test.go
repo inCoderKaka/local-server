@@ -156,8 +156,8 @@ func TestGrantOverHTTP(t *testing.T) {
 		t.Fatalf("error = %s", r.Body.String())
 	}
 
-	// Refusals: a window outside the host's bounds, an unknown consumer, a field the host does not
-	// know, a missing required field. None quotes the request.
+	// Refusals: a window outside the host's bounds, an unknown consumer, a missing required field.
+	// None quotes the request.
 	r = e.call(token, "PUT", path, strings.Replace(grantBody, `"window_seconds":3600`, `"window_seconds":5`, 1))
 	status(t, r, http.StatusBadRequest)
 	if r.errBody(t)["param"] != "limits.quotas.1.window_seconds" {
@@ -166,16 +166,30 @@ func TestGrantOverHTTP(t *testing.T) {
 	r = e.call(token, "PUT", "/admin/v1/consumers/"+noSuchID+"/grant", grantBody)
 	status(t, r, http.StatusNotFound)
 	r.errBody(t)
-	r = e.call(token, "PUT", path, strings.Replace(grantBody, `"concurrency":2`, `"concurrency":2,"SECRET FIELD":1`, 1))
-	status(t, r, http.StatusBadRequest)
-	if strings.Contains(r.Body.String(), "SECRET") {
-		t.Fatalf("the refusal quotes the request: %s", r.Body.String())
-	}
 	r = e.call(token, "PUT", path, strings.Replace(grantBody, `"allowed_request_properties":null,`, ``, 1))
 	status(t, r, http.StatusBadRequest)
 	r.errBody(t)
 	if n := e.count(`SELECT count(*) FROM grt_version`); n != 3 {
 		t.Fatalf("%d versions after the refusals, want 3", n)
+	}
+
+	// A field the host does not know is ignored, not refused (req_001 D-105): the answer names the
+	// field, never quotes its value, and the one PUT makes the one new version.
+	r = e.call(token, "PUT", path, strings.Replace(grantBody, `"concurrency":2`, `"concurrency":2,"SECRET FIELD":"ZZvalue-5519"`, 1))
+	status(t, r, http.StatusOK)
+	if w, _ := r.json()["warnings"].([]any); len(w) != 1 || w[0] != "SECRET FIELD is not a known field and was ignored" {
+		t.Fatalf("warnings = %s", r.Body.String())
+	}
+	if strings.Contains(r.Body.String(), "ZZvalue") || strings.Contains(e.tel.buf.String(), "ZZvalue") {
+		t.Fatalf("the answer or the log quotes the value: %s", r.Body.String())
+	}
+	if n := e.count(`SELECT count(*) FROM grt_version`); n != 4 {
+		t.Fatalf("%d versions after the ignored field, want 4", n)
+	}
+	r = e.call(token, "GET", path, "")
+	status(t, r, http.StatusOK)
+	if _, has := r.json()["warnings"]; has || strings.Contains(r.Body.String(), "SECRET") {
+		t.Fatalf("a read of the grant carries the ignored field: %s", r.Body.String())
 	}
 }
 

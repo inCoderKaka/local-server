@@ -23,13 +23,20 @@ func (a *Admin) AdminGetGrant(ctx context.Context, params api.AdminGetGrantParam
 	return grantVersionOut(v)
 }
 
-// AdminSetGrant implements PUT /admin/v1/consumers/{consumer_id}/grant: always a new version.
+// AdminSetGrant implements PUT /admin/v1/consumers/{consumer_id}/grant: always a new version. An
+// unknown request field is ignored and named in warnings, after the warnings of the service
+// (req_001 D-105).
 func (a *Admin) AdminSetGrant(ctx context.Context, req *api.GrantLimits, params api.AdminSetGrantParams) (*api.GrantVersion, error) {
 	v, err := a.grs.SetGrant(ctx, PrincipalIDOf(ctx), params.ConsumerID.String(), grantLimitsIn(req))
 	if err != nil {
 		return nil, err
 	}
-	return grantVersionOut(v)
+	out, err := grantVersionOut(v)
+	if err != nil {
+		return nil, err
+	}
+	out.Warnings = withIgnored(ctx, out.Warnings)
+	return out, nil
 }
 
 // AdminListGrantVersions implements GET /admin/v1/consumers/{consumer_id}/grant/versions: newest

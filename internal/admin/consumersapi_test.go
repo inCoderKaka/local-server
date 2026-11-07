@@ -185,12 +185,6 @@ func TestConsumerNotFoundAndBadInput(t *testing.T) {
 		{"invite bad cursor", "GET", "/admin/v1/invites?cursor=" + hostile, "", 400, "cursor"},
 		{"invite past expiry", "POST", "/admin/v1/invites", `{"expires_at":"2020-01-01T00:00:00Z"}`, 400, "expires_at"},
 		{"invite bad expiry", "POST", "/admin/v1/invites", `{"expires_at":"` + hostile + `"}`, 400, nil},
-		{"bad consumer field", "POST", "/admin/v1/consumers", `{"kind":"individual","display_name":"x","nickname":"y"}`, 400, "nickname"},
-		{"bad consumer patch field", "PATCH", "/admin/v1/consumers/" + noSuchID, `{"emial":"a@example.invalid"}`, 400, "emial"},
-		{"key expiry typo", "POST", "/admin/v1/consumers/" + noSuchID + "/access-keys", `{"name":"x","expiry":"2027-01-01T00:00:00Z"}`, 400, "expiry"},
-		{"key top-level quota", "POST", "/admin/v1/consumers/" + noSuchID + "/access-keys", `{"quota":{"tokens":1}}`, 400, "quota"},
-		{"key patch typo", "PATCH", "/admin/v1/access-keys/" + noSuchID, `{"expiry":null}`, 400, "expiry"},
-		{"invite unknown field", "POST", "/admin/v1/invites", `{"ttl":"1h"}`, 400, "ttl"},
 	} {
 		r := e.call(token, c.method, c.path, c.body)
 		if r.Code != c.status {
@@ -316,9 +310,14 @@ func TestAccessKeyOverHTTP(t *testing.T) {
 		t.Errorf("param = %v", r.errBody(t)["param"])
 	}
 	status(t, e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"models":["no-such-model"]}}`), http.StatusBadRequest)
-	// An unknown field would be dropped silently and the cap never applied, so it is refused.
 	status(t, e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"quotas":[{"tokens":100}]}}`), http.StatusBadRequest) // an entry needs metric, limit and window_seconds
-	status(t, e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"quota":{"window_seconds":60,"tokens":100}}}`), http.StatusBadRequest)
+	// An unknown field is ignored, never refused (D-105), and the answer names it: the deprecated
+	// quota has no window of its own, so the one asked for is not applied.
+	r = e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"narrowing":{"quota":{"window_seconds":60,"tokens":100}}}`)
+	status(t, r, http.StatusOK)
+	if w, _ := r.json()["warnings"].([]any); len(w) != 1 || w[0] != "narrowing.quota.window_seconds is not a known field and was ignored" {
+		t.Errorf("warnings = %s", r.Body.String())
+	}
 
 	r = e.call(token, "POST", "/admin/v1/access-keys/"+kid+"/revoke", "")
 	status(t, r, http.StatusOK)

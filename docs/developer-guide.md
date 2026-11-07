@@ -130,9 +130,9 @@ Deliveries follow [Standard Webhooks](https://www.standardwebhooks.com/): the `w
 
 ### Versioning
 
-- The major version is in the path (`/v1`). Within a major version, changes are additive only.
+- The major version is in the path (`/v1` for the consumer API, `/admin/v1` for the admin API). Within a major version, changes are additive only: a release adds optional request fields, response fields and endpoints, and never removes, renames or tightens one that exists. A client written against an older release keeps working, and your client should ignore a response field it does not know.
 - Deprecations are announced with the `Deprecation` and `Sunset` headers.
-- **Unknown fields (planned):** today the admin API refuses a request body that holds a field it does not know (400). It is planned to ignore the field and return a `warnings` entry instead, so a newer client keeps working against an older host.
+- **Unknown request fields differ by API.** The admin API's consumer, access key, invite and grant request bodies are lenient, so a newer client keeps working against an older host: the host ignores a field it does not know, and the answer's `warnings` names the field by its path, for example `narrowing.quotas.0.bogus is not a known field and was ignored`. It never repeats the value. A field name that is empty, unprintable or longer than 64 bytes is not repeated either; the warning then says only that such a field was ignored. The answers to a create, an issue or a change of a consumer, an access key, an invite or a grant carry `warnings`, and the answers that read them back carry none. Check `warnings` after a write, because an ignored field has had no effect. The OpenAI-compatible chat and embedding bodies of the consumer API stay strict, as described above: an unsupported OpenAI field is rejected with a typed error, never ignored.
 
 ## Part 2 — building local-server
 

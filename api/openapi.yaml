@@ -5176,7 +5176,6 @@ components:
       enum: [refuse, truncate]
     Quota:
       type: object
-      additionalProperties: false
       deprecated: true
       description: "Deprecated alias for `quotas` (D-107): a token and request allowance for one window, the host setting `limits.quota_window` (one day by default). On input it stands for a `tokens` entry and a `requests` entry with that window; leave out `tokens` or `requests` for no limit on it; `0` allows none. When `quotas` is sent as well, `quotas` wins and `warnings` says so. On output it holds the entries whose window is `limits.quota_window`, and is null when there are none."
       properties:
@@ -5192,7 +5191,6 @@ components:
           minimum: 0
     QuotaEntry:
       type: object
-      additionalProperties: false
       description: "One quota: at most `limit` of the `metric` in each fixed window of `window_seconds`. Windows are fixed and aligned to whole multiples of their length counted from 0001-01-01 00:00 UTC (a length that divides 24 hours starts a window at every midnight UTC), and a call is charged to the window that holds the moment the host admitted it. A list holds at most one entry per metric and window; `0` allows none. The window is whole seconds within the host's `limits.quota_window_min` and `limits.quota_window_max` settings. A client picks the window of a key's entry only when the consumer's `billing_mode` is `prepaid` or `postpaid`; for every other consumer the host sets it (D-107)."
       required: [metric, limit, window_seconds]
       properties:
@@ -5340,7 +5338,6 @@ components:
       enum: [open, approved, rejected, withdrawn, expired]
     ResourceRequestAsk:
       type: object
-      additionalProperties: false
       description: What the consumer asks for; every field is optional. The host decides the resulting limits.
       properties:
         models:
@@ -6193,6 +6190,13 @@ components:
           description: When the account was deleted.
           format: date-time
           example: null
+        warnings:
+          type: array
+          description: Only a create or an update fills it. Each entry names a field of the request that the host ignored because it does not know it, for example `bogus is not a known field and was ignored`; it never quotes a value (D-105). Absent on every read.
+          items:
+            type: string
+          example:
+            - bogus is not a known field and was ignored
     BillingMode:
       type: string
       description: "Set by the host admin only. A consumer with a billing mode other than `none` (`prepaid` or `postpaid`) may set its own quota windows on its keys; for a consumer with `none` the host sets them (D-107). No balances, invoices or prices exist in this version (D-02). When a new consumer leaves it out, the host uses `none`."
@@ -6223,7 +6227,6 @@ components:
           example: null
     ConsumerCreate:
       type: object
-      additionalProperties: false
       description: A new key-only consumer.
       required: [kind, display_name]
       properties:
@@ -6247,7 +6250,6 @@ components:
           example: none
     ConsumerUpdate:
       type: object
-      additionalProperties: false
       description: Changes to a consumer; absent fields stay as they are.
       properties:
         display_name:
@@ -6400,7 +6402,6 @@ components:
           example: example-new-password-placeholder
     AccessKeyNarrowing:
       type: object
-      additionalProperties: false
       description: Limits a key adds on top of its consumer's grant. They can only narrow the grant, never widen it.
       properties:
         models:
@@ -6486,7 +6487,7 @@ components:
           example: null
         warnings:
           type: array
-          description: Only an issue or a change fills it. Each entry names a field that was ignored or is deprecated, for example the deprecated `narrowing.quota` sent beside `narrowing.quotas`.
+          description: Only an issue or a change fills it. Each entry names a field of the request that the host ignored because it does not know it (for example `narrowing.bogus is not a known field and was ignored`, never quoting a value) or that is deprecated (for example the deprecated `narrowing.quota` sent beside `narrowing.quotas`) (D-105, D-107). Absent on every read.
           items:
             type: string
     AccessKeyList:
@@ -6512,7 +6513,6 @@ components:
               revoked_at: null
     AccessKeyCreate:
       type: object
-      additionalProperties: false
       description: A new access key.
       properties:
         name:
@@ -6540,7 +6540,6 @@ components:
           example: example-node
     AccessKeyUpdate:
       type: object
-      additionalProperties: false
       description: Changes to an access key; absent fields stay as they are. A narrowing, when given, replaces the stored one as a whole.
       properties:
         name:
@@ -6639,7 +6638,6 @@ components:
           jobs.result_ttl: 1h
     GrantLimits:
       type: object
-      additionalProperties: false
       description: The limits of a grant version.
       required: [models, concurrency, on_context_overflow, allowed_request_properties]
       properties:
@@ -6732,7 +6730,7 @@ components:
           $ref: '#/components/schemas/GrantLimits'
         warnings:
           type: array
-          description: What the host ignored in the request that made this version, for example the deprecated `quota` when `quotas` was given too. Absent on a read.
+          description: "What the host ignored in the request that made this version: a field it does not know, named by its path and never quoting a value (for example `bogus is not a known field and was ignored`), or the deprecated `quota` when `quotas` was given too (D-105, D-107). Absent on a read."
           items:
             type: string
           example:
@@ -7054,6 +7052,13 @@ components:
           description: The consumer created from it.
           format: uuid
           example: null
+        warnings:
+          type: array
+          description: Only a create fills it. Each entry names a field of the request that the host ignored because it does not know it, for example `bogus is not a known field and was ignored`; it never quotes a value (D-105). Absent on every read.
+          items:
+            type: string
+          example:
+            - bogus is not a known field and was ignored
     InviteList:
       type: object
       description: A page of invites.
@@ -7076,7 +7081,6 @@ components:
           example: null
     InviteCreate:
       type: object
-      additionalProperties: false
       description: A new invite.
       properties:
         note:
