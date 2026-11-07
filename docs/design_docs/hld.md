@@ -370,7 +370,7 @@ The [developer guide](../developer-guide.md) shows these from a client app's sid
 | Ollama down | `503 engine_unavailable`. Client apps fall back to their cloud provider (D-03, D-11) |
 | Host offline or paused | `/v1/health` tells clients quickly. Interactive calls fall back, and background work waits in the client's retry queue |
 | Overload | Bounded queue, `queue_full` + `Retry-After`. Running requests are never interrupted |
-| Client disconnects mid-stream | The engine call is cancelled, and the tokens generated so far are metered |
+| Client disconnects mid-stream | The engine call is cancelled, and the tokens generated so far are metered with an estimated prompt count |
 | Crash or restart | Running jobs become `failed(host_restart)` (Ollama can't resume a generation, **Judgement**). Terminal states never reopen, and idempotency keys prevent double runs |
 | Metering write fails repeatedly | The answer is still returned with an `unmetered` signed receipt. The failure is logged, counted and alerted (D-51) |
 | Webhook receiver down | Exponential backoff from the outbox. The endpoint is disabled after `410` or N failures |

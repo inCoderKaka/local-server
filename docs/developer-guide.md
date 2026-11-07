@@ -119,7 +119,7 @@ To verify one:
 
 A receipt marked `unmetered` means the host answered but could not record the call. It is signed evidence that the call can't be billed later.
 
-A call you abandon (you disconnect, or cancel a job, while the engine runs) is recorded with outcome `aborted`. It bills the completion tokens produced so far plus an estimated prompt count, because the engine reports its exact prompt count only on its last chunk. The estimate is the prompt's size in bytes divided by the host's `gateway.chars_per_token` setting (4 by default), rounded up, and the host works it out in memory without storing the prompt. The receipt of such a call has `prompt_tokens_estimated: true`; the field is absent when `prompt_tokens` is the engine's count. The marker is not part of the ledger leaf, so the leaf hash and proofs are unchanged. A call that ends in an engine error or timeout before it produced anything writes no record.
+A call you abandon (you disconnect, or cancel a job, while the engine runs) is recorded with outcome `aborted`. It bills the completion tokens produced so far plus an estimated prompt count, because the engine reports its exact prompt count only on its last chunk. The estimate is the prompt's size in bytes divided by the host's `gateway.chars_per_token` setting (4 by default), rounded up, never above the model's context size, and the host works it out in memory without storing the prompt. The receipt of such a call has `prompt_tokens_estimated: true`; the field is absent when `prompt_tokens` is the engine's count. The marker is not part of the ledger leaf, so the leaf hash and proofs are unchanged. A call that ends in an engine error or timeout before it produced anything writes no record.
 
 ### Webhooks
 
