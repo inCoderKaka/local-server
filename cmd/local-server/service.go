@@ -5,17 +5,18 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"os"
 	"path/filepath"
 	"runtime"
 	"time"
 
 	"github.com/inCoderKaka/local-server/internal/service"
-	svcadapter "github.com/inCoderKaka/local-server/internal/service/kardianos"
+	"github.com/inCoderKaka/local-server/internal/service/osadapter"
 )
 
 // serviceHooks holds what `local-server service` touches outside the process, so tests replace
-// it without a real service manager. A nil field means the real one (req_001 D-30).
+// it without a real service manager. A nil field means the real one, which lives in
+// internal/service/osadapter: this file only parses flags, builds the Spec, calls the adapter and
+// prints Outcomes (req_001 D-137, D-30).
 type serviceHooks struct {
 	// executable is the absolute path of this binary, which the service definition runs.
 	executable func() (string, error)
@@ -44,11 +45,7 @@ func (a *app) hookExecutable() (string, error) {
 	if a.svc.executable != nil {
 		return a.svc.executable()
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Abs(exe)
+	return osadapter.Executable()
 }
 
 func (a *app) hookTarget() service.Target {
@@ -62,18 +59,14 @@ func (a *app) hookUserName() (string, error) {
 	if a.svc.userName != nil {
 		return a.svc.userName()
 	}
-	return svcadapter.CurrentUserName()
+	return osadapter.CurrentUserName()
 }
 
 func (a *app) hookManager(s service.Spec) (service.Manager, error) {
 	if a.svc.newManager != nil {
 		return a.svc.newManager(s)
 	}
-	env, err := svcadapter.NewEnv()
-	if err != nil {
-		return nil, err
-	}
-	return svcadapter.New(s, env)
+	return osadapter.NewManager(s)
 }
 
 // serviceCmd runs `local-server service <action>`: exit 0 done, 1 failed, 2 wrong command line.

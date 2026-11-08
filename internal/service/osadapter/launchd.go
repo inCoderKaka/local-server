@@ -1,4 +1,4 @@
-package kardianos
+package osadapter
 
 import (
 	"context"

@@ -4,5 +4,6 @@
 // LaunchAgent or LaunchDaemon plist, the systemd unit, the Windows logon task and the Windows
 // service definition, plus the definition of the user-session helper that system mode comes
 // with. Nothing here starts a process or touches the OS, so the golden-file tests run the same on
-// every OS. The adapter that installs the definitions is internal/service/kardianos.
+// every OS. The adapter that installs the definitions, and holds everything OS-dependent, is
+// internal/service/osadapter (req_001 D-137).
 package service

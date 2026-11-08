@@ -121,7 +121,7 @@ func systemdQuote(a string) string {
 
 // systemdUnit renders a systemd unit. Restart=on-failure restarts it after a crash or a non-zero
 // exit and not after a clean exit or `systemctl stop`. A user unit is wanted by default.target
-// (kardianos hardcodes multi-user.target, which a user manager does not have), a system unit by
+// (kardianos/service hardcodes multi-user.target, which a user manager does not have), a system unit by
 // multi-user.target after the network is up.
 func (d definition) systemdUnit(s Spec) string {
 	var b strings.Builder

@@ -1,19 +1,17 @@
-package kardianos
+package osadapter
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
-	"os"
-	"os/exec"
-	"os/user"
-	"path/filepath"
 	"strings"
 
 	ksvc "github.com/kardianos/service"
 )
+
+// This file holds the seams of the adapter: the Runner, the FS and the Env that carries them.
+// Nothing here touches the OS, so every OS family's backend runs against fakes on any host. The
+// real implementations are in real.go (req_001 D-137, D-30).
 
 // ErrToolMissing is returned by a Runner when the program it was asked to run is not installed.
 var ErrToolMissing = errors.New("service: tool not installed")
@@ -70,79 +68,9 @@ type Env struct {
 	NewWindowsService func(*ksvc.Config) (WindowsService, error)
 }
 
-// NewEnv is the real Env of the machine this process runs on.
-func NewEnv() (Env, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return Env{}, fmt.Errorf("find the home folder: %w", err)
-	}
-	cfg := os.Getenv("XDG_CONFIG_HOME")
-	if cfg == "" {
-		cfg = filepath.Join(home, ".config")
-	}
-	return Env{Runner: ExecRunner{}, FS: OSFS{}, ConfigHome: cfg, Home: home, UID: os.Getuid(), TempDir: os.TempDir(),
-		NewWindowsService: newKardianosService}, nil
-}
-
-// CurrentUserName is the name of the user this process runs as: DOMAIN\user on Windows.
-func CurrentUserName() (string, error) {
-	u, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-	return u.Username, nil
-}
-
-// ExecRunner is the real Runner.
-type ExecRunner struct{}
-
-// Run implements Runner.
-func (ExecRunner) Run(ctx context.Context, name string, args ...string) (Result, error) {
-	var out bytes.Buffer
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Stdout, cmd.Stderr = &out, &out
-	err := cmd.Run()
-	var ee *exec.ExitError
-	switch {
-	case err == nil:
-		return Result{Output: out.String()}, nil
-	case errors.As(err, &ee):
-		return Result{Code: ee.ExitCode(), Output: out.String()}, nil
-	case errors.Is(err, exec.ErrNotFound) || errors.Is(err, fs.ErrNotExist):
-		return Result{}, fmt.Errorf("%w: %s", ErrToolMissing, name)
-	}
-	return Result{}, err
-}
-
-// OSFS is the real FS.
-type OSFS struct{}
-
-// ReadFile implements FS.
-func (OSFS) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
-
-// WriteFile implements FS.
-func (OSFS) WriteFile(path string, data []byte, perm fs.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, perm)
-}
-
-// Remove implements FS.
-func (OSFS) Remove(path string) error { return os.Remove(path) }
-
-// idle is the kardianos program of a service this process only installs and controls: it never
-// calls Run, so Start and Stop do nothing.
-type idle struct{}
-
-func (idle) Start(ksvc.Service) error { return nil }
-func (idle) Stop(ksvc.Service) error  { return nil }
-
-func newKardianosService(cfg *ksvc.Config) (WindowsService, error) {
-	return ksvc.New(idle{}, cfg)
-}
-
 // adminHints are phrases the OS tools print when the caller lacks the rights for system mode.
+// The adapter detects missing privilege from what the tool or the file system said, not by asking
+// the OS who the user is, so the check compiles and is tested everywhere.
 var adminHints = []string{"permission denied", "access is denied", "authentication required",
 	"not privileged", "operation not permitted", "must be root", "requires elevation"}
 
