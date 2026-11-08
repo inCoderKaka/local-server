@@ -54,6 +54,10 @@ type Keychain interface {
 // ErrKeychainNotFound is what Keychain.Get returns when the keychain works but holds no entry.
 var ErrKeychainNotFound = keyring.ErrNotFound
 
+// ErrMasterKeyNotFound is returned (wrapped) by LoadMasterKey with Create false when the keychain
+// answered and neither it nor the key file holds the master key.
+var ErrMasterKeyNotFound = errors.New("hostkeys: the host master key is not in the OS keychain or at the key file")
+
 // ErrKeychainTimeout is returned (wrapped) when a keychain call did not answer in time.
 var ErrKeychainTimeout = errors.New("hostkeys: the OS keychain did not answer in time")
 
@@ -151,7 +155,7 @@ func LoadMasterKey(cfg MasterKeyConfig) ([]byte, MasterKeySource, error) {
 			return nil, "", ferr
 		}
 		if !create {
-			return nil, "", fmt.Errorf("hostkeys: the host master key is not in the OS keychain or at %s; this database was created with it, so restore it rather than starting over", fallbackPath)
+			return nil, "", fmt.Errorf("%w (%s); this database was created with it, so restore it rather than starting over", ErrMasterKeyNotFound, fallbackPath)
 		}
 		k, kerr := randomKey()
 		if kerr != nil {

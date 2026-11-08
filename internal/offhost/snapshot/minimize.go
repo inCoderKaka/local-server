@@ -6,6 +6,31 @@ import (
 	"strings"
 )
 
+// protectedTables are the tables a backup always keeps (req_001 D-139): minimizing
+// ops_schema_migrations makes a restore fail at migration time, and minimizing hst_host or hst_key
+// leaves a snapshot that cannot recover the host's keys.
+var protectedTables = []string{"hst_host", "hst_key", "ops_schema_migrations"}
+
+// ProtectedTables returns the tables a backup always keeps, sorted. A backup.minimize.<table>
+// setting exists for each, but a write to it is refused and its stored value is never honored
+// (req_001 D-139, refining D-64 and D-68).
+func ProtectedTables() []string { return append([]string(nil), protectedTables...) }
+
+// IsProtected reports whether table is always kept in a backup (req_001 D-139).
+func IsProtected(table string) bool {
+	for _, t := range protectedTables {
+		if t == table {
+			return true
+		}
+	}
+	return false
+}
+
+// protectedError is the refusal of a write to the minimize setting of a protected table.
+func protectedError(table string) error {
+	return fmt.Errorf("table %s is protected and always included in a backup: leaving it out would make a restore fail or leave a snapshot that cannot recover this host's keys (req_001 D-139)", table)
+}
+
 // Violation is one table set to minimize while tables that reference it, directly or through
 // other tables, are kept (req_001 D-69).
 type Violation struct {

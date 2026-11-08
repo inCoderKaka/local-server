@@ -28,6 +28,17 @@
 // (CheckMinimize); the settings validator refuses a write that breaks this and names the tables,
 // and every run checks again over the current schema, because a migration can break it (D-71).
 //
+// ops_schema_migrations, hst_host and hst_key are protected (D-139): a backup always keeps them,
+// because minimizing them makes a restore fail at migration time or leaves a snapshot that cannot
+// recover the host's keys. Their switches exist so a refusal can name the table and the reason,
+// but every write is refused and a stored value is never read.
+//
+// # Master key (D-138)
+//
+// A snapshot is encrypted with the host data key and never carries the machine's master key. The
+// recovery code restores the data on the same machine, or where master.key or the keychain entry
+// survives; after a total loss without it the sealed host keys cannot be opened.
+//
 // # Restore
 //
 // Restore decrypts with the host data key (the recovery code), checks the database against the

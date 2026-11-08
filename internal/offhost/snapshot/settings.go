@@ -49,8 +49,9 @@ var defaultMinimize = map[string]bool{"sch_job_payload": true, "sch_job_result":
 // MinimizeKey is the setting key of a table's minimize switch.
 func MinimizeKey(table string) string { return KeyMinimizePrefix + table }
 
-// DefaultMinimize reports whether a table defaults to minimize.
-func DefaultMinimize(table string) bool { return defaultMinimize[table] }
+// DefaultMinimize reports whether a table defaults to minimize. A protected table never does
+// (req_001 D-139).
+func DefaultMinimize(table string) bool { return defaultMinimize[table] && !IsProtected(table) }
 
 func boolText(b bool) string {
 	if b {
@@ -105,7 +106,8 @@ func Defs() []settings.Def {
 
 // RegisterSettings registers the backup settings and one minimize switch per table in
 // ops_data_catalog, keyed backup.minimize.<table> (req_001 D-64, D-69), with the write
-// validators. db must be open (the catalog is filled at open). It is safe to call on every open.
+// validators. The protected tables (req_001 D-139) get a switch too, so the refusal can name the
+// table and the reason, but its validator refuses every write and the value is never read. db must be open (the catalog is filled at open). It is safe to call on every open.
 func RegisterSettings(ctx context.Context, db *storage.DB, st *settings.Store) error {
 	if err := st.Register(Defs()...); err != nil {
 		return err
@@ -115,12 +117,21 @@ func RegisterSettings(ctx context.Context, db *storage.DB, st *settings.Store) e
 		return err
 	}
 	for _, t := range tables {
-		err := st.Register(settings.Def{Key: MinimizeKey(t), Kind: settings.Bool, Default: boolText(defaultMinimize[t]), Owner: settings.Host,
-			Description: "Backup: whether the rows of table " + t + " are left out of backups (true) or kept as they are (false). A table can be left out only when every table that refers to it is also left out; local-server refuses a change that breaks this and names the tables."})
+		desc := "Backup: whether the rows of table " + t + " are left out of backups (true) or kept as they are (false). A table can be left out only when every table that refers to it is also left out; local-server refuses a change that breaks this and names the tables."
+		if IsProtected(t) {
+			desc = "Backup: table " + t + " is protected and always included in a backup, because leaving it out would make a restore fail or leave a snapshot that cannot recover this host's keys. This setting cannot be changed: every write is refused and any stored value is ignored."
+		}
+		err := st.Register(settings.Def{Key: MinimizeKey(t), Kind: settings.Bool, Default: boolText(DefaultMinimize(t)), Owner: settings.Host, Description: desc})
 		if err != nil {
 			return err
 		}
 		table := t
+		if IsProtected(table) {
+			if err := st.SetValidator(MinimizeKey(table), func(context.Context, string) error { return protectedError(table) }); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := st.SetValidator(MinimizeKey(table), func(ctx context.Context, v string) error {
 			return validateMinimizeWrite(ctx, db, st, table, v == "true")
 		}); err != nil {
@@ -147,7 +158,8 @@ func catalogTables(ctx context.Context, db *storage.DB) ([]string, error) {
 	return out, rows.Err()
 }
 
-// minimizeSettings reads the minimize switch of every catalog table.
+// minimizeSettings reads the minimize switch of every catalog table. A protected table is always
+// kept: its stored value, if an older database holds one, is not read (req_001 D-139).
 func minimizeSettings(ctx context.Context, db *storage.DB, st *settings.Store) (map[string]bool, error) {
 	tables, err := catalogTables(ctx, db)
 	if err != nil {
@@ -155,6 +167,10 @@ func minimizeSettings(ctx context.Context, db *storage.DB, st *settings.Store) (
 	}
 	out := make(map[string]bool, len(tables))
 	for _, t := range tables {
+		if IsProtected(t) {
+			out[t] = false
+			continue
+		}
 		v, err := st.Bool(ctx, MinimizeKey(t), "")
 		if err != nil {
 			return nil, fmt.Errorf("read setting %s: %w", MinimizeKey(t), err)

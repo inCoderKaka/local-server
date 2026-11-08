@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inCoderKaka/local-server/internal/hostkeys"
 	"github.com/inCoderKaka/local-server/internal/offhost/snapshot"
 	"github.com/inCoderKaka/local-server/internal/offhost/snapshot/s3fake"
 )
@@ -85,6 +87,10 @@ func TestBackupWorkerThenRestore(t *testing.T) {
 	if strings.Contains(ra.out.String()+ra.err.String(), code) {
 		t.Fatal("the recovery code was echoed")
 	}
+	// Same machine, master key still there: no line about the master key (req_001 D-138).
+	if strings.Contains(ra.out.String(), "master key") {
+		t.Fatalf("a restore on the same machine warned about the master key:\n%s", ra.out.String())
+	}
 	if !exists(dbPath) {
 		t.Fatal("no database after restore")
 	}
@@ -111,6 +117,92 @@ func TestBackupWorkerThenRestore(t *testing.T) {
 	if len(kept) == 0 {
 		t.Fatal("the database that was replaced is not kept")
 	}
+}
+
+// A snapshot does not carry the master key (req_001 D-138). Restore on a machine whose keychain is
+// empty and whose data folder holds no master.key, or holds another key, succeeds and prints one
+// line saying the restored host keys cannot be opened; the check changes nothing in the database.
+func TestRestoreWithoutTheMasterKeyPrintsOneLine(t *testing.T) {
+	ta := newTestApp(t, true)
+	offhost := filepath.Join(t.TempDir(), "offhost")
+	seed(t, ta.dir, backupSettings(offhost))
+	r := startServe(t, ta, "--engine", "fake")
+	m := codeRe.FindStringSubmatch(ta.err.String())
+	if m == nil {
+		t.Fatalf("no recovery code:\n%s", ta.err.String())
+	}
+	code := m[1]
+	waitFor(t, "a snapshot in the folder", func() bool { return len(snapshotFiles(offhost)) > 0 })
+	r.stop()
+	dbPath := filepath.Join(ta.dir, dbFileName)
+	for _, s := range []string{"", "-wal", "-shm"} {
+		os.Remove(dbPath + s)
+	}
+
+	for name, c := range map[string]struct {
+		secret string // what the new machine's keychain holds
+		want   string
+	}{
+		"no master key": {"", "was not found here"},
+		"another key":   {base64.StdEncoding.EncodeToString(make([]byte, hostkeys.KeySize)), "does not match"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ra := restoreApp(t, ta, code+"\n")
+			ra.kc = &fakeKeychain{secret: c.secret}
+			ra.keychain = ra.kc
+			if exit := ra.run(context.Background(), []string{"restore", "--data-dir", ta.dir, "--from", offhost}); exit != 0 {
+				t.Fatalf("restore exit = %d; stderr:\n%s", exit, ra.err.String())
+			}
+			out := ra.out.String()
+			contains(t, "stdout", out, "Restored snapshot", "does not carry this machine's master key", c.want, "new identity")
+			if n := strings.Count(out, "master key"); n < 1 || strings.Count(out, "Warning: the snapshot does not carry") != 1 {
+				t.Fatalf("want exactly one master key line:\n%s", out)
+			}
+			if strings.Index(out, "does not carry") > strings.Index(out, "Start the host again") {
+				t.Fatalf("the master key line comes after the closing line:\n%s", out)
+			}
+			if strings.Contains(out+ra.err.String(), code) || (c.secret != "" && strings.Contains(out+ra.err.String(), c.secret)) {
+				t.Fatal("a secret was printed")
+			}
+			if exists(filepath.Join(ta.dir, masterKeyFileName)) {
+				t.Fatal("the check created a master key file")
+			}
+			if gets, sets := ra.kc.calls(); sets != 0 || gets == 0 {
+				t.Fatalf("keychain gets=%d sets=%d; the check must only read", gets, sets)
+			}
+			// The check itself leaves the restored database as it is.
+			before, entries := fileHash(t, dbPath), dirNames(t, ta.dir)
+			if notice := ra.restoredKeysNotice(context.Background(), ta.dir); !strings.Contains(notice, "master key") {
+				t.Fatalf("notice = %q", notice)
+			}
+			if fileHash(t, dbPath) != before || strings.Join(dirNames(t, ta.dir), ",") != strings.Join(entries, ",") {
+				t.Fatal("the master key check changed the restored database")
+			}
+			// What the line says is what serve does today: it refuses to start on keys it cannot open
+			// (it does not create a new identity), and says so.
+			sa := newTestApp(t, false)
+			sa.dir, sa.kc, sa.keychain, sa.logDir = ta.dir, ra.kc, ra.kc, ta.logDir
+			if exit := sa.run(context.Background(), []string{"serve", "--data-dir", ta.dir, "--engine", "fake"}); exit == 0 {
+				t.Fatal("serve started on a database whose keys it cannot open")
+			}
+			if n := count(t, ta.dir, `SELECT count(*) FROM hst_host`); n != 1 {
+				t.Fatalf("hst_host rows = %d after the refused start", n)
+			}
+		})
+	}
+}
+
+func dirNames(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range entries {
+		out = append(out, e.Name())
+	}
+	return out
 }
 
 func TestRestoreRefusesWithoutTheRightCodeAndWritesNothing(t *testing.T) {

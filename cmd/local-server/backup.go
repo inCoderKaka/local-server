@@ -272,9 +272,67 @@ func (a *app) runRestore(ctx context.Context, dataDir string, src restoreSource)
 		}
 		return fmt.Errorf("%w; the existing database was not changed", err)
 	}
-	a.printRestoreReport(rep, dataDir)
+	a.printRestoreReport(rep, dataDir, a.restoredKeysNotice(ctx, dataDir))
 	return nil
 }
+
+// The restore line about the master key (req_001 D-138). A snapshot never carries the machine's
+// master key, so the host keys in a restored database open only where that key survives.
+// Today the host refuses to start on a restored database whose keys it cannot open
+// (LoadMasterKey with Create false, hostkeys.Open); a new identity comes only from starting over
+// without those keys.
+const (
+	restoreKeyMissing   = "Warning: the snapshot does not carry this machine's master key, and the master key was not found here (not in the OS keychain, and not in %s). The restored host keys cannot be opened, so the host will not start on this database until the original master key is back (the keychain entry or the master.key file); without it the host can only start over with a new identity: new signing keys that consumers must trust again.\n"
+	restoreKeyMismatch  = "Warning: the snapshot does not carry this machine's master key, and the master key found here does not match the one that sealed the restored host keys. The host will not start on this database until the original master key is back (the keychain entry or the master.key file); without it the host can only start over with a new identity: new signing keys that consumers must trust again.\n"
+	restoreKeyUnchecked = "Note: could not check whether this machine's master key opens the restored host keys (%v). The host starts only if it does; the snapshot does not carry the master key.\n"
+)
+
+// restoredKeysNotice checks, after a successful restore, whether the master key available on this
+// machine opens the restored database's sealed host keys, and returns the line to print, or "" when
+// it does. It never fails the restore. The check is read-only: the database is opened read-only,
+// and hostkeys.Open on a database that already holds the host writes nothing. It never prints the
+// key (req_001 D-138, D-40).
+func (a *app) restoredKeysNotice(ctx context.Context, dataDir string) string {
+	unchecked := func(err error) string { return fmt.Sprintf(restoreKeyUnchecked, scrub(err)) }
+	db, err := storage.OpenReadOnly(ctx, filepath.Join(dataDir, dbFileName), registryModules()...)
+	if err != nil {
+		return unchecked(err)
+	}
+	defer db.Close()
+	st := settings.New(db)
+	if err := registerSettings(st); err != nil {
+		return unchecked(err)
+	}
+	done, err := hostkeys.Bootstrapped(ctx, db)
+	if err != nil {
+		return unchecked(err)
+	}
+	if !done {
+		return "" // no host in the snapshot: nothing is sealed, and nothing is written here
+	}
+	timeout, err := st.Duration(ctx, hostkeys.KeyKeychainTimeout, "")
+	if err != nil {
+		return unchecked(err)
+	}
+	fallback := filepath.Join(dataDir, masterKeyFileName)
+	master, _, err := hostkeys.LoadMasterKey(hostkeys.MasterKeyConfig{FallbackPath: fallback, Create: false, Timeout: timeout, Keychain: a.keychain})
+	switch {
+	case errors.Is(err, hostkeys.ErrMasterKeyNotFound):
+		return fmt.Sprintf(restoreKeyMissing, fallback)
+	case err != nil:
+		return unchecked(err)
+	}
+	if _, _, err := hostkeys.Open(ctx, db, st, master); err != nil {
+		if errors.Is(err, hostkeys.ErrOpen) {
+			return restoreKeyMismatch
+		}
+		return unchecked(err)
+	}
+	return ""
+}
+
+// scrub is an error's text for one line of output.
+func scrub(err error) string { return strings.Join(strings.Fields(err.Error()), " ") }
 
 // restoreTarget builds the Target restore reads from: a folder, a bucket named by flags, or, when
 // neither is given, the target configured in this host's database.
@@ -343,7 +401,9 @@ verify against the restored ledger. Consumers holding such receipts cannot check
 against this host any more (the restored ledger is shorter than the one they saw).
 `
 
-func (a *app) printRestoreReport(rep snapshot.Report, dataDir string) {
+// printRestoreReport prints the outcome of a restore. keyNotice is the line of restoredKeysNotice
+// ("" when the master key opens the restored keys), printed before the closing line.
+func (a *app) printRestoreReport(rep snapshot.Report, dataDir, keyNotice string) {
 	w := a.stdout
 	fmt.Fprintf(w, "Restored snapshot %s (taken %s UTC) into %s.\n", rep.Snapshot, rep.TakenAt.Format("2006-01-02 15:04:05"), filepath.Join(dataDir, dbFileName))
 	if rep.PreviousDatabase != "" {
@@ -361,5 +421,6 @@ func (a *app) printRestoreReport(rep snapshot.Report, dataDir string) {
 		fmt.Fprintln(w, "The restored database holds no ledger checkpoint yet.")
 	}
 	fmt.Fprint(w, restoreCheckpointWarning)
+	fmt.Fprint(w, keyNotice)
 	fmt.Fprintln(w, "Start the host again with `local-server serve` (or your service).")
 }

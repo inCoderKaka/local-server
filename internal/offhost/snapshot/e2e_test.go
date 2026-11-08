@@ -554,6 +554,75 @@ func TestMinimizeSettingWritesRespectD69(t *testing.T) {
 	}
 }
 
+// TestProtectedTablesCannotBeMinimized covers req_001 D-139: the minimize switch of
+// ops_schema_migrations, hst_host and hst_key refuses every write, names the table and the reason,
+// stores nothing, and a stored value an older database holds is never honored.
+func TestProtectedTablesCannotBeMinimized(t *testing.T) {
+	e := newEnv(t)
+	for _, table := range []string{"ops_schema_migrations", "hst_host", "hst_key"} {
+		for _, v := range []string{"true", "false"} {
+			t.Run(table+"="+v, func(t *testing.T) {
+				err := e.st.Set(e.ctx, settings.Host, snapshot.MinimizeKey(table), "", v)
+				if !errors.Is(err, settings.ErrRejected) || !strings.Contains(err.Error(), "table "+table+" is protected") ||
+					!strings.Contains(err.Error(), "always included in a backup") || !strings.Contains(err.Error(), "keys") {
+					t.Fatalf("write %s=%s: %v, want a refusal naming the table and why", table, v, err)
+				}
+				var n int
+				if err := e.db.Reader().QueryRow(e.ctx, `SELECT count(*) FROM hst_setting WHERE key = ?`, snapshot.MinimizeKey(table)).Scan(&n); err != nil || n != 0 {
+					t.Fatalf("%d rows stored after a refused write (%v)", n, err)
+				}
+			})
+		}
+		def, ok := e.st.Definition(snapshot.MinimizeKey(table))
+		if !ok || def.Default != "false" || def.Owner != settings.Host || !strings.Contains(def.Description, "protected") {
+			t.Errorf("%s definition = %+v", table, def)
+		}
+		if !snapshot.IsProtected(table) || snapshot.DefaultMinimize(table) {
+			t.Errorf("%s: IsProtected=%v DefaultMinimize=%v", table, snapshot.IsProtected(table), snapshot.DefaultMinimize(table))
+		}
+	}
+	if snapshot.IsProtected("sch_job_payload") || snapshot.IsProtected("idn_session") {
+		t.Error("a non-protected table reports protected")
+	}
+	if got := strings.Join(snapshot.ProtectedTables(), ","); got != "hst_host,hst_key,ops_schema_migrations" {
+		t.Errorf("ProtectedTables = %s", got)
+	}
+
+	// A non-protected table still works as before.
+	if err := e.st.Set(e.ctx, settings.Host, snapshot.MinimizeKey("sch_job_payload"), "", "false"); err != nil {
+		t.Fatalf("non-protected table: %v", err)
+	}
+
+	// An older database holds a stored "true": the configuration, the D-69 check and a backup keep
+	// the table.
+	e.exec(`INSERT INTO hst_setting (key, scope, value, updated_by, updated_at) VALUES (?, '', 'true', 'host', 0)`, snapshot.MinimizeKey("hst_key"))
+	cfg, err := snapshot.LoadConfig(e.ctx, e.db, e.st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Minimize["hst_key"] {
+		t.Fatal("a stored true for hst_key was honored")
+	}
+	if got := strings.Join(cfg.MinimizedTables(), ","); got != "idn_session,sch_job_result" {
+		t.Fatalf("minimized tables = %s", got)
+	}
+	refs, err := e.db.ForeignKeyReferrers(e.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merr := snapshot.CheckMinimize(refs, cfg.Minimize); merr != nil {
+		t.Fatalf("D-69 check: %v", merr)
+	}
+	e.useFolder(filepath.Join(t.TempDir(), "off-host"))
+	res, err := e.runner(nil).Backup(e.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(res.Minimized, ",") != "idn_session,sch_job_result" {
+		t.Fatalf("backup minimized %v, want hst_key kept", res.Minimized)
+	}
+}
+
 func TestShippedDefaultsSatisfyD69OverTheFullSchema(t *testing.T) {
 	e := newEnv(t)
 	cfg, err := snapshot.LoadConfig(e.ctx, e.db, e.st)
