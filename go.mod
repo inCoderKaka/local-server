@@ -12,6 +12,7 @@ require (
 	github.com/go-faster/errors v0.8.0
 	github.com/go-faster/jx v1.2.0
 	github.com/google/uuid v1.6.0
+	github.com/kardianos/service v1.3.0
 	github.com/ogen-go/ogen v1.24.0
 	github.com/pb33f/jsonschema/v6 v6.0.3
 	github.com/prometheus/client_golang v1.25.0

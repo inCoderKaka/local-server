@@ -1,0 +1,14 @@
+[Unit]
+Description=local-server shares this machine's AI inference with invited consumers
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/ana/.local/bin/local-server serve --data-dir /home/ana/.config/local-server
+User=ana
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

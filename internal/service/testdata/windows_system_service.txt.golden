@@ -1,0 +1,8 @@
+service: local-server
+display name: local-server
+description: local-server shares this machine's AI inference with invited consumers
+start type: automatic
+run as: LocalSystem
+command line: "C:\Program Files\local-server\local-server.exe" serve --data-dir C:\ProgramData\local-server
+recovery on unexpected exit: restart the service after 10s
+recovery failure count resets after: 86400s

@@ -5,7 +5,11 @@
 //	local-server serve  [--data-dir DIR] [--engine ollama|fake]
 //	local-server doctor [--data-dir DIR] [--json]
 //	local-server recovery-code [--data-dir DIR]
+//	local-server service install|uninstall|start|stop|status [--mode user|system] [flags]
 //	local-server --version
+//
+// service registers local-server as a background service that restarts after a crash: a
+// per-user login service by default, a system service at boot with --mode system (req_001 D-30).
 //
 // recovery-code shows the host's recovery code again after an admin login on a terminal; it is
 // audited (req_001 D-80, D-101).
@@ -90,6 +94,9 @@ type app struct {
 	// power is the OS sleep lock; nil means the real one for this OS (power.New). Tests pass a
 	// fake: they must never start caffeinate or systemd-inhibit.
 	power power.Power
+	// svc holds what `local-server service` touches outside the process; its zero value is the
+	// real thing.
+	svc serviceHooks
 }
 
 // listening are the addresses serve is bound to.
@@ -133,6 +140,7 @@ const usageText = `usage:
   local-server serve  [--data-dir DIR] [--engine ollama|fake]
   local-server doctor [--data-dir DIR] [--json]
   local-server recovery-code [--data-dir DIR]
+  local-server service install|uninstall|start|stop|status [--mode user|system] [flags]
   local-server --version
 
 The data directory is --data-dir, else $LS_DATA_DIR, else "local-server" in the user's
@@ -148,6 +156,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 			return a.doctor(ctx, args[1:])
 		case "recovery-code":
 			return a.recoveryCode(ctx, args[1:])
+		case "service":
+			return a.serviceCmd(ctx, args[1:])
 		}
 	}
 	fs := flag.NewFlagSet("local-server", flag.ContinueOnError)

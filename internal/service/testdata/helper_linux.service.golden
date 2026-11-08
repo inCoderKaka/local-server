@@ -1,0 +1,11 @@
+[Unit]
+Description=local-server desktop notifications for the signed-in user
+
+[Service]
+Type=simple
+ExecStart=/home/ana/.local/bin/local-server notify-helper --data-dir /home/ana/.config/local-server
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=default.target
