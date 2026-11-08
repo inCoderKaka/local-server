@@ -154,7 +154,7 @@ func TestRestoreWithoutTheMasterKeyPrintsOneLine(t *testing.T) {
 				t.Fatalf("restore exit = %d; stderr:\n%s", exit, ra.err.String())
 			}
 			out := ra.out.String()
-			contains(t, "stdout", out, "Restored snapshot", "does not carry this machine's master key", c.want, "new identity")
+			contains(t, "stdout", out, "Restored snapshot", "does not carry this machine's master key", c.want, "new signing keys")
 			if n := strings.Count(out, "master key"); n < 1 || strings.Count(out, "Warning: the snapshot does not carry") != 1 {
 				t.Fatalf("want exactly one master key line:\n%s", out)
 			}

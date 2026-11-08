@@ -282,8 +282,8 @@ func (a *app) runRestore(ctx context.Context, dataDir string, src restoreSource)
 // (LoadMasterKey with Create false, hostkeys.Open); a new identity comes only from starting over
 // without those keys.
 const (
-	restoreKeyMissing   = "Warning: the snapshot does not carry this machine's master key, and the master key was not found here (not in the OS keychain, and not in %s). The restored host keys cannot be opened, so the host will not start on this database until the original master key is back (the keychain entry or the master.key file); without it the host can only start over with a new identity: new signing keys that consumers must trust again.\n"
-	restoreKeyMismatch  = "Warning: the snapshot does not carry this machine's master key, and the master key found here does not match the one that sealed the restored host keys. The host will not start on this database until the original master key is back (the keychain entry or the master.key file); without it the host can only start over with a new identity: new signing keys that consumers must trust again.\n"
+	restoreKeyMissing   = "Warning: the snapshot does not carry this machine's master key, and the master key was not found here (not in the OS keychain, and not in %s). The restored host keys cannot be opened, so the host will not start on this database until the original master key is back (the keychain entry or the master.key file); restarting it on the restored data with new signing keys is planned and not built yet.\n"
+	restoreKeyMismatch  = "Warning: the snapshot does not carry this machine's master key, and the master key found here does not match the one that sealed the restored host keys. The host will not start on this database until the original master key is back (the keychain entry or the master.key file); restarting it on the restored data with new signing keys is planned and not built yet.\n"
 	restoreKeyUnchecked = "Note: could not check whether this machine's master key opens the restored host keys (%v). The host starts only if it does; the snapshot does not carry the master key.\n"
 )
 
