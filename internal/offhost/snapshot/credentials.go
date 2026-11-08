@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/inCoderKaka/local-server/internal/settings"
+	"github.com/inCoderKaka/local-server/internal/storage"
 )
 
 // Sealer seals a secret with the host master key; *hostkeys.Keys is one (req_001 D-40).
@@ -41,8 +42,10 @@ type storedCredentials struct {
 
 // SetCredentials seals the bucket access key with the host master key and stores it in the
 // setting backup.s3.sealed_secret (req_001 D-40). The plain key is never stored or logged, and
-// no error here carries it.
-func SetCredentials(ctx context.Context, st *settings.Store, sealer Sealer, c Credentials) error {
+// no error here carries it. When the stored value changes, after (when not nil) runs in the same
+// unit of work as the write, so the caller can add the audit row that commits or rolls back with it
+// (req_001 D-07).
+func SetCredentials(ctx context.Context, st *settings.Store, sealer Sealer, c Credentials, after func(tx *storage.Tx) error) error {
 	if c.AccessKeyID == "" || c.SecretAccessKey == "" {
 		return errors.New("snapshot: the access key id and the secret are both required")
 	}
@@ -54,7 +57,14 @@ func SetCredentials(ctx context.Context, st *settings.Store, sealer Sealer, c Cr
 	if err != nil {
 		return fmt.Errorf("snapshot: seal the bucket access key: %w", err)
 	}
-	return st.Set(ctx, settings.Host, KeyS3SealedSecret, "", sealedPrefix+base64.RawURLEncoding.EncodeToString(sealed))
+	_, err = st.Apply(ctx, settings.Host, []settings.Update{{Key: KeyS3SealedSecret, Value: sealedPrefix + base64.RawURLEncoding.EncodeToString(sealed)}},
+		func(tx *storage.Tx, ch []settings.Change) error {
+			if after != nil && len(ch) > 0 {
+				return after(tx)
+			}
+			return nil
+		})
+	return err
 }
 
 // LoadCredentials opens the stored bucket access key. ErrNoCredentials means none is stored; any

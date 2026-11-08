@@ -14,6 +14,8 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/inCoderKaka/local-server/internal/admin"
+	"github.com/inCoderKaka/local-server/internal/audit"
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
 	"github.com/inCoderKaka/local-server/internal/offhost/snapshot"
 	"github.com/inCoderKaka/local-server/internal/offhost/snapshot/folder"
@@ -144,7 +146,14 @@ func (a *app) runBackupCredentials(ctx context.Context, dataDir string) error {
 			return err
 		}
 	}
-	if err := snapshot.SetCredentials(ctx, d.st, keys, c); err != nil {
+	// The audit row never holds the key: both values are redacted. No login here, so the actor is
+	// the system (req_001 D-07).
+	record := func(tx *storage.Tx) error {
+		_, err := audit.Record(tx, audit.Event{Action: admin.ActionSettingChanged,
+			Detail: map[string]string{"key": snapshot.KeyS3SealedSecret, "old_value": "[redacted]", "new_value": "[redacted]"}})
+		return err
+	}
+	if err := snapshot.SetCredentials(ctx, d.st, keys, c, record); err != nil {
 		return err
 	}
 	return nil
@@ -257,17 +266,20 @@ func (a *app) runRestore(ctx context.Context, dataDir string, src restoreSource)
 	if err != nil {
 		return errors.New("the recovery code is not valid (it is 52 letters and digits in groups of four)")
 	}
-	target, err := a.restoreTarget(ctx, dataDir, src)
+	target, creds, err := a.restoreTarget(ctx, dataDir, src)
 	if err != nil {
 		return err
 	}
 	rep, err := snapshot.Restore(ctx, snapshot.RestoreOptions{
-		Target: target, Name: src.name, DataKey: dataKey, Compressors: restoreCompressors(),
+		Target: target, Credentials: creds, Name: src.name, DataKey: dataKey, Compressors: restoreCompressors(),
 		DBPath: filepath.Join(dataDir, dbFileName), Modules: registryModules(),
 		Guard: func(ctx context.Context) error { return a.refuseIfRunning(ctx, dataDir) },
 	})
 	if err != nil {
 		if errors.Is(err, snapshot.ErrWrongKey) {
+			if src.name == "" {
+				return fmt.Errorf("%w (if this folder or bucket also holds another host's backups, name this host's snapshot with --snapshot); nothing was changed", err)
+			}
 			return fmt.Errorf("%w; nothing was changed", err)
 		}
 		return fmt.Errorf("%w; the existing database was not changed", err)
@@ -335,39 +347,43 @@ func (a *app) restoredKeysNotice(ctx context.Context, dataDir string) string {
 func scrub(err error) string { return strings.Join(strings.Fields(err.Error()), " ") }
 
 // restoreTarget builds the Target restore reads from: a folder, a bucket named by flags, or, when
-// neither is given, the target configured in this host's database.
-func (a *app) restoreTarget(ctx context.Context, dataDir string, src restoreSource) (snapshot.Target, error) {
+// neither is given, the target configured in this host's database. The Credentials are the bucket
+// access key, for scrubbing target errors; zero for a folder.
+func (a *app) restoreTarget(ctx context.Context, dataDir string, src restoreSource) (snapshot.Target, snapshot.Credentials, error) {
 	switch {
 	case src.folder != "":
 		if fi, err := os.Stat(src.folder); err != nil || !fi.IsDir() {
-			return nil, fmt.Errorf("--from %s is not a folder", src.folder)
+			return nil, snapshot.Credentials{}, fmt.Errorf("--from %s is not a folder", src.folder)
 		}
-		return folder.New(src.folder)
+		t, err := folder.New(src.folder)
+		return t, snapshot.Credentials{}, err
 	case src.bucket != "":
 		c := snapshot.Credentials{AccessKeyID: a.getenv(envBackupKeyID), SecretAccessKey: a.getenv(envBackupSecret)}
 		if c.AccessKeyID == "" || c.SecretAccessKey == "" {
-			return nil, fmt.Errorf("the bucket access key is read from %s and %s; set both", envBackupKeyID, envBackupSecret)
+			return nil, snapshot.Credentials{}, fmt.Errorf("the bucket access key is read from %s and %s; set both", envBackupKeyID, envBackupSecret)
 		}
-		return s3.New(snapshot.S3Config{Endpoint: src.endpoint, Region: src.region, Bucket: src.bucket, Prefix: src.prefix,
+		t, err := s3.New(snapshot.S3Config{Endpoint: src.endpoint, Region: src.region, Bucket: src.bucket, Prefix: src.prefix,
 			PathStyle: src.pathStyle, PartSize: defaultRestorePartSize, Credentials: c}, nil)
+		return t, c, err
 	}
 	// The configured target: this host's database and master key must still exist.
 	d, keys, err := a.openExistingHost(ctx, dataDir)
 	if err != nil {
-		return nil, fmt.Errorf("%w (to restore on a machine without this host's database, name the snapshots with --from FOLDER or --bucket NAME)", err)
+		return nil, snapshot.Credentials{}, fmt.Errorf("%w (to restore on a machine without this host's database, name the snapshots with --from FOLDER or --bucket NAME)", err)
 	}
 	defer d.db.Close() // closed before the database file is replaced
 	cfg, err := snapshot.LoadConfig(ctx, d.db, d.st)
 	if err != nil {
-		return nil, err
+		return nil, snapshot.Credentials{}, err
 	}
 	tc := cfg.Target
 	if tc.Kind == snapshot.TargetS3 {
 		if tc.S3.Credentials, err = snapshot.LoadCredentials(ctx, d.st, keys); err != nil {
-			return nil, err
+			return nil, snapshot.Credentials{}, err
 		}
 	}
-	return backupTargets(ctx, tc)
+	t, err := backupTargets(ctx, tc)
+	return t, tc.S3.Credentials, err
 }
 
 // refuseIfRunning stops a restore while a host is running: it tries to bind the consumer and admin

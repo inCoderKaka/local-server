@@ -28,7 +28,7 @@ Ports and adapters (adapters are sub-packages only `cmd/local-server` imports; `
 | `Compressor` (req_001 D-103) | `snapshot` | `snapshot/gzipcodec` (standard library gzip, the default) |
 | `Target` (snapshot target; D-41, D-59, D-103) | `snapshot` | `snapshot/folder` (a host-chosen folder; files written to a temporary name and renamed), `snapshot/s3` (any S3-compatible bucket through the AWS SDK for Go v2: Cloudflare R2 by default, Google Cloud Storage through its XML API with HMAC keys) |
 
-The S3 adapter sends a snapshot no larger than `backup.s3.part_size_bytes` in one request and larger ones as a multipart upload (created, parts in order, completed, and aborted on any failure). It turns off the SDK's default request checksums (`WhenRequired`) because R2 and GCS do not take them. `snapshot/s3fake` is an in-process S3 server for tests (path-style; put, multipart, head, get, list with paging, delete); the real-bucket test is `bucket_test.go` behind the build tag `bucket` (`go test -tags bucket -run TestRealBucket ./internal/offhost/snapshot/`, credentials from `LS_TEST_BUCKET_*` environment variables).
+The S3 adapter sends a snapshot no larger than `backup.s3.part_size_bytes` in one request and larger ones as a multipart upload (created, parts in order, completed, and aborted on any failure). The abort runs only inside the process. If local-server is killed or loses power mid-upload, the bucket keeps the uploaded parts of an unfinished multipart upload. They are not visible as an object and may be billed, so set a bucket lifecycle rule that aborts incomplete multipart uploads after a few days. It turns off the SDK's default request checksums (`WhenRequired`) because R2 and GCS do not take them. `snapshot/s3fake` is an in-process S3 server for tests (path-style; put, multipart, head, get, list with paging, delete); the real-bucket test is `bucket_test.go` behind the build tag `bucket` (`go test -tags bucket -run TestRealBucket ./internal/offhost/snapshot/`, credentials from `LS_TEST_BUCKET_*` environment variables).
 
 Settings (all owned by the host, req_001 D-38, D-54; read when used):
 
@@ -37,15 +37,16 @@ Settings (all owned by the host, req_001 D-38, D-54; read when used):
 | `backup.enabled` | `false` | Backups run only when true. |
 | `backup.interval` | `5m` | Time between backups, counted from the last successful one (so a restart does not back up at once). Applies when the worker next wakes. |
 | `backup.target` | `s3` | `s3` or `folder`. |
-| `backup.folder.path` | empty | Folder for the `folder` target. |
-| `backup.s3.endpoint`, `.region`, `.bucket`, `.prefix` | empty, `auto`, empty, `local-server/` | The bucket. An empty endpoint means Amazon S3. |
+| `backup.folder.path` | empty | An absolute path. Folder for the `folder` target. Give each host its own folder: pruning and restore treat every backup file in it as this host's. |
+| `backup.s3.endpoint`, `.region`, `.bucket`, `.prefix` | empty, `auto`, empty, `local-server/` | The bucket. An empty endpoint means Amazon S3, which then needs a real region, not `auto`. Give each host its own prefix: pruning and restore treat every backup file under it as this host's. |
 | `backup.s3.path_style` | `true` | `<endpoint>/<bucket>` addressing. |
 | `backup.s3.part_size_bytes` | `16777216` | Multipart part size. Amazon S3 needs at least 5 MiB for every part but the last. |
+| `backup.s3.abort_timeout` | `1m` | Longest local-server waits for the bucket to cancel an unfinished multipart upload after a failed backup. The cancel is sent even after `backup.run_timeout` has run out, so this also bounds how long a failed backup can take. |
 | `backup.s3.sealed_secret` | empty | The bucket access key id and secret, sealed with the host master key (D-40). Written only by `local-server backup-credentials`; a write of anything that is not a sealed value is refused. |
 | `backup.retention_count`, `backup.retention_age` | `100`, `0s` | Snapshots beyond the newest N, or older than the age, are deleted after a successful backup; 0 turns a limit off; the newest is always kept. Only objects named like our snapshots are ever deleted. |
-| `backup.chunk_bytes` | `1048576` | Encryption chunk size, recorded in each snapshot. |
+| `backup.chunk_bytes` | `1048576` | Encryption chunk size, at least `65536`, recorded in each snapshot. |
 | `backup.temp_dir` | empty (OS temporary folder) | Where the temporary copies are made; needs room for the database twice. |
-| `backup.run_timeout` | `1h` | Longest one backup may take. |
+| `backup.run_timeout` | `1h` | Longest one backup may take. The folder adapter also uses it at the start of each backup: leftover `.incoming-*` files older than this, left by a crash or kill, are removed. |
 | `backup.failure_notify_interval` | `1h` | While backups keep failing, the host is notified at the first failure and then at most this often. |
 | `backup.last_success_at` | `0` | Unix milliseconds of the last verified backup; written by the worker. |
 | `backup.minimize.<table>` | `true` for `sch_job_payload`, `sch_job_result`, `idn_session`; `false` otherwise | One switch per table of `ops_data_catalog` (req_001 D-64). Registered when the database opens (`snapshot.RegisterSettings`). For the protected tables `ops_schema_migrations`, `hst_host` and `hst_key` (D-139) the key exists but is fixed at `false`: every write, `true` or `false`, is refused with an error naming the table and why, and a stored value is never read. |

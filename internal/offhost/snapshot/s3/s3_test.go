@@ -122,13 +122,37 @@ func TestStatOpenDeleteMissingAndBadNames(t *testing.T) {
 	}
 }
 
+// TestMissingBucketIsAnErrorNotANotFoundObject: a bucket the service does not have answers 404
+// NoSuchBucket, which must not read as a missing snapshot (Open) or a successful deletion (Delete).
+// Stat is not asserted: a HEAD response has no body, so it still maps to ErrNotFound.
+func TestMissingBucketIsAnErrorNotANotFoundObject(t *testing.T) {
+	fake := s3fake.New("b", "AKID")
+	defer fake.Close()
+	tg, err := s3.New(snapshot.S3Config{Endpoint: fake.URL, Region: "auto", Bucket: "gone", PathStyle: true, PartSize: 1000,
+		Credentials: snapshot.Credentials{AccessKeyID: fake.AccessKeyID, SecretAccessKey: "s3cr3t"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if rc, err := tg.Open(ctx, "x"); err == nil || errors.Is(err, snapshot.ErrNotFound) {
+		if rc != nil {
+			rc.Close()
+		}
+		t.Fatalf("open in a missing bucket: %v, want an error that is not ErrNotFound", err)
+	}
+	if err := tg.Delete(ctx, "x"); err == nil {
+		t.Fatal("delete in a missing bucket succeeded")
+	}
+}
+
 func TestNewRefusesIncompleteConfigAndBadCredentialsAreForbidden(t *testing.T) {
 	good := snapshot.S3Config{Endpoint: "http://127.0.0.1:1", Bucket: "b", PartSize: 10, Credentials: snapshot.Credentials{AccessKeyID: "a", SecretAccessKey: "s"}}
 	for name, mod := range map[string]func(*snapshot.S3Config){
-		"no bucket":      func(c *snapshot.S3Config) { c.Bucket = "" },
-		"no credentials": func(c *snapshot.S3Config) { c.Credentials = snapshot.Credentials{} },
-		"zero part":      func(c *snapshot.S3Config) { c.PartSize = 0 },
-		"bad endpoint":   func(c *snapshot.S3Config) { c.Endpoint = "ftp://x" },
+		"no bucket":               func(c *snapshot.S3Config) { c.Bucket = "" },
+		"no credentials":          func(c *snapshot.S3Config) { c.Credentials = snapshot.Credentials{} },
+		"zero part":               func(c *snapshot.S3Config) { c.PartSize = 0 },
+		"bad endpoint":            func(c *snapshot.S3Config) { c.Endpoint = "ftp://x" },
+		"amazon without a region": func(c *snapshot.S3Config) { c.Endpoint = "" },
 	} {
 		c := good
 		mod(&c)
@@ -159,5 +183,31 @@ func TestPartCountLimit(t *testing.T) {
 	}
 	if len(fake.Requests()) != 0 {
 		t.Fatal("requests were sent for an upload that cannot be completed")
+	}
+}
+
+// TestStalledAbortIsTimeLimited: when the endpoint never answers the abort of a failed multipart
+// upload, Put still returns, with the abort error, once backup.s3.abort_timeout has run out.
+func TestStalledAbortIsTimeLimited(t *testing.T) {
+	fake := s3fake.New("b", "AKID")
+	defer fake.Close()
+	fake.FailPart = 2
+	fake.StallAbort = true
+	tg, err := s3.New(snapshot.S3Config{Endpoint: fake.URL, Region: "auto", Bucket: fake.Bucket, PathStyle: true, PartSize: 1000,
+		AbortTimeout: 100 * time.Millisecond,
+		Credentials:  snapshot.Credentials{AccessKeyID: fake.AccessKeyID, SecretAccessKey: "s3cr3t"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := make([]byte, 3500)
+	done := make(chan error, 1)
+	go func() { done <- tg.Put(context.Background(), "big", bytes.NewReader(big), int64(len(big))) }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "abort the multipart upload") {
+			t.Fatalf("put: %v, want an error naming the failed abort", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a stalled abort held Put past its time limit")
 	}
 }

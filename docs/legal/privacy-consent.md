@@ -1,7 +1,7 @@
 # Privacy and consent
 
 > **Review note for the project owner. This note is not part of the versioned text and is removed when the version is approved.**
-> This draft was written by an AI assistant from the decisions log (req_001 D-24, D-25, D-26, D-29, D-31, D-40, D-41, D-43, D-44, D-45, D-54, D-59, D-64). It is not legal advice. Have a qualified lawyer review it, especially against the data-protection law where hosts and consumers live, before approving it. It describes only what the decisions say. These points are left out because the decisions log does not settle them; each one needs your answer (and a `D-NN` row) before approval:
+> This draft was written by an AI assistant from the decisions log (req_001 D-24, D-25, D-26, D-29, D-31, D-40, D-41, D-43, D-44, D-45, D-54, D-59, D-64, D-134, D-136). It is not legal advice. Have a qualified lawyer review it, especially against the data-protection law where hosts and consumers live, before approving it. It describes only what the decisions say. These points are left out because the decisions log does not settle them; each one needs your answer (and a `D-NN` row) before approval:
 > - **Controller and contact.** The text treats each host as the party holding a consumer's data and sends contact through the host. It gives no legal name, address, controller or processor roles, governing law or supervisory authority.
 > - **Consumer rights.** It is open whether consumers can see, correct or export their data, delete their account themselves, or object. The text says only that they can ask the host.
 > - **Effect of withdrawing sign-up consent.** `idn_consent.withdrawn_at` records the withdrawal. The decisions do not say what then happens to the account.
@@ -10,7 +10,7 @@
 > - **Regions.** The regions of the platform database (Supabase by default) and of the hosts' backup buckets are not set, so cross-border transfer is not addressed.
 > - **The engine's own logs.** "Never written to disk or logs" (D-40) describes local-server. Whether the engine (Ollama) logs content depends on the engine's own settings, which local-server does not control.
 > - **Which version a sharing grant names.** This draft assumes that the version `plt_sharing_grant.terms_version` refers to is this notice's version id.
-> - **Retention periods.** The decisions set none for credentials, sessions, access-key records, grants, resource requests or consent records. The table says "No set period" for these.
+> - **Retention periods.** The decisions set none for grants or resource requests. Credentials, sessions, access-key records and consent records have no set period while the account exists, and are removed a host-set period after the account is deleted, 90 days by default (D-134, D-136). The table says 'No set period' where none is set.
 > - **Minimum age.** None is given.
 
 **Version:** privacy-2026-10-v1
@@ -47,16 +47,16 @@ Retention values below are defaults. The host can change the ones it owns, and y
 | Data | Why | Kept by default |
 |---|---|---|
 | Account details: name, email, and whether you are a person or an app | To identify your account | Until your account is deleted, then erased (section 7) |
-| Login credentials: a one-way hash of your password, or your passkey's public key. Never the password itself | To let you log in | No set period. Never sent to platform sync |
-| Login sessions | To keep you logged in | No set period. Left out of backups by default |
-| Access keys: only a short visible prefix and a hash. The full key is shown once and never stored. Optionally, the Tailscale device a key is tied to | To check your requests | No set period. Never sent to platform sync |
+| Login credentials: a one-way hash of your password, or your passkey's public key. Never the password itself | To let you log in | Until your account is deleted, then removed (section 7). Never sent to platform sync |
+| Login sessions | To keep you logged in | Until your account is deleted, then removed 90 days later by default (section 7). Left out of backups by default |
+| Access keys: only a short visible prefix and a hash. The full key is shown once and never stored. Optionally, the Tailscale device a key is tied to | To check your requests | Until your account is deleted, then removed 90 days later by default (section 7). Never sent to platform sync |
 | Your grant and its versions | To apply your limits | No set period |
 | Usage records and the usage ledger: account, access key, model, token counts, timing, grant version | Accounting and receipts you can check | No time limit |
 | Usage totals per minute, hour and day | Usage charts | 7 days, 90 days, and no time limit, respectively |
 | Resource requests and their comments | To handle your requests | No set period |
 | In-app notifications, your notification preferences and your webhook addresses | To notify you | Notifications 90 days. Webhook deliveries 7 days after delivery |
 | Activity log entries about you: keys issued or revoked, limits changed, requests decided | A record of admin actions | No time limit |
-| Consent records (section 5) | Proof of what you accepted | No set period |
+| Consent records (section 5) | Proof of what you accepted | Until your account is deleted, then removed 90 days later by default (section 7) |
 | Technical logs, with sensitive values hidden and no prompts or answers | Running and fixing local-server | 14 days or 50 MB. Never sent to platform sync |
 
 ## 4. Where your data lives
@@ -90,8 +90,9 @@ At sign-up, a record is made for the Terms of Use and one for this notice. To wi
 ## 7. When an account is deleted
 
 - **Erasure.** Your personal details, such as your name and email, are erased and your access keys are revoked. The account record stays without those details, so usage records, the ledger, receipts and the activity log keep pointing to a valid account. Those records stay.
+- **Removal after a retention period.** 90 days after the deletion by default (the host can change this period), your consent records, login credentials, sessions and access keys are removed for good. The account record stays without personal details, because usage records, receipts and the activity log refer to it.
 - **Platform sync.** If it is on, the erasure is sent like any other change.
-- **Backups.** Copies of your details in backups taken before the deletion stay until those backups are removed under the host's backup settings.
+- **Backups.** Copies of your details in backups taken before the deletion or the removal stay until those backups are removed under the host's backup settings.
 - **Sharing grants.** Data a grantee already saw under a sharing grant cannot be taken back.
 
 ## 8. Changes to this notice

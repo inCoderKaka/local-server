@@ -152,14 +152,108 @@ func TestServiceUserModeRefusedUnderSudo(t *testing.T) {
 	if code := r.run("install", "--mode", "system", "--data-dir", "/var/ls"); code != 0 {
 		t.Errorf("system install: exit %d: %s", code, r.errb.String())
 	}
-	if code := r.run("status"); code != 0 {
-		t.Errorf("status: exit %d: %s", code, r.errb.String())
+	// Root cannot see the signed-in user's user mode service, so the install says it did not look.
+	if !strings.Contains(r.out.String(), "could not check for a user mode service") {
+		t.Errorf("system install output: %q", r.out.String())
+	}
+	if len(r.mgrs[service.ModeUser].calls) != 0 {
+		t.Errorf("the user mode manager may not be asked under sudo: %v", r.mgrs[service.ModeUser].calls)
+	}
+	// Status under sudo checks system mode only, and says user mode was not checked.
+	if code := r.run("status"); code != 0 || !strings.Contains(r.out.String(), "user mode: not checked") ||
+		!strings.Contains(r.out.String(), "system mode: not installed") {
+		t.Errorf("status: exit %d: %q %q", code, r.out.String(), r.errb.String())
+	}
+	if len(r.mgrs[service.ModeUser].calls) != 0 {
+		t.Errorf("the user mode manager may not be asked under sudo: %v", r.mgrs[service.ModeUser].calls)
+	}
+	if got := r.mgrs[service.ModeSystem].calls; len(got) == 0 || got[len(got)-1] != "status" {
+		t.Errorf("system mode was not asked for its status: %v", got)
+	}
+	if code := r.run("status", "--mode", "user"); code != 2 || !strings.Contains(r.errb.String(), "without sudo") {
+		t.Errorf("status --mode user: exit %d: %q", code, r.errb.String())
 	}
 	// Windows is never checked.
 	w := newServiceRig(service.TargetWindows)
 	w.app.svc.underSudo = func() bool { return true }
 	if code := w.run("start"); code != 0 {
 		t.Errorf("windows start: exit %d: %s", code, w.errb.String())
+	}
+}
+
+func TestServiceStartPointsToSystemModeWhenOnlyThatIsInstalled(t *testing.T) {
+	skipOnWindowsHost(t)
+	r := newServiceRig(service.TargetLinux)
+	r.mgrs[service.ModeUser].err = service.ErrNotInstalled
+	r.mgrs[service.ModeSystem].status = service.Status{Installed: true}
+	if code := r.run("start"); code != 1 || !strings.Contains(r.errb.String(), "--mode system") {
+		t.Errorf("exit %d: %q", code, r.errb.String())
+	}
+	// Asking for user mode by name keeps the plain message, and the system mode is not asked.
+	r.mgrs[service.ModeSystem].calls = nil
+	if code := r.run("start", "--mode", "user"); code != 1 || !strings.Contains(r.errb.String(), "service install") ||
+		len(r.mgrs[service.ModeSystem].calls) != 0 {
+		t.Errorf("exit %d: %q, system calls %v", code, r.errb.String(), r.mgrs[service.ModeSystem].calls)
+	}
+	// A system mode that is not installed, or cannot be asked, changes nothing.
+	r.mgrs[service.ModeSystem].status = service.Status{}
+	if code := r.run("start"); code != 1 || !strings.Contains(r.errb.String(), "service install") {
+		t.Errorf("exit %d: %q", code, r.errb.String())
+	}
+	r.mgrs[service.ModeSystem].status = service.Status{Installed: true}
+	r.mgrs[service.ModeSystem].err = service.ErrNeedsAdmin
+	if code := r.run("start"); code != 1 || !strings.Contains(r.errb.String(), "service install") {
+		t.Errorf("exit %d: %q", code, r.errb.String())
+	}
+}
+
+// stop and uninstall without --mode act on user mode only. When that found nothing to do and a system
+// mode service is installed, they say so and name the command; the exit code stays 0.
+func TestServiceStopAndUninstallPointToSystemModeWhenUserModeDidNothing(t *testing.T) {
+	for action, verb := range map[string]string{"stop": "to stop it", "uninstall": "to remove it"} {
+		r := newServiceRig(service.TargetLinux)
+		r.mgrs[service.ModeUser].outcome = service.Outcome{Notes: []string{"not installed, nothing to stop"}}
+		r.mgrs[service.ModeSystem].status = service.Status{Installed: true}
+		if code := r.run(action); code != 0 || !strings.Contains(r.out.String(), "local-server service "+action+" --mode system") ||
+			!strings.Contains(r.out.String(), verb) {
+			t.Errorf("%s: exit %d: %q %q", action, code, r.out.String(), r.errb.String())
+		}
+		// Only its status is read: the system mode service is not touched.
+		if got := strings.Join(r.mgrs[service.ModeSystem].calls, ","); got != "status" {
+			t.Errorf("%s: system mode may only be asked for its status, calls %q", action, got)
+		}
+
+		// Asking for user mode by name keeps the plain report, and system mode is not asked.
+		r = newServiceRig(service.TargetLinux)
+		r.mgrs[service.ModeSystem].status = service.Status{Installed: true}
+		if code := r.run(action, "--mode", "user"); code != 0 || strings.Contains(r.out.String(), "--mode system") ||
+			len(r.mgrs[service.ModeSystem].calls) != 0 {
+			t.Errorf("%s --mode user: exit %d: %q, system calls %v", action, code, r.out.String(), r.mgrs[service.ModeSystem].calls)
+		}
+
+		// A user mode service that was changed needs no pointer, and system mode is not asked.
+		r = newServiceRig(service.TargetLinux)
+		r.mgrs[service.ModeUser].outcome = service.Outcome{Changed: true}
+		r.mgrs[service.ModeSystem].status = service.Status{Installed: true}
+		if code := r.run(action); code != 0 || strings.Contains(r.out.String(), "--mode system") ||
+			len(r.mgrs[service.ModeSystem].calls) != 0 {
+			t.Errorf("%s after a change: exit %d: %q, system calls %v", action, code, r.out.String(), r.mgrs[service.ModeSystem].calls)
+		}
+
+		// No system mode service installed: no pointer.
+		r = newServiceRig(service.TargetLinux)
+		r.mgrs[service.ModeUser].outcome = service.Outcome{Notes: []string{"not installed, nothing to stop"}}
+		if code := r.run(action); code != 0 || strings.Contains(r.out.String(), "--mode system") {
+			t.Errorf("%s with no system mode service: exit %d: %q", action, code, r.out.String())
+		}
+	}
+}
+
+func TestServiceStatusShowsOrphanedRunningJob(t *testing.T) {
+	r := newServiceRig(service.TargetDarwin)
+	r.mgrs[service.ModeUser].status = service.Status{Running: true}
+	if code := r.run("status"); code != 0 || !strings.Contains(r.out.String(), "user mode: not installed, but still running") {
+		t.Errorf("exit %d: %q", code, r.out.String())
 	}
 }
 

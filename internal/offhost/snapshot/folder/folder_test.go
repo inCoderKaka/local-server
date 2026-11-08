@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inCoderKaka/local-server/internal/offhost/snapshot"
 	"github.com/inCoderKaka/local-server/internal/offhost/snapshot/folder"
@@ -68,5 +69,38 @@ func TestFolderTarget(t *testing.T) {
 	}
 	if _, err := folder.New("  "); err == nil {
 		t.Fatal("an empty folder was accepted")
+	}
+}
+
+func TestRemoveStaleIncoming(t *testing.T) {
+	dir := t.TempDir()
+	tg, err := folder.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	for name, at := range map[string]time.Time{
+		".incoming-a":                        old,
+		".incoming-b":                        time.Now(),
+		"snapshot-20260101T000000.000Z.lsbk": old,
+		".other-dotfile":                     old,
+	} {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, at, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := tg.RemoveStaleIncoming(time.Hour)
+	if err != nil || n != 1 {
+		t.Fatalf("removed %d, %v; want 1", n, err)
+	}
+	for name, want := range map[string]bool{".incoming-a": false, ".incoming-b": true, "snapshot-20260101T000000.000Z.lsbk": true, ".other-dotfile": true} {
+		_, err := os.Stat(filepath.Join(dir, name))
+		if (err == nil) != want {
+			t.Errorf("%s present=%v, want %v", name, err == nil, want)
+		}
 	}
 }

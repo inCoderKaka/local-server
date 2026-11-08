@@ -304,6 +304,19 @@ func TestBackupCredentialsAndBucketRoundTrip(t *testing.T) {
 	if n := count(t, ta.dir, `SELECT count(*) FROM hst_setting WHERE key = 'backup.s3.sealed_secret' AND value LIKE 'sealed:v1:%'`); n != 1 {
 		t.Fatalf("sealed setting rows = %d", n)
 	}
+	// One redacted setting.changed audit row, and neither part of the key anywhere in aud_event
+	// (req_001 D-07, D-40).
+	if n := count(t, ta.dir, `SELECT count(*) FROM aud_event WHERE action = 'setting.changed' AND json_extract(detail, '$.key') = 'backup.s3.sealed_secret'`); n != 1 {
+		t.Fatalf("setting.changed audit rows for the sealed secret = %d, want 1", n)
+	}
+	if n := count(t, ta.dir, `SELECT count(*) FROM aud_event`); n < 1 {
+		t.Fatalf("aud_event rows = %d", n)
+	}
+	for _, leak := range []string{keyID, secret} {
+		if n := count(t, ta.dir, `SELECT count(*) FROM aud_event WHERE instr(detail, '`+leak+`') > 0 OR instr(coalesce(actor_id, ''), '`+leak+`') > 0 OR instr(coalesce(target_id, ''), '`+leak+`') > 0`); n != 0 {
+			t.Fatalf("%q appears in aud_event (%d rows)", leak, n)
+		}
+	}
 	// And from the environment.
 	ca = restoreApp(t, ta, "")
 	ca.getenv = func(k string) string { return map[string]string{envBackupKeyID: keyID, envBackupSecret: secret}[k] }

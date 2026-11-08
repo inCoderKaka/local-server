@@ -111,8 +111,8 @@ func TestSoftDeleteLeavesConsentRowsUntouched(t *testing.T) {
 	}
 }
 
-// After the retention the purge removes consents, sessions and access keys, unlinks the invite,
-// keeps the tombstone, the usage and the grants, audits once, and a second run does nothing
+// After the retention the purge removes consents, sessions and access keys, clears its invite's
+// reference to it, keeps the tombstone, the usage and the grants, audits once, and a second run does nothing
 // (req_001 D-136, D-134, D-106).
 func TestPurgeRemovesPersonalRowsKeepsTombstone(t *testing.T) {
 	e := newEnv(t)
@@ -156,7 +156,7 @@ func TestPurgeRemovesPersonalRowsKeepsTombstone(t *testing.T) {
 	if err := json.Unmarshal([]byte(detail), &got); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]any{"consumer_id": s.ID, "consents": 1.0, "credentials": 0.0, "sessions": 1.0, "access_keys": 2.0, "invites_unlinked": 1.0}
+	want := map[string]any{"consumer_id": s.ID, "consents": 1.0, "credentials": 0.0, "sessions": 1.0, "access_keys": 2.0, "invite_refs_cleared": 1.0}
 	if len(got) != len(want) {
 		t.Errorf("detail = %v, want %v", got, want)
 	}

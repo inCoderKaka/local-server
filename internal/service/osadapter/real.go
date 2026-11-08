@@ -39,7 +39,8 @@ func NewEnv() (Env, error) {
 		return Env{}, fmt.Errorf("find the home folder: %w", err)
 	}
 	cfg := os.Getenv("XDG_CONFIG_HOME")
-	if cfg == "" {
+	// The XDG spec says to ignore a relative value, and systemd's user manager does.
+	if cfg == "" || !filepath.IsAbs(cfg) {
 		cfg = filepath.Join(home, ".config")
 	}
 	return Env{Runner: ExecRunner{}, FS: OSFS{}, ConfigHome: cfg, Home: home, UID: os.Getuid(), TempDir: os.TempDir(),
@@ -78,6 +79,11 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) (Result,
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err := cmd.Run()
+	// A process killed by its context reads as an ExitError; it did not finish, so it is an error and
+	// not a tool that ran and failed (see Runner).
+	if err != nil && ctx.Err() != nil {
+		return Result{}, ctx.Err()
+	}
 	var ee *exec.ExitError
 	switch {
 	case err == nil:

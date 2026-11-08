@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -36,7 +39,7 @@ import (
 )
 
 // fullModules is the registry of cmd/local-server (registry.go), in the same order: the whole
-// migrated schema. cmd/local-server's TestBackupDefaultsOverRegistry checks the real registry
+// migrated schema. cmd/local-server's TestBackupDefaultsSatisfyD69OverTheRegistry checks the real registry
 // against the same rule, so a module added there and not here cannot slip past.
 func fullModules() []storage.Module {
 	return []storage.Module{settings.Module(), host.Module(), identity.Module(), grants.Module(), audit.Module(),
@@ -54,16 +57,17 @@ const (
 var knownPayload = append([]byte("KNOWN-PAYLOAD-CIPHERTEXT-"), bytes.Repeat([]byte{0xA7, 0x13, 0x5C}, 40)...)
 
 type env struct {
-	t     *testing.T
-	ctx   context.Context
-	dir   string
-	db    *storage.DB
-	st    *settings.Store
-	keys  *hostkeys.Keys
-	code  string
-	bus   *events.Bus
-	logs  *syncBuffer
-	clock *fakeClock
+	t      *testing.T
+	ctx    context.Context
+	dir    string
+	db     *storage.DB
+	st     *settings.Store
+	keys   *hostkeys.Keys
+	code   string
+	bus    *events.Bus
+	logs   *syncBuffer
+	clock  *fakeClock
+	master []byte
 }
 
 type syncBuffer struct {
@@ -120,7 +124,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatalf("hostkeys: %q %v", code, err)
 	}
 	e := &env{t: t, ctx: ctx, dir: dir, db: db, st: st, keys: keys, code: code, bus: events.New(),
-		logs: &syncBuffer{}, clock: &fakeClock{t: time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC)}}
+		logs: &syncBuffer{}, clock: &fakeClock{t: time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC)}, master: master}
 	e.seed()
 	return e
 }
@@ -208,12 +212,18 @@ func factory(_ context.Context, cfg snapshot.TargetConfig) (snapshot.Target, err
 
 func (e *env) runner(codec snapshot.Compressor) *snapshot.Runner {
 	e.t.Helper()
+	return e.runnerWith(factory, codec)
+}
+
+// runnerWith is runner with the given target factory.
+func (e *env) runnerWith(targets snapshot.TargetFactory, codec snapshot.Compressor) *snapshot.Runner {
+	e.t.Helper()
 	if codec == nil {
 		codec = gzipcodec.Codec{}
 	}
 	r, err := snapshot.NewRunner(snapshot.RunnerConfig{DB: e.db, Settings: e.st, Keys: e.keys, Events: e.bus,
 		Log:     slog.New(slog.NewTextHandler(e.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
-		Targets: factory, Compressor: codec, Now: e.clock.Now})
+		Targets: targets, Compressor: codec, Now: e.clock.Now})
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -229,7 +239,7 @@ func (e *env) useBucket(fake *s3fake.Server, partSize int) {
 	e.set(snapshot.KeyS3Prefix, "snaps/")
 	e.set(snapshot.KeyS3PartSize, fmt.Sprint(partSize))
 	e.set(snapshot.KeyS3PathStyle, "true")
-	if err := snapshot.SetCredentials(e.ctx, e.st, e.keys, snapshot.Credentials{AccessKeyID: accessKey, SecretAccessKey: secretKey}); err != nil {
+	if err := snapshot.SetCredentials(e.ctx, e.st, e.keys, snapshot.Credentials{AccessKeyID: accessKey, SecretAccessKey: secretKey}, nil); err != nil {
 		e.t.Fatal(err)
 	}
 }
@@ -337,6 +347,12 @@ func TestBackupThenRestoreThroughTheS3Fake(t *testing.T) {
 		t.Fatal("a kept table's row is not in the snapshot")
 	}
 	stored, _ := fake.Object(keys[0])
+	// req_001 D-138: the master key is not put in the snapshot.
+	for _, mk := range [][]byte{e.master, []byte(hex.EncodeToString(e.master)), []byte(base64.StdEncoding.EncodeToString(e.master))} {
+		if bytes.Contains(plain, mk) || bytes.Contains(stored, mk) {
+			t.Fatal("the master key is in the snapshot")
+		}
+	}
 	for _, marker := range [][]byte{[]byte("SQLite format 3"), []byte("kept-admin-name"), []byte(secretKey)} {
 		if bytes.Contains(stored, marker) {
 			t.Fatalf("the stored object shows plaintext %q", marker)
@@ -512,6 +528,36 @@ func TestRestoreWithNoSnapshotAndUnknownCodec(t *testing.T) {
 	}
 }
 
+// openFailTarget is a Target whose Open fails with err and which holds nothing else.
+type openFailTarget struct{ err error }
+
+func (o openFailTarget) Put(context.Context, string, io.Reader, int64) error { return o.err }
+func (o openFailTarget) Stat(context.Context, string) (snapshot.Object, error) {
+	return snapshot.Object{}, o.err
+}
+func (o openFailTarget) Open(context.Context, string) (io.ReadCloser, error) { return nil, o.err }
+func (o openFailTarget) List(context.Context) ([]snapshot.Object, error)     { return nil, o.err }
+func (o openFailTarget) Delete(context.Context, string) error                { return o.err }
+
+func TestRestoreScrubsTheBucketAccessKeyFromTargetErrors(t *testing.T) {
+	creds := snapshot.Credentials{AccessKeyID: "AKIDSCRUBME12345", SecretAccessKey: "secret-value-0987654321"}
+	cause := errors.New("403 forbidden for key " + creds.AccessKeyID + " and secret " + creds.SecretAccessKey)
+	opts := snapshot.RestoreOptions{
+		Target: openFailTarget{err: cause}, Credentials: creds, Name: "snapshot.lsb", DataKey: bytes.Repeat([]byte{1}, 32),
+		Compressors: map[string]snapshot.Compressor{"gzip": gzipcodec.Codec{}}, DBPath: filepath.Join(t.TempDir(), "x.db"),
+	}
+	_, err := snapshot.Restore(context.Background(), opts)
+	if err == nil {
+		t.Fatal("restore from a failing target succeeded")
+	}
+	if strings.Contains(err.Error(), creds.AccessKeyID) || strings.Contains(err.Error(), creds.SecretAccessKey) {
+		t.Fatalf("the error carries the bucket access key: %v", err)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("the error no longer reaches the target's error: %v", err)
+	}
+}
+
 func TestMinimizeSettingWritesRespectD69(t *testing.T) {
 	e := newEnv(t)
 	setErr := func(table, v string) error {
@@ -551,6 +597,68 @@ func TestMinimizeSettingWritesRespectD69(t *testing.T) {
 		if err := e.st.Set(e.ctx, settings.Host, key, "", v); !errors.Is(err, settings.ErrRejected) {
 			t.Errorf("%s=%q: %v, want a refusal", key, v, err)
 		}
+	}
+}
+
+// TestMinimizeRuleReadsTheStateTheWriteProduces: the D-69 check runs inside the write against the
+// state it produces, so every spelling of true counts as minimize, and one batch cannot leave a
+// minimized table with a kept referrer.
+func TestMinimizeRuleReadsTheStateTheWriteProduces(t *testing.T) {
+	e := newEnv(t)
+	if err := e.st.Set(e.ctx, settings.Host, snapshot.MinimizeKey("sch_job_payload"), "", "false"); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"1", "True"} {
+		err := e.st.Set(e.ctx, settings.Host, snapshot.MinimizeKey("sch_job"), "", v)
+		if !errors.Is(err, settings.ErrRejected) || !strings.Contains(err.Error(), "sch_job_payload") || !strings.Contains(err.Error(), "sch_job") {
+			t.Fatalf("minimize sch_job=%q with a kept referrer: %v", v, err)
+		}
+	}
+	if err := e.st.Reset(e.ctx, settings.Host, snapshot.MinimizeKey("sch_job_payload"), ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// From the defaults, one batch minimizes sch_job and keeps sch_job_payload.
+	_, err := e.st.Apply(e.ctx, settings.Host, []settings.Update{
+		{Key: snapshot.MinimizeKey("sch_job"), Value: "true"},
+		{Key: snapshot.MinimizeKey("sch_job_payload"), Value: "false"},
+	}, nil)
+	var uerr *settings.UpdateError
+	if !errors.As(err, &uerr) || !errors.Is(err, settings.ErrRejected) {
+		t.Fatalf("a batch that breaks the rule: %v, want an UpdateError wrapping ErrRejected", err)
+	}
+	for table, want := range map[string]bool{"sch_job": false, "sch_job_payload": true} {
+		if v, err := e.st.Bool(e.ctx, snapshot.MinimizeKey(table), ""); err != nil || v != want {
+			t.Errorf("%s after the refused batch: %v, %v, want the default %v", table, v, err, want)
+		}
+	}
+}
+
+// TestChunkBytesHasAFloor: backup.chunk_bytes below 64 KiB is refused, 64 KiB is accepted.
+func TestChunkBytesHasAFloor(t *testing.T) {
+	e := newEnv(t)
+	for _, v := range []string{"1", "65535"} {
+		if err := e.st.Set(e.ctx, settings.Host, snapshot.KeyChunkBytes, "", v); !errors.Is(err, settings.ErrRejected) {
+			t.Errorf("%s=%q: %v, want a refusal", snapshot.KeyChunkBytes, v, err)
+		}
+	}
+	if err := e.st.Set(e.ctx, settings.Host, snapshot.KeyChunkBytes, "", "65536"); err != nil {
+		t.Errorf("%s=65536: %v, want it accepted", snapshot.KeyChunkBytes, err)
+	}
+}
+
+// TestFolderPathMustBeAbsolute: a relative path or one starting with ~ is refused (the background
+// service does not run in the user's folder, and ~ is not expanded); an absolute path is accepted.
+func TestFolderPathMustBeAbsolute(t *testing.T) {
+	e := newEnv(t)
+	for _, v := range []string{"backups", "~/backups", "~"} {
+		if err := e.st.Set(e.ctx, settings.Host, snapshot.KeyFolderPath, "", v); !errors.Is(err, settings.ErrRejected) {
+			t.Errorf("%s=%q: %v, want a refusal", snapshot.KeyFolderPath, v, err)
+		}
+	}
+	abs := t.TempDir()
+	if err := e.st.Set(e.ctx, settings.Host, snapshot.KeyFolderPath, "", abs); err != nil {
+		t.Errorf("%s=%q: %v, want it accepted", snapshot.KeyFolderPath, abs, err)
 	}
 }
 
@@ -704,6 +812,44 @@ func TestRunAgainstASchemaThatBreaksD69FailsAndNotifies(t *testing.T) {
 	}
 }
 
+// failFirstWrites is a Notifier whose first n Writes fail, as a database that cannot take the
+// notification would.
+type failFirstWrites struct {
+	events.Notifier
+	n int
+}
+
+func (f *failFirstWrites) Write(ctx context.Context, db *storage.DB, fn func(*storage.Tx) error) error {
+	if f.n > 0 {
+		f.n--
+		return errors.New("cannot write the notification")
+	}
+	return f.Notifier.Write(ctx, db, fn)
+}
+
+func TestFailedNotificationWriteIsRetriedByTheNextFailedRun(t *testing.T) {
+	e := newEnv(t)
+	e.useFolder(filepath.Join(t.TempDir(), "off-host"))
+	e.set(snapshot.KeyEnabled, "true")
+	e.exec(`CREATE TABLE tst_added (id INTEGER PRIMARY KEY, job_id TEXT REFERENCES sch_job_payload(job_id)) STRICT`)
+	r, err := snapshot.NewRunner(snapshot.RunnerConfig{DB: e.db, Settings: e.st, Keys: e.keys, Events: &failFirstWrites{Notifier: e.bus, n: 1},
+		Log:     slog.New(slog.NewTextHandler(e.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		Targets: factory, Compressor: gzipcodec.Codec{}, Now: e.clock.Now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = r.RunOnce(e.ctx)
+	if got := len(backupEvents(t, e)); got != 0 {
+		t.Fatalf("%d events after a notification write that failed, want 0", got)
+	}
+	// Inside the notify interval, yet the first notification never went out, so this failure is due.
+	e.clock.Advance(5 * time.Minute)
+	_ = r.RunOnce(e.ctx)
+	if got := len(backupEvents(t, e)); got != 1 {
+		t.Fatalf("%d events after the next failed run, want 1", got)
+	}
+}
+
 type failedEvent struct {
 	Reason string   `json:"reason"`
 	Tables []string `json:"tables"`
@@ -835,7 +981,7 @@ func TestCredentialsNeverAppearInLogsErrorsSnapshotsOrSettings(t *testing.T) {
 	}
 
 	// A bucket that rejects the key: the failure is reported without the key.
-	if err := snapshot.SetCredentials(e.ctx, e.st, e.keys, snapshot.Credentials{AccessKeyID: "AKIDWRONG0000001", SecretAccessKey: "WRONG-SECRET-9876543210"}); err != nil {
+	if err := snapshot.SetCredentials(e.ctx, e.st, e.keys, snapshot.Credentials{AccessKeyID: "AKIDWRONG0000001", SecretAccessKey: "WRONG-SECRET-9876543210"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	e.set(snapshot.KeyEnabled, "true")
@@ -901,7 +1047,7 @@ func TestTempFilesAreRemovedAndPrivate(t *testing.T) {
 	if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
 		t.Fatalf("%d temporary entries left after a good run", len(entries))
 	}
-	// And after a failure partway (the folder cannot be created under a file).
+	// And after a failure before the copy is made (the folder cannot be created under a file).
 	blocker := filepath.Join(t.TempDir(), "file")
 	os.WriteFile(blocker, []byte("x"), 0o600)
 	e.set(snapshot.KeyFolderPath, filepath.Join(blocker, "sub"))
@@ -911,6 +1057,74 @@ func TestTempFilesAreRemovedAndPrivate(t *testing.T) {
 	if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
 		t.Fatalf("%d temporary entries left after a failed run", len(entries))
 	}
+
+	// And after a failure once the copy exists and is encrypted: the target refuses the upload.
+	// While the upload runs the private folder is there, user-only, holding the encrypted file.
+	e.useFolder(filepath.Join(t.TempDir(), "off-host"))
+	var mu sync.Mutex
+	var problems []string
+	note := func(format string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		problems = append(problems, fmt.Sprintf(format, args...))
+	}
+	refuse := func(ctx context.Context, cfg snapshot.TargetConfig) (snapshot.Target, error) {
+		inner, err := factory(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return &refusingTarget{Target: inner, tmp: tmp, note: note}, nil
+	}
+	if _, err := e.runnerWith(refuse, nil).Backup(e.ctx); err == nil || !strings.Contains(err.Error(), "put refused") {
+		t.Fatalf("a refused upload: %v, want the Put error", err)
+	}
+	mu.Lock()
+	for _, p := range problems {
+		t.Error(p)
+	}
+	mu.Unlock()
+	if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
+		t.Fatalf("%d temporary entries left after a refused upload", len(entries))
+	}
+}
+
+// refusingTarget checks the temporary folder while a snapshot is being sent, then refuses it.
+type refusingTarget struct {
+	snapshot.Target
+	tmp  string
+	note func(format string, args ...any)
+}
+
+func (r *refusingTarget) Put(_ context.Context, _ string, _ io.Reader, _ int64) error {
+	entries, err := os.ReadDir(r.tmp)
+	if err != nil {
+		r.note("read the temporary folder: %v", err)
+		return errors.New("put refused")
+	}
+	var dirs []os.DirEntry
+	for _, en := range entries {
+		if en.IsDir() && strings.HasPrefix(en.Name(), "ls-backup-") {
+			dirs = append(dirs, en)
+		}
+	}
+	if len(dirs) != 1 {
+		r.note("%d private folders (ls-backup-*) in the temporary folder during the upload, want 1", len(dirs))
+		return errors.New("put refused")
+	}
+	if runtime.GOOS != "windows" {
+		dir := filepath.Join(r.tmp, dirs[0].Name())
+		if fi, err := os.Stat(dir); err != nil {
+			r.note("stat the private folder: %v", err)
+		} else if fi.Mode().Perm() != 0o700 {
+			r.note("private folder mode = %v, want 0700", fi.Mode().Perm())
+		}
+		if fi, err := os.Stat(filepath.Join(dir, "snapshot.lsbk")); err != nil {
+			r.note("stat the encrypted file: %v", err)
+		} else if fi.Mode().Perm() != 0o600 {
+			r.note("encrypted file mode = %v, want 0600", fi.Mode().Perm())
+		}
+	}
+	return errors.New("put refused")
 }
 
 func TestWorkerBacksUpWhenEnabledAndStopsWithItsContext(t *testing.T) {

@@ -245,6 +245,14 @@ func (s *Service) LeafCount(ctx context.Context) (int64, error) {
 	return n, err
 }
 
+// LatestTreeSize returns the tree size of the newest checkpoint in db, 0 when there is none. It
+// reads a database without a running Service, such as a restored copy.
+func LatestTreeSize(ctx context.Context, db *storage.DB) (int64, error) {
+	var n int64
+	err := db.Reader().QueryRow(ctx, `SELECT COALESCE(MAX(tree_size), 0) FROM ldg_checkpoint`).Scan(&n)
+	return n, err
+}
+
 const checkpointCols = `SELECT tree_size, root_hash, note, key_id, created_at FROM ldg_checkpoint `
 
 // queryCheckpoint returns the first checkpoint the query yields, or ErrNoCheckpoint.

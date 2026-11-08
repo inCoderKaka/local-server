@@ -69,6 +69,25 @@ func (db *DB) ForeignKeyReferrers(ctx context.Context) (map[string][]string, err
 	return out, nil
 }
 
+// CatalogTables returns the name of every table in ops_data_catalog, once each and sorted. The
+// catalog is filled at open from the modules' declarations (req_001 D-28, D-64).
+func (db *DB) CatalogTables(ctx context.Context) ([]string, error) {
+	rows, err := db.read.QueryContext(ctx, `SELECT DISTINCT table_name FROM ops_data_catalog ORDER BY table_name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // MinimizeFile deletes every row of tables in the SQLite file at path and vacuums it, so no free
 // page keeps a deleted row (req_001 D-64). It opens the file on its own connection, with
 // foreign_keys=ON and the rollback journal (no -wal file is left behind), never through a
@@ -83,7 +102,7 @@ func MinimizeFile(ctx context.Context, path string, tables []string) (err error)
 	if fi, serr := os.Stat(path); serr != nil || fi.IsDir() {
 		return fmt.Errorf("storage: minimize: %s is not a database file", path)
 	}
-	c, err := sql.Open("sqlite", "file:"+uriPathEscaper.Replace(path)+"?_pragma=foreign_keys(1)&_pragma=journal_mode(DELETE)&_pragma=busy_timeout(5000)")
+	c, err := sql.Open("sqlite", "file:"+uriPathEscaper.Replace(path)+"?_pragma=foreign_keys(1)&_pragma=journal_mode(DELETE)&_pragma=busy_timeout("+strconv.FormatInt(DefaultBusyTimeout.Milliseconds(), 10)+")")
 	if err != nil {
 		return err
 	}

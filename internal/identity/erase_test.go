@@ -92,7 +92,8 @@ func countRows(t *testing.T, db *storage.DB, q string, args ...any) int {
 }
 
 // Purge removes one deleted consumer's consents, credentials, sessions and access keys and
-// unlinks its invite; it keeps the tombstone, and it leaves another consumer alone (req_001 D-136).
+// clears its invite's reference to it; it keeps the tombstone, and it
+// leaves another consumer alone (req_001 D-136).
 func TestConsumerPurge(t *testing.T) {
 	now := time.UnixMilli(1_700_000_000_000)
 	db, r := openAt(t, &now)
@@ -161,7 +162,7 @@ func TestConsumerPurge(t *testing.T) {
 	if err := db.Write(ctx, func(tx *storage.Tx) (err error) { n, err = r.Consumers.Purge(tx, a.ID); return }); err != nil {
 		t.Fatal(err)
 	}
-	if want := (identity.PurgeCounts{Consents: 1, Credentials: 1, Sessions: 1, AccessKeys: 2, InvitesUnlinked: 1}); n != want {
+	if want := (identity.PurgeCounts{Consents: 1, Credentials: 1, Sessions: 1, AccessKeys: 2, InviteRefsCleared: 1}); n != want {
 		t.Errorf("counts = %+v, want %+v", n, want)
 	}
 	for _, q := range []string{
@@ -177,7 +178,7 @@ func TestConsumerPurge(t *testing.T) {
 		t.Errorf("%d access keys left", c)
 	}
 	if c := countRows(t, db, `SELECT count(*) FROM idn_invite WHERE id = ? AND redeemed_consumer_id IS NULL AND redeemed_at IS NOT NULL`, invA.ID); c != 1 {
-		t.Error("invite not unlinked, or its redeemed_at was cleared")
+		t.Error("invite reference not cleared, or its redeemed_at was cleared")
 	}
 	if c := countRows(t, db, `SELECT count(*) FROM idn_consumer c JOIN idn_principal p ON p.id = c.principal_id WHERE c.id = ? AND p.status = 'deleted'`, a.ID); c != 1 {
 		t.Error("tombstone gone")

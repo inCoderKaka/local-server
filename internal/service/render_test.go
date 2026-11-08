@@ -280,6 +280,8 @@ func TestStatusString(t *testing.T) {
 		"user mode: not installed":        {Mode: ModeUser},
 		"system mode: installed, running": {Mode: ModeSystem, Installed: true, Running: true},
 		"user mode: installed, stopped":   {Mode: ModeUser, Installed: true},
+		"user mode: not installed, but still running (its definition file was removed); stop it with `local-server service stop`":                 {Mode: ModeUser, Running: true},
+		"system mode: not installed, but still running (its definition file was removed); stop it with `local-server service stop --mode system`": {Mode: ModeSystem, Running: true},
 	} {
 		if s.String() != want {
 			t.Errorf("got %q want %q", s.String(), want)

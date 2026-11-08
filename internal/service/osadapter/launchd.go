@@ -92,7 +92,14 @@ func (l *launchd) uninstall(ctx context.Context) (service.Outcome, error) {
 		return service.Outcome{}, err
 	}
 	if !p.installed {
-		return service.Outcome{Notes: []string{"not installed, nothing to remove"}}, nil
+		if !p.stoppable {
+			return service.Outcome{Notes: []string{"not installed, nothing to remove"}}, nil
+		}
+		// The plist was removed by hand but the job is still loaded: stop it.
+		if err := l.stop(ctx, p); err != nil {
+			return service.Outcome{}, err
+		}
+		return service.Outcome{Changed: true, Notes: []string{"its definition file was already removed; the job that was still loaded was stopped"}}, nil
 	}
 	if p.stoppable {
 		if err := l.stop(ctx, p); err != nil {

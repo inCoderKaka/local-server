@@ -29,6 +29,9 @@ type Server struct {
 	// FailPart, when not 0, makes uploading that part number fail with a non-retryable 403, to
 	// test that a failed multipart upload is aborted.
 	FailPart int
+	// StallAbort, when true, makes an abort of a multipart upload wait until the client gives up,
+	// to test that the abort is time-limited. Set it before any request is made.
+	StallAbort bool
 
 	mu       sync.Mutex
 	objects  map[string]object
@@ -157,6 +160,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && q.Has("uploadId"):
 		s.complete(w, r, bucket, key, q.Get("uploadId"))
 	case r.Method == http.MethodDelete && q.Has("uploadId"):
+		if s.StallAbort {
+			<-r.Context().Done()
+			return
+		}
 		s.mu.Lock()
 		delete(s.uploads, q.Get("uploadId"))
 		s.mu.Unlock()

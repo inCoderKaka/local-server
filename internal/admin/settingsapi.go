@@ -211,7 +211,8 @@ func auditValue(key, v string) string {
 }
 
 // secretKey reports whether a setting key names a secret, so its value stays out of the audit
-// trail (req_001 D-31, D-40). No setting does today.
+// trail (req_001 D-31, D-40). backup.s3.sealed_secret matches, so its sealed value stays out of the
+// audit trail.
 func secretKey(key string) bool {
 	k := strings.ToLower(key)
 	for _, w := range []string{"secret", "token", "private", "apikey", "api_key"} {

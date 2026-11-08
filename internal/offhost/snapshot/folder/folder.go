@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/inCoderKaka/local-server/internal/offhost/snapshot"
 )
@@ -74,6 +75,31 @@ func (t *Target) Put(ctx context.Context, name string, r io.Reader, size int64) 
 		return err
 	}
 	return os.Rename(tmp.Name(), dst)
+}
+
+// RemoveStaleIncoming deletes the temporary files (.incoming-*) of earlier runs that a crash or a
+// kill left in the folder, and returns how many it removed. Only a regular file with that prefix
+// whose last write is older than olderThan goes; a Put in progress keeps writing, so its file stays
+// young. A file that cannot be removed is skipped.
+func (t *Target) RemoveStaleIncoming(olderThan time.Duration) (int, error) {
+	entries, err := os.ReadDir(t.dir)
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !strings.HasPrefix(e.Name(), ".incoming-") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || time.Since(info.ModTime()) <= olderThan {
+			continue
+		}
+		if os.Remove(filepath.Join(t.dir, e.Name())) == nil {
+			removed++
+		}
+	}
+	return removed, nil
 }
 
 // Stat implements snapshot.Target.

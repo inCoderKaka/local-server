@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -32,6 +33,8 @@ type Target struct {
 	bucket   string
 	prefix   string
 	partSize int64
+	// abortTimeout bounds the abort of a failed multipart upload; zero means no limit.
+	abortTimeout time.Duration
 }
 
 var _ snapshot.Target = (*Target)(nil)
@@ -45,6 +48,9 @@ func New(cfg snapshot.S3Config, httpClient *http.Client) (*Target, error) {
 		return nil, snapshot.ErrNoCredentials
 	case cfg.PartSize < 1:
 		return nil, errors.New("snapshot bucket: the part size must be at least 1 byte; set backup.s3.part_size_bytes")
+	}
+	if cfg.Endpoint == "" && (cfg.Region == "" || cfg.Region == "auto") {
+		return nil, errors.New("snapshot bucket: no endpoint is set, which means Amazon S3, and Amazon S3 does not accept the region auto; set the endpoint (for Cloudflare R2 https://<account id>.r2.cloudflarestorage.com; backup.s3.endpoint, or --endpoint for restore) or a real Amazon S3 region")
 	}
 	if cfg.Endpoint != "" {
 		if u, err := url.Parse(cfg.Endpoint); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -79,7 +85,7 @@ func New(cfg snapshot.S3Config, httpClient *http.Client) (*Target, error) {
 	if prefix != "" && !strings.HasSuffix(prefix, "/") {
 		prefix += "/"
 	}
-	return &Target{client: client, bucket: cfg.Bucket, prefix: prefix, partSize: cfg.PartSize}, nil
+	return &Target{client: client, bucket: cfg.Bucket, prefix: prefix, partSize: cfg.PartSize, abortTimeout: cfg.AbortTimeout}, nil
 }
 
 func (t *Target) key(name string) (string, error) {
@@ -120,9 +126,16 @@ func (t *Target) multipart(ctx context.Context, key string, r io.Reader, size in
 	id := created.UploadId
 	defer func() {
 		if err != nil {
-			// The caller's context may be the reason for the failure; the abort must still go out.
-			_, aerr := t.client.AbortMultipartUpload(context.WithoutCancel(ctx), &awss3.AbortMultipartUploadInput{
+			// The caller's context may be the reason for the failure; the abort must still go out,
+			// but a stalled endpoint must not hold it forever (backup.s3.abort_timeout).
+			actx := context.WithoutCancel(ctx)
+			cancel := func() {}
+			if t.abortTimeout > 0 {
+				actx, cancel = context.WithTimeout(actx, t.abortTimeout)
+			}
+			_, aerr := t.client.AbortMultipartUpload(actx, &awss3.AbortMultipartUploadInput{
 				Bucket: aws.String(t.bucket), Key: aws.String(key), UploadId: id})
+			cancel()
 			if aerr != nil {
 				err = errors.Join(err, fmt.Errorf("abort the multipart upload: %w", aerr))
 			}
@@ -161,7 +174,18 @@ func readExactly(r io.Reader, n int64) ([]byte, error) {
 	return buf, nil
 }
 
+// notFound reports whether err means the object is not there. A missing bucket is not that: it is
+// a real error, so a deleted bucket is not read as an empty one or counted as a deletion. A HEAD
+// response has no body, so Stat still reads a missing bucket as not found (its 404 carries no code).
 func notFound(err error) bool {
+	var nb *types.NoSuchBucket
+	if errors.As(err, &nb) {
+		return false
+	}
+	var ae smithy.APIError
+	if errors.As(err, &ae) && ae.ErrorCode() == "NoSuchBucket" {
+		return false
+	}
 	var nf *types.NotFound
 	var nk *types.NoSuchKey
 	if errors.As(err, &nf) || errors.As(err, &nk) {
@@ -171,8 +195,7 @@ func notFound(err error) bool {
 	if errors.As(err, &re) && re.HTTPStatusCode() == http.StatusNotFound {
 		return true
 	}
-	var ae smithy.APIError
-	if errors.As(err, &ae) {
+	if ae != nil {
 		switch ae.ErrorCode() {
 		case "NotFound", "NoSuchKey":
 			return true

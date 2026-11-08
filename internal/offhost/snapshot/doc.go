@@ -50,6 +50,6 @@
 //
 // The bucket access key lives in the setting backup.s3.sealed_secret, sealed with the host master
 // key (D-40); Credentials never prints its secret. Nothing here logs or stores a prompt, a
-// response, a key or the recovery code (D-31, D-40); errors from the target are scrubbed of the
-// access key.
+// response, a key or the recovery code (D-31, D-40); errors from the target that a backup run logs
+// or reports are scrubbed of the access key.
 package snapshot

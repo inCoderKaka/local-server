@@ -174,8 +174,22 @@ func (r *Runner) Backup(ctx context.Context) (res Result, err error) {
 		return Result{}, err
 	}
 	defer func() { err = scrub(err, creds) }()
-	if cfg.ChunkBytes < 1 || cfg.ChunkBytes > maxChunkSize {
-		return Result{}, fmt.Errorf("setting %s must be between 1 and %d", KeyChunkBytes, maxChunkSize)
+	if cfg.ChunkBytes < minChunkBytes || cfg.ChunkBytes > maxChunkSize {
+		return Result{}, fmt.Errorf("setting %s must be between %d and %d", KeyChunkBytes, minChunkBytes, maxChunkSize)
+	}
+
+	// A crash or kill can leave temporary files of an earlier run in a folder target. Any Put still
+	// running is younger than the run timeout, so only older ones go.
+	if sw, ok := target.(interface {
+		RemoveStaleIncoming(time.Duration) (int, error)
+	}); ok {
+		older := cfg.RunTimeout
+		if older <= 0 {
+			older = defaultRunTimeout
+		}
+		if n, _ := sw.RemoveStaleIncoming(older); n > 0 {
+			r.cfg.Log.Info("backup: removed leftover temporary files of earlier runs from the folder", "count", n)
+		}
 	}
 
 	dir, err := os.MkdirTemp(cfg.TempDir, "ls-backup-")
@@ -352,7 +366,7 @@ type failedPayload struct {
 // backup.failed host notification with no content (req_001 D-71, D-67).
 func (r *Runner) RunOnce(ctx context.Context) error {
 	cfg, cerr := LoadConfig(ctx, r.cfg.DB, r.cfg.Settings)
-	timeout := time.Hour
+	timeout := defaultRunTimeout
 	if cerr == nil && cfg.RunTimeout > 0 {
 		timeout = cfg.RunTimeout
 	}
@@ -413,6 +427,10 @@ func (r *Runner) notifyFailure(ctx context.Context, p failedPayload, cfg Config)
 	})
 	if err != nil {
 		r.cfg.Log.ErrorContext(ctx, "backup: could not raise the backup.failed notification", "error", err)
+		// The notification did not go out: the next failed run is due to notify again (req_001 D-71).
+		r.mu.Lock()
+		r.lastNotified = time.Time{}
+		r.mu.Unlock()
 	}
 }
 
@@ -420,6 +438,7 @@ func (r *Runner) notifyFailure(ctx context.Context, p failedPayload, cfg Config)
 // successful one, so a restart does not back up again at once), until ctx ends. A run's failure
 // is handled by RunOnce; the loop continues. It does nothing while backup.enabled is false.
 func (r *Runner) Run(ctx context.Context) {
+	r.sweepTemp(ctx)
 	for {
 		wait := r.step(ctx)
 		t := time.NewTimer(wait)
@@ -429,6 +448,45 @@ func (r *Runner) Run(ctx context.Context) {
 			return
 		case <-t.C:
 		}
+	}
+}
+
+// sweepTemp removes the private folders of backups that a crash or a kill left behind: folders
+// named like a backup's, older than backup.run_timeout (a run still going is younger). The
+// leftover holds a plain copy of the database, so it must not stay on disk. Errors are ignored:
+// the sweep is best effort. File times are wall-clock, so this uses time.Now, not the runner clock.
+func (r *Runner) sweepTemp(ctx context.Context) {
+	cfg, err := LoadConfig(ctx, r.cfg.DB, r.cfg.Settings)
+	if err != nil {
+		return
+	}
+	root := cfg.TempDir
+	if root == "" {
+		root = os.TempDir()
+	}
+	maxAge := cfg.RunTimeout
+	if maxAge <= 0 {
+		maxAge = defaultRunTimeout
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	removed := 0
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "ls-backup-") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || time.Since(info.ModTime()) <= maxAge {
+			continue
+		}
+		if os.RemoveAll(filepath.Join(root, e.Name())) == nil {
+			removed++
+		}
+	}
+	if removed > 0 {
+		r.cfg.Log.InfoContext(ctx, "backup: removed leftover temporary folders of earlier runs", "count", removed)
 	}
 }
 

@@ -87,8 +87,11 @@ type S3Config struct {
 	PathStyle bool
 	// PartSize is the multipart upload part size in bytes; a snapshot no larger than one part is
 	// sent in one request.
-	PartSize    int64
-	Credentials Credentials
+	PartSize int64
+	// AbortTimeout bounds the request that cancels an unfinished multipart upload after a failed
+	// backup. Zero means no limit; restore never uploads and leaves it zero.
+	AbortTimeout time.Duration
+	Credentials  Credentials
 }
 
 // TargetConfig selects and configures a Target.

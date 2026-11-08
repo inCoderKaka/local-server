@@ -56,7 +56,7 @@ type WindowsService interface {
 type Env struct {
 	Runner Runner
 	FS     FS
-	// ConfigHome is the user's configuration folder on Linux: $XDG_CONFIG_HOME, else ~/.config.
+	// ConfigHome is the user's configuration folder on Linux: an absolute $XDG_CONFIG_HOME, else ~/.config.
 	ConfigHome string
 	// Home is the user's home folder (macOS LaunchAgents live under it).
 	Home string
@@ -71,7 +71,7 @@ type Env struct {
 // adminHints are phrases the OS tools print when the caller lacks the rights for system mode.
 // The adapter detects missing privilege from what the tool or the file system said, not by asking
 // the OS who the user is, so the check compiles and is tested everywhere.
-var adminHints = []string{"permission denied", "access is denied", "authentication required",
+var adminHints = []string{"permission denied", "access is denied", "access denied", "authentication required",
 	"not privileged", "operation not permitted", "must be root", "requires elevation"}
 
 func looksLikeNoRights(text string) bool {

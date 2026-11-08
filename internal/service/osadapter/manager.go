@@ -83,7 +83,8 @@ func (m *manager) Stop(ctx context.Context) (service.Outcome, error) {
 	if err != nil {
 		return service.Outcome{}, err
 	}
-	if !p.installed {
+	// A job still loaded after its definition file was removed by hand can still be stopped.
+	if !p.installed && !p.stoppable {
 		return service.Outcome{Notes: []string{"not installed, nothing to stop"}}, nil
 	}
 	if !p.stoppable {

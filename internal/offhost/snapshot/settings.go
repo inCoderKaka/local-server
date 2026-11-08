@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +29,7 @@ const (
 	KeyS3Prefix        = "backup.s3.prefix"
 	KeyS3PathStyle     = "backup.s3.path_style"
 	KeyS3PartSize      = "backup.s3.part_size_bytes"
+	KeyS3AbortTimeout  = "backup.s3.abort_timeout"
 	KeyS3SealedSecret  = "backup.s3.sealed_secret"
 	KeyRetentionCount  = "backup.retention_count"
 	KeyRetentionAge    = "backup.retention_age"
@@ -39,7 +41,12 @@ const (
 	KeyMinimizePrefix  = "backup.minimize."
 	defaultInterval    = 5 * time.Minute
 	defaultNotifyEvery = time.Hour
+	defaultRunTimeout  = time.Hour
 )
+
+// minChunkBytes is the smallest backup.chunk_bytes a host may set. A tiny chunk makes a backup
+// hold one sealed frame per few bytes, which is slow and bloats the file.
+const minChunkBytes = 64 << 10
 
 // defaultMinimize are the tables that default to minimize (req_001 D-64): the job content
 // tables and the login sessions. Every other table defaults to keep as is. The set satisfies
@@ -66,25 +73,27 @@ func Defs() []settings.Def {
 	h := settings.Host
 	return []settings.Def{
 		{Key: KeyEnabled, Kind: settings.Bool, Default: "false", Owner: h,
-			Description: "Whether local-server backs up its database. Off until you choose a destination: set backup.target and its folder or bucket first, and for a bucket store its access key (local-server backup-credentials)."},
+			Description: "Whether local-server backs up its database. Off until you choose a destination: set backup.target and its folder or bucket first, and for a bucket store its access key (local-server backup-credentials). A backup does not contain this host's master key; back up master.key (or the keychain entry) yourself."},
 		{Key: KeyInterval, Kind: settings.Duration, Default: defaultInterval.String(), Owner: h,
 			Description: "How often a backup is taken. A backup is a compressed, encrypted copy of the database sent to the destination; it runs in the background and never delays a request. A change applies when the backup worker next wakes."},
 		{Key: KeyTarget, Kind: settings.String, Default: TargetS3, Owner: h,
 			Description: "Where backups go: s3 (a bucket you own that speaks the S3 protocol: Cloudflare R2, Google Cloud Storage or another) or folder (a folder on this machine or a drive you mount)."},
 		{Key: KeyFolderPath, Kind: settings.String, Default: "", Owner: h,
-			Description: "The folder backups are written to when backup.target is folder. It is created if it does not exist. Backups in a folder on the same disk do not survive that disk failing."},
+			Description: "An absolute path. The folder backups are written to when backup.target is folder. It is created if it does not exist. Backups in a folder on the same disk do not survive that disk failing. Give each host its own folder: pruning and restore treat every backup file in it as this host's."},
 		{Key: KeyS3Endpoint, Kind: settings.String, Default: "", Owner: h,
-			Description: "The service address of the bucket, for example https://<account id>.r2.cloudflarestorage.com for Cloudflare R2 or https://storage.googleapis.com for Google Cloud Storage (with an HMAC key). Empty means Amazon S3."},
+			Description: "The service address of the bucket, for example https://<account id>.r2.cloudflarestorage.com for Cloudflare R2 or https://storage.googleapis.com for Google Cloud Storage (with an HMAC key). Empty means Amazon S3, which then needs a real region, not auto."},
 		{Key: KeyS3Region, Kind: settings.String, Default: "auto", Owner: h,
 			Description: "The bucket's region. Cloudflare R2 and Google Cloud Storage accept auto."},
 		{Key: KeyS3Bucket, Kind: settings.String, Default: "", Owner: h,
 			Description: "The name of the bucket backups go to."},
 		{Key: KeyS3Prefix, Kind: settings.String, Default: "local-server/", Owner: h,
-			Description: "The folder inside the bucket backups are kept in. Pruning removes only backup files in this folder, never other objects. Empty means the bucket root."},
+			Description: "The folder inside the bucket backups are kept in. Pruning removes only backup files in this folder, never other objects. Empty means the bucket root. Give each host its own folder: pruning and restore treat every backup file in it as this host's."},
 		{Key: KeyS3PathStyle, Kind: settings.Bool, Default: "true", Owner: h,
 			Description: "Address the bucket as <endpoint>/<bucket> (true) rather than <bucket>.<endpoint> (false). Cloudflare R2 and Google Cloud Storage accept both."},
 		{Key: KeyS3PartSize, Kind: settings.Int, Default: "16777216", Owner: h,
-			Description: "Size in bytes of one part of a multipart upload; a backup no larger than this goes in one request. Amazon S3 needs at least 5242880 (5 MiB) for every part but the last."},
+			Description: "Size in bytes of one part of a multipart upload; a backup no larger than this goes in one request. Each part is held in memory while it is sent, so a larger part uses more memory. Amazon S3 needs at least 5242880 (5 MiB) for every part but the last."},
+		{Key: KeyS3AbortTimeout, Kind: settings.Duration, Default: "1m", Owner: h,
+			Description: "Longest local-server waits for the bucket to cancel an unfinished multipart upload after a failed backup. The cancel is sent even after backup.run_timeout has run out, so this also bounds how long a failed backup can take."},
 		{Key: KeyS3SealedSecret, Kind: settings.String, Default: "", Owner: h,
 			Description: "The bucket's access key id and secret, sealed (encrypted) with this host's master key. Set it with local-server backup-credentials; a value written any other way is refused, so a secret is never stored in plain text."},
 		{Key: KeyRetentionCount, Kind: settings.Int, Default: "100", Owner: h,
@@ -92,10 +101,10 @@ func Defs() []settings.Def {
 		{Key: KeyRetentionAge, Kind: settings.Duration, Default: "0s", Owner: h,
 			Description: "Backups older than this are deleted after each successful backup. 0 turns the age limit off. The newest backup is always kept."},
 		{Key: KeyChunkBytes, Kind: settings.Int, Default: "1048576", Owner: h,
-			Description: "Size in bytes of the pieces a backup is encrypted in, so a large database is never held in memory whole. It is recorded in the backup, so a change affects new backups only."},
+			Description: "Size in bytes of the pieces a backup is encrypted in, so a large database is never held in memory whole. Between 65536 and 67108864. It is recorded in the backup, so a change affects new backups only."},
 		{Key: KeyTempDir, Kind: settings.String, Default: "", Owner: h,
 			Description: "The folder where a backup's temporary copies are made (a private sub-folder, removed afterwards). Empty means the operating system's temporary folder. It needs room for the database twice."},
-		{Key: KeyRunTimeout, Kind: settings.Duration, Default: "1h", Owner: h,
+		{Key: KeyRunTimeout, Kind: settings.Duration, Default: defaultRunTimeout.String(), Owner: h,
 			Description: "Longest one backup, from copying the database to the end of the upload, may take before it is stopped and counted as failed."},
 		{Key: KeyNotifyInterval, Kind: settings.Duration, Default: defaultNotifyEvery.String(), Owner: h,
 			Description: "While backups keep failing you are notified at the first failure and then at most this often."},
@@ -108,11 +117,20 @@ func Defs() []settings.Def {
 // ops_data_catalog, keyed backup.minimize.<table> (req_001 D-64, D-69), with the write
 // validators. The protected tables (req_001 D-139) get a switch too, so the refusal can name the
 // table and the reason, but its validator refuses every write and the value is never read. db must be open (the catalog is filled at open). It is safe to call on every open.
+//
+// The D-69 rule on the other tables runs inside the write's unit of work (SetTxValidator), over
+// the state the write produces: the switches as stored, with the earlier writes of the same Apply,
+// and the new value. It uses the catalog and foreign keys read here at open, which change only
+// through migrations at open. The run-time re-check (req_001 D-71) still reads the live schema.
 func RegisterSettings(ctx context.Context, db *storage.DB, st *settings.Store) error {
 	if err := st.Register(Defs()...); err != nil {
 		return err
 	}
-	tables, err := catalogTables(ctx, db)
+	tables, err := db.CatalogTables(ctx)
+	if err != nil {
+		return err
+	}
+	refs, err := db.ForeignKeyReferrers(ctx)
 	if err != nil {
 		return err
 	}
@@ -132,8 +150,20 @@ func RegisterSettings(ctx context.Context, db *storage.DB, st *settings.Store) e
 			}
 			continue
 		}
-		if err := st.SetValidator(MinimizeKey(table), func(ctx context.Context, v string) error {
-			return validateMinimizeWrite(ctx, db, st, table, v == "true")
+		if err := st.SetTxValidator(MinimizeKey(table), func(tx *storage.Tx, v string) error {
+			value, err := strconv.ParseBool(v)
+			if err != nil {
+				return err
+			}
+			cur, err := minimizeSettingsTx(tx, st, tables)
+			if err != nil {
+				return err
+			}
+			cur[table] = value
+			if merr := CheckMinimize(refs, cur).involving(table); merr != nil {
+				return merr
+			}
+			return nil
 		}); err != nil {
 			return err
 		}
@@ -141,27 +171,10 @@ func RegisterSettings(ctx context.Context, db *storage.DB, st *settings.Store) e
 	return registerValidators(st)
 }
 
-func catalogTables(ctx context.Context, db *storage.DB) ([]string, error) {
-	rows, err := db.Reader().Query(ctx, `SELECT DISTINCT table_name FROM ops_data_catalog ORDER BY table_name`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var t string
-		if err := rows.Scan(&t); err != nil {
-			return nil, err
-		}
-		out = append(out, t)
-	}
-	return out, rows.Err()
-}
-
 // minimizeSettings reads the minimize switch of every catalog table. A protected table is always
 // kept: its stored value, if an older database holds one, is not read (req_001 D-139).
 func minimizeSettings(ctx context.Context, db *storage.DB, st *settings.Store) (map[string]bool, error) {
-	tables, err := catalogTables(ctx, db)
+	tables, err := db.CatalogTables(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -180,22 +193,22 @@ func minimizeSettings(ctx context.Context, db *storage.DB, st *settings.Store) (
 	return out, nil
 }
 
-// validateMinimizeWrite refuses a write of table's switch that would break req_001 D-69, naming
-// the tables.
-func validateMinimizeWrite(ctx context.Context, db *storage.DB, st *settings.Store, table string, value bool) error {
-	cur, err := minimizeSettings(ctx, db, st)
-	if err != nil {
-		return err
+// minimizeSettingsTx is minimizeSettings inside the unit of work tx, over the given catalog
+// tables, so it sees the earlier writes of the same unit.
+func minimizeSettingsTx(tx *storage.Tx, st *settings.Store, tables []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(tables))
+	for _, t := range tables {
+		if IsProtected(t) {
+			out[t] = false
+			continue
+		}
+		v, err := st.BoolTx(tx, MinimizeKey(t), "")
+		if err != nil {
+			return nil, fmt.Errorf("read setting %s: %w", MinimizeKey(t), err)
+		}
+		out[t] = v
 	}
-	cur[table] = value
-	refs, err := db.ForeignKeyReferrers(ctx)
-	if err != nil {
-		return err
-	}
-	if merr := CheckMinimize(refs, cur).involving(table); merr != nil {
-		return merr
-	}
-	return nil
+	return out, nil
 }
 
 func registerValidators(st *settings.Store) error {
@@ -237,15 +250,27 @@ func registerValidators(st *settings.Store) error {
 	checks := map[string]func(context.Context, string) error{
 		KeyInterval:       positiveDur,
 		KeyRunTimeout:     positiveDur,
+		KeyS3AbortTimeout: positiveDur,
 		KeyNotifyInterval: positiveDur,
 		KeyRetentionAge:   notNegDur,
 		KeyRetentionCount: intRange(0, 0),
 		KeyLastSuccessAt:  intRange(0, 0),
 		KeyS3PartSize:     intRange(1, 0),
-		KeyChunkBytes:     intRange(1, maxChunkSize),
+		KeyChunkBytes:     intRange(minChunkBytes, maxChunkSize),
 		KeyTarget: func(_ context.Context, v string) error {
 			if v != TargetFolder && v != TargetS3 {
 				return fmt.Errorf("must be %s or %s", TargetS3, TargetFolder)
+			}
+			return nil
+		},
+		KeyFolderPath: func(_ context.Context, v string) error {
+			switch {
+			case v == "":
+				return nil
+			case strings.HasPrefix(v, "~"):
+				return errors.New("must be a full path; ~ is not expanded, so write your home folder out")
+			case !filepath.IsAbs(v):
+				return errors.New("must be an absolute path; the background service does not run in your folder")
 			}
 			return nil
 		},
@@ -368,6 +393,7 @@ func LoadConfig(ctx context.Context, db *storage.DB, st *settings.Store) (Config
 	c.Target.S3.Prefix = str(KeyS3Prefix)
 	c.Target.S3.PathStyle = boolean(KeyS3PathStyle)
 	c.Target.S3.PartSize = num(KeyS3PartSize)
+	c.Target.S3.AbortTimeout = dur(KeyS3AbortTimeout)
 	c.ChunkBytes = int(num(KeyChunkBytes))
 	c.TempDir = str(KeyTempDir)
 	c.RunTimeout = dur(KeyRunTimeout)

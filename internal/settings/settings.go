@@ -266,12 +266,28 @@ func (s *Store) Get(ctx context.Context, key, scope string) (string, error) {
 // StringTx returns a String setting read inside the unit of work tx, so it sees earlier
 // units' writes in the same batch.
 func (s *Store) StringTx(tx *storage.Tx, key, scope string) (string, error) {
+	return s.getTx(tx, String, key, scope)
+}
+
+// BoolTx returns a Bool setting read inside the unit of work tx, so it sees earlier units'
+// writes in the same batch.
+func (s *Store) BoolTx(tx *storage.Tx, key, scope string) (bool, error) {
+	v, err := s.getTx(tx, Bool, key, scope)
+	if err != nil {
+		return false, err
+	}
+	return strconv.ParseBool(v)
+}
+
+// getTx returns the stored text value of key in scope, or the default, read inside tx, after
+// checking the setting is of kind k.
+func (s *Store) getTx(tx *storage.Tx, k Kind, key, scope string) (string, error) {
 	d, err := s.lookup(key, scope)
 	if err != nil {
 		return "", err
 	}
-	if d.Kind != String {
-		return "", fmt.Errorf("%w: %s is %s, not %s", ErrKind, key, d.Kind, String)
+	if d.Kind != k {
+		return "", fmt.Errorf("%w: %s is %s, not %s", ErrKind, key, d.Kind, k)
 	}
 	rows, err := tx.Query(`SELECT value FROM hst_setting WHERE key = ? AND scope = ?`, key, scope)
 	if err != nil {

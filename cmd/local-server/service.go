@@ -147,8 +147,13 @@ func (a *app) serviceCmd(ctx context.Context, args []string) int {
 		return 2
 	}
 
-	// A user-mode service belongs to the signed-in user: under sudo it would be set up for root.
-	if action != "status" && modes[0] == service.ModeUser && (target == service.TargetDarwin || target == service.TargetLinux) && a.hookUnderSudo() {
+	// A user-mode service belongs to the signed-in user: under sudo it would be set up for root, and
+	// a status probe would look at root's session, not the user's.
+	sudo := (target == service.TargetDarwin || target == service.TargetLinux) && a.hookUnderSudo()
+	if sudo && action == "status" && *modeFlag == "" {
+		modes = []service.Mode{service.ModeSystem}
+		fmt.Fprintln(a.stdout, "local-server background service, user mode: not checked, because this command runs as root through sudo; run `local-server service status --mode user` without sudo to check it")
+	} else if sudo && modes[0] == service.ModeUser {
 		fmt.Fprintf(a.stderr, "local-server service %s: user mode belongs to the signed-in user, but this command runs as root through sudo; run it without sudo, or add --mode system\n", action)
 		return 2
 	}
@@ -178,7 +183,7 @@ func (a *app) serviceCmd(ctx context.Context, args []string) int {
 				continue
 			}
 			// Asked about both modes: say only what is installed, and one line if nothing is.
-			if len(modes) > 1 && !st.Installed {
+			if len(modes) > 1 && !st.Installed && !st.Running {
 				continue
 			}
 			fmt.Fprintf(a.stdout, "local-server background service, %s\n", st)
@@ -195,9 +200,22 @@ func (a *app) serviceCmd(ctx context.Context, args []string) int {
 			out, err = mgr.Stop(ctx)
 		}
 		if err != nil {
+			if errors.Is(err, service.ErrNotInstalled) && *modeFlag == "" && a.systemModeInstalled(ctx, base) {
+				fmt.Fprintln(a.stderr, "local-server service start: the user mode service is not installed, but the system mode service is; run `local-server service start --mode system`")
+				return 1
+			}
 			return a.serviceFailed(action, m, err)
 		}
 		a.serviceReport(action, m, out)
+		// Without --mode the command acts on user mode; when that did nothing, point to an installed
+		// system mode service instead of leaving it running unnoticed.
+		if (action == "stop" || action == "uninstall") && !out.Changed && *modeFlag == "" && a.systemModeInstalled(ctx, base) {
+			verb := "stop"
+			if action == "uninstall" {
+				verb = "remove"
+			}
+			fmt.Fprintf(a.stdout, "local-server background service (user mode): the system mode service is installed; to %s it, run `local-server service %s --mode system`.\n", verb, action)
+		}
 	}
 	if action == "status" && shown == 0 && code == 0 {
 		fmt.Fprintln(a.stdout, "local-server background service: not installed (run `local-server service install`)")
@@ -264,6 +282,12 @@ func (a *app) serviceWarnOtherMode(ctx context.Context, base service.Spec, mode 
 	if mode == service.ModeUser {
 		o.Mode = service.ModeSystem
 	}
+	// Under sudo the probe would look at root's session, not the signed-in user's: it can only say
+	// "not installed", so say that it was not checked.
+	if o.Mode == service.ModeUser && (base.Target == service.TargetDarwin || base.Target == service.TargetLinux) && a.hookUnderSudo() {
+		fmt.Fprintln(a.stdout, "local-server background service (system mode): could not check for a user mode service, because this command runs as root through sudo; if one is installed, remove it with `local-server service uninstall` (without sudo): two background services cannot both listen on the same ports.")
+		return
+	}
 	if o.ValidateIdentity() != nil {
 		return
 	}
@@ -277,6 +301,22 @@ func (a *app) serviceWarnOtherMode(ctx context.Context, base service.Spec, mode 
 	}
 	fmt.Fprintf(a.stdout, "local-server background service (%s mode): the %s mode service is installed too; two background services cannot both listen on the same ports, so remove one with `local-server service uninstall%s`.\n",
 		mode, o.Mode, modeArg(o.Mode))
+}
+
+// systemModeInstalled says whether a system mode service is installed. It only reads and is best
+// effort: every error means false.
+func (a *app) systemModeInstalled(ctx context.Context, base service.Spec) bool {
+	o := base
+	o.Mode = service.ModeSystem
+	if o.ValidateIdentity() != nil {
+		return false
+	}
+	mgr, err := a.hookManager(o)
+	if err != nil {
+		return false
+	}
+	st, err := mgr.Status(ctx)
+	return err == nil && st.Installed
 }
 
 func modeArg(m service.Mode) string {

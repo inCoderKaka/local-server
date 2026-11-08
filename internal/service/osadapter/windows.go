@@ -71,7 +71,11 @@ func (w *logonTask) probe(ctx context.Context) (probed, error) {
 	if err != nil {
 		return probed{}, err
 	}
-	running := r.Code == 0 && strings.TrimSpace(r.Output) == "Running"
+	// The task exists, so a PowerShell failure means the state is unknown, not stopped.
+	if r.Code != 0 {
+		return probed{}, w.toolFailed("powershell", []string{"Get-ScheduledTask"}, r)
+	}
+	running := strings.TrimSpace(r.Output) == "Running"
 	return probed{installed: true, running: running, stoppable: running}, nil
 }
 

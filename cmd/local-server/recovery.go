@@ -33,8 +33,11 @@ local-server: this is your recovery code:
 
     %s
 
-It is the key to this host's data: with it you can restore a backup on another machine. Showing
-it was recorded in the audit log. It is not written to any log or file; keep it somewhere safe.
+It restores this host's backups on this computer, or on another one where the host master key
+survives. Backups do not contain the master key; it is kept in the OS keychain or in the file
+master.key in the data folder, so copy master.key (or the keychain entry) somewhere safe and
+private. Showing the code was recorded in the audit log. It is not written to any log or file;
+keep it somewhere safe.
 
 `
 

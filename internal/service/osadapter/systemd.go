@@ -105,7 +105,19 @@ func (s *systemd) uninstall(ctx context.Context) (service.Outcome, error) {
 		return service.Outcome{}, err
 	}
 	if !installed {
-		return service.Outcome{Notes: []string{"not installed, nothing to remove"}}, nil
+		p, err := s.probe(ctx)
+		if err != nil {
+			return service.Outcome{}, err
+		}
+		if !p.stoppable {
+			return service.Outcome{Notes: []string{"not installed, nothing to remove"}}, nil
+		}
+		// The unit file was removed by hand but the service is still running: stop it. `disable` would
+		// fail without the file.
+		if err := s.stop(ctx, p); err != nil {
+			return service.Outcome{}, err
+		}
+		return service.Outcome{Changed: true, Notes: []string{"its definition file was already removed; the service that was still running was stopped"}}, nil
 	}
 	if _, err := s.systemctl(ctx, true, "disable", "--now", s.unit()); err != nil {
 		return service.Outcome{}, err

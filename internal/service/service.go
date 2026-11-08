@@ -30,8 +30,7 @@ const (
 	TargetWindows Target = "windows"
 )
 
-// Defaults of the install-time values. A service definition is written once, without a database,
-// so these cannot be settings: each is a flag of `local-server service install` (req_001 D-38).
+// Defaults of the install-time values. The OS service manager reads them from the service definition, not from local-server's database, so each is a flag of `local-server service install` with the default below, set by the host; installing again with other values replaces the definition (the Windows service: uninstall it first) (req_001 D-54).
 const (
 	// DefaultRestartDelay is how long the OS waits before it starts local-server again after an
 	// unexpected exit. launchd ThrottleInterval, systemd RestartSec, Windows recovery delay.
@@ -198,6 +197,12 @@ type Status struct {
 // String is the plain-language line `local-server service status` shows.
 func (s Status) String() string {
 	switch {
+	case !s.Installed && s.Running:
+		modeArg := ""
+		if s.Mode == ModeSystem {
+			modeArg = " --mode system"
+		}
+		return fmt.Sprintf("%s mode: not installed, but still running (its definition file was removed); stop it with `local-server service stop%s`", s.Mode, modeArg)
 	case !s.Installed:
 		return fmt.Sprintf("%s mode: not installed", s.Mode)
 	case s.Running:

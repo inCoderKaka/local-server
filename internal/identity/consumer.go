@@ -151,16 +151,16 @@ func (r *ConsumerRepo) SoftDelete(tx *storage.Tx, id string) error {
 
 // PurgeCounts is what Purge removed or changed, per table.
 type PurgeCounts struct {
-	Consents        int64 // idn_consent rows deleted, with their evidence
-	Credentials     int64 // idn_credential rows deleted
-	Sessions        int64 // idn_session rows deleted
-	AccessKeys      int64 // idn_access_key rows deleted
-	InvitesUnlinked int64 // idn_invite rows whose redeemed_consumer_id was cleared
+	Consents          int64 // idn_consent rows deleted, with their evidence
+	Credentials       int64 // idn_credential rows deleted
+	Sessions          int64 // idn_session rows deleted
+	AccessKeys        int64 // idn_access_key rows deleted
+	InviteRefsCleared int64 // idn_invite rows whose redeemed_consumer_id was cleared
 }
 
 // Total is the number of rows Purge removed or changed.
 func (c PurgeCounts) Total() int64 {
-	return c.Consents + c.Credentials + c.Sessions + c.AccessKeys + c.InvitesUnlinked
+	return c.Consents + c.Credentials + c.Sessions + c.AccessKeys + c.InviteRefsCleared
 }
 
 // purgeableWhere selects the deleted consumers that still hold a row Purge removes. That EXISTS
@@ -214,7 +214,7 @@ func (r *ConsumerRepo) Purge(tx *storage.Tx, consumerID string) (PurgeCounts, er
 		{&out.Credentials, `DELETE FROM idn_credential WHERE principal_id = ?`, []any{principalID}},
 		{&out.Sessions, `DELETE FROM idn_session WHERE principal_id = ?`, []any{principalID}},
 		{&out.AccessKeys, `DELETE FROM idn_access_key WHERE consumer_id = ?`, []any{consumerID}},
-		{&out.InvitesUnlinked, `UPDATE idn_invite SET redeemed_consumer_id = NULL WHERE redeemed_consumer_id = ?`, []any{consumerID}},
+		{&out.InviteRefsCleared, `UPDATE idn_invite SET redeemed_consumer_id = NULL WHERE redeemed_consumer_id = ?`, []any{consumerID}},
 	} {
 		res, err := tx.Exec(st.sql, st.args...)
 		if err != nil {

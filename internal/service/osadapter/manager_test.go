@@ -233,6 +233,8 @@ func TestDarwinUserLifecycle(t *testing.T) {
 	if _, ok := r.fs.files[agentPlist]; ok {
 		t.Error("plist still there")
 	}
+	// The fake answers code 0 by default, which reads as "loaded": say the job is gone.
+	r.run.answers["launchctl print gui/501/"+label] = Result{Code: 113, Output: "Could not find service"}
 	out = noErr(r.m.Uninstall(ctx))
 	if out.Changed || !strings.Contains(out.Notes[0], "not installed") {
 		t.Errorf("uninstall when not installed: %+v", out)
@@ -240,6 +242,22 @@ func TestDarwinUserLifecycle(t *testing.T) {
 	if o := noErr(r.m.Stop(ctx)); o.Changed {
 		t.Errorf("stop when not installed: %+v", o)
 	}
+}
+
+// A job still loaded after its plist was removed by hand is not installed, but it is running and Stop
+// must boot it out.
+func TestDarwinOrphanedJobCanBeStopped(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, service.TargetDarwin, service.ModeUser)
+	r.run.answers["launchctl print gui/501/"+label] = Result{Output: "state = running"}
+	if st := noErr(r.m.Status(ctx)); st.Installed || !st.Running {
+		t.Errorf("status of an orphaned job: %+v", st)
+	}
+	r.run.take()
+	if o := noErr(r.m.Stop(ctx)); !o.Changed {
+		t.Errorf("stop of an orphaned job: %+v", o)
+	}
+	wantCalls(t, r, "launchctl print gui/501/"+label, "launchctl bootout gui/501/"+label)
 }
 
 func TestDarwinSystemUsesDaemonAndNeedsRights(t *testing.T) {
@@ -298,11 +316,46 @@ func TestLinuxUserLifecycle(t *testing.T) {
 	if !out.Changed {
 		t.Error("uninstall should change something")
 	}
+	r.run.answers["systemctl --user is-active local-server.service"] = Result{Code: 3, Output: "inactive"}
 	out = noErr(r.m.Uninstall(ctx))
 	if out.Changed || !strings.Contains(out.Notes[0], "not installed") {
 		t.Errorf("uninstall twice: %+v", out)
 	}
-	wantCalls(t, r)
+	wantCalls(t, r, "systemctl --user is-active local-server.service")
+}
+
+// A job still loaded after its plist was removed by hand is not installed, but Uninstall must boot it
+// out; otherwise it keeps running with nothing left to stop it by.
+func TestDarwinUninstallStopsOrphanedJob(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, service.TargetDarwin, service.ModeUser)
+	r.run.answers["launchctl print gui/501/"+label] = Result{Output: "state = running"}
+	out := noErr(r.m.Uninstall(ctx))
+	if !out.Changed || len(out.Notes) != 1 || !strings.Contains(out.Notes[0], "already removed") {
+		t.Errorf("uninstall of an orphaned job: %+v", out)
+	}
+	wantCalls(t, r, "launchctl print gui/501/"+label, "launchctl bootout gui/501/"+label)
+}
+
+// The same on Linux: the unit file is gone but the service is active. `disable` would fail without the
+// file, so Uninstall only stops it. With nothing running there is nothing to remove.
+func TestLinuxUninstallStopsOrphanedService(t *testing.T) {
+	ctx := context.Background()
+	const isActive = "systemctl --user is-active local-server.service"
+	r := newRig(t, service.TargetLinux, service.ModeUser)
+	r.run.answers[isActive] = Result{Output: "active"}
+	out := noErr(r.m.Uninstall(ctx))
+	if !out.Changed || len(out.Notes) != 1 || !strings.Contains(out.Notes[0], "already removed") {
+		t.Errorf("uninstall of an orphaned service: %+v", out)
+	}
+	wantCalls(t, r, isActive, "systemctl --user stop local-server.service")
+
+	r.run.answers[isActive] = Result{Code: 3, Output: "inactive"}
+	out = noErr(r.m.Uninstall(ctx))
+	if out.Changed || len(out.Notes) != 1 || !strings.Contains(out.Notes[0], "not installed, nothing to remove") {
+		t.Errorf("uninstall when nothing is left: %+v", out)
+	}
+	wantCalls(t, r, isActive)
 }
 
 // While systemd waits to restart a crashed unit, is-active says "activating" (exit 3): the unit is
@@ -382,6 +435,18 @@ func TestLinuxSystem(t *testing.T) {
 	}
 }
 
+// systemctl prints "Access denied" (no "is") when polkit refuses a system-mode change.
+func TestLinuxSystemAccessDeniedNeedsAdmin(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, service.TargetLinux, service.ModeSystem)
+	noErr(r.m.Install(ctx))
+	r.run.take()
+	r.run.answers["systemctl disable --now local-server.service"] = Result{Code: 1, Output: "Failed to disable unit: Access denied"}
+	if _, err := r.m.Uninstall(ctx); !errors.Is(err, service.ErrNeedsAdmin) {
+		t.Errorf("uninstall without rights: %v", err)
+	}
+}
+
 func TestToolMissingIsClear(t *testing.T) {
 	r := newRig(t, service.TargetLinux, service.ModeUser)
 	r.run.missing = map[string]bool{"systemctl": true}
@@ -449,6 +514,22 @@ func TestWindowsLogonTaskLifecycle(t *testing.T) {
 	r.run.take()
 	noErr(r.m.Uninstall(ctx))
 	wantCalls(t, r, query, `schtasks /End /TN local-server`, `schtasks /Delete /TN local-server /F`)
+}
+
+// When the task exists but PowerShell cannot say what state it is in, the state is unknown, not
+// stopped: Status and Stop must fail instead of reporting "stopped" or "not running".
+func TestWindowsLogonTaskUnknownStateIsAnError(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, service.TargetWindows, service.ModeUser)
+	r.run.answers[`schtasks /Query /TN local-server`] = Result{}
+	r.run.answers["powershell -NoProfile -NonInteractive -Command (Get-ScheduledTask -TaskName 'local-server').State"] =
+		Result{Code: 1, Output: "Get-ScheduledTask : access error"}
+	if _, err := r.m.Status(ctx); err == nil || !strings.Contains(err.Error(), "access error") {
+		t.Errorf("status with a failing PowerShell: %v", err)
+	}
+	if o, err := r.m.Stop(ctx); err == nil {
+		t.Errorf("stop with a failing PowerShell must fail, got %+v", o)
+	}
 }
 
 func TestUTF16LE(t *testing.T) {

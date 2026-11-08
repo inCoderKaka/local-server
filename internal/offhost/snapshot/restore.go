@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/inCoderKaka/local-server/internal/jobs"
+	"github.com/inCoderKaka/local-server/internal/ledger/checkpoint"
 	"github.com/inCoderKaka/local-server/internal/storage"
 )
 
@@ -23,6 +24,9 @@ var ErrNoSnapshots = errors.New("snapshot: the target holds no snapshot")
 type RestoreOptions struct {
 	// Target is where the snapshots are.
 	Target Target
+	// Credentials is the bucket access key, if the target is a bucket, so that target errors are
+	// scrubbed of it.
+	Credentials Credentials
 	// Name is the snapshot to restore; empty means the newest.
 	Name string
 	// DataKey is the host data key, from the recovery code (hostkeys.RecoverDataKey).
@@ -79,6 +83,7 @@ type Report struct {
 //
 // Nothing here logs or returns the recovery code, the data key or any row content.
 func Restore(ctx context.Context, opts RestoreOptions) (rep Report, err error) {
+	defer func() { err = scrub(err, opts.Credentials) }()
 	if opts.Target == nil || len(opts.DataKey) == 0 || opts.DBPath == "" || len(opts.Compressors) == 0 {
 		return Report{}, errors.New("snapshot: restore needs a target, the data key, a database path and compressors")
 	}
@@ -204,7 +209,8 @@ func prepare(ctx context.Context, path string, mods []storage.Module, meta Meta,
 			break
 		}
 	}
-	return db.Reader().QueryRow(ctx, `SELECT COALESCE(MAX(tree_size), 0) FROM ldg_checkpoint`).Scan(&rep.LatestCheckpointSize)
+	rep.LatestCheckpointSize, err = checkpoint.LatestTreeSize(ctx, db)
+	return err
 }
 
 // swap keeps the database at dbPath (with its -wal and -shm) aside under a timestamped name and
@@ -224,8 +230,12 @@ func swap(dbPath, newPath string, now time.Time) (string, error) {
 	if _, err := os.Stat(dbPath); err == nil {
 		prev = dbPath + ".before-restore-" + now.UTC().Format("20060102T150405Z")
 		for n := 2; ; n++ { // never overwrite an earlier kept copy
-			if _, err := os.Stat(prev); errors.Is(err, os.ErrNotExist) {
+			_, err := os.Stat(prev)
+			if errors.Is(err, os.ErrNotExist) {
 				break
+			}
+			if err != nil {
+				return "", fmt.Errorf("keep the old database aside: %w", err)
 			}
 			prev = fmt.Sprintf("%s.before-restore-%s-%d", dbPath, now.UTC().Format("20060102T150405Z"), n)
 		}

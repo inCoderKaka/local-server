@@ -266,9 +266,10 @@ local-server: first run. This is your recovery code:
 
     %s
 
-It is the key to this host's data: with it you can restore a backup on another machine, and
-without it a lost machine cannot be restored. Write it down and keep it somewhere safe. It is
-not written to any log or file.
+It restores this host's backups on this computer, or on another one where the host master key
+survives. Backups do not contain the master key; it is kept in the OS keychain or in the file
+master.key in the data folder, so copy master.key (or the keychain entry) somewhere safe and
+private. Write the code down and keep it somewhere safe. It is not written to any log or file.
 
 `
 
