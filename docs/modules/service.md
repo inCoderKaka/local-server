@@ -20,7 +20,7 @@ Running in the background as a user or system service.
 | Defaults (restart delay, count, reset period) and default and helper names (`DefaultName`, `HelperName`) | OS-agnostic (values differ per `Target`, the code does not) | `internal/service/service.go` |
 | Rendering of the launchd plist, systemd unit, Windows logon task, Windows service definition and the helper definition | OS-agnostic (pure functions, golden files for every OS family) | `internal/service/render.go`, `internal/service/testdata/` |
 | `Manager` port | OS-agnostic (interface) | `internal/service/service.go` |
-| CLI: flags, `--mode` and `--name` handling, printing of `Outcome` and `Status` | OS-agnostic; its hooks default to the adapter | `cmd/local-server/service.go` |
+| CLI: flags, `--mode` and `--name` handling, the sudo guard (user mode is refused when root runs the command through sudo), printing of `Outcome` and `Status` | OS-agnostic; its hooks default to the adapter | `cmd/local-server/service.go` |
 | `Runner`, `FS` and `Env` seams | OS-agnostic (interfaces and a value) | `internal/service/osadapter/env.go` |
 | Manager shared logic (probe, start, stop and status around a backend) | OS-agnostic logic inside the adapter | `internal/service/osadapter/manager.go` |
 | launchd backend (`launchctl`, LaunchAgent and LaunchDaemon files) | OS-dependent behaviour, compiles everywhere, tested with fakes | `internal/service/osadapter/launchd.go` |
@@ -28,7 +28,7 @@ Running in the background as a user or system service.
 | Windows logon task backend (`schtasks`, UTF-16 task XML) | OS-dependent behaviour, compiles everywhere, tested with fakes | `internal/service/osadapter/windows.go` |
 | Windows system service backend (`kardianos/service`) | OS-dependent behaviour, compiles everywhere, tested with a fake `WindowsService` | `internal/service/osadapter/windows.go` |
 | Real `Runner` (`os/exec`) and real `FS` (`os`) | OS-dependent, compiles everywhere | `internal/service/osadapter/real.go` |
-| User, home folder, user id and binary discovery (`CurrentUserName`, `Executable`, `NewEnv`) | OS-dependent, compiles everywhere | `internal/service/osadapter/real.go` |
+| User, home folder, user id and binary discovery (`CurrentUserName`, `Executable`, `NewEnv`, `RunByRootThroughSudo`) | OS-dependent, compiles everywhere | `internal/service/osadapter/real.go` |
 | Missing-rights detection (`ErrNeedsAdmin`) | OS-dependent in what the OS tools say, compiles everywhere: it reads the tool output and file errors, it does not ask the OS who the user is, so there is no build-tagged privilege check | `internal/service/osadapter/env.go`, `manager.go` |
 | Fakes (`Runner`, `FS`, `WindowsService`, CLI hooks) | Test-only | `internal/service/osadapter/manager_test.go`, `cmd/local-server/service_test.go` |
 

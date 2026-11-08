@@ -1,11 +1,15 @@
 package service
 
 import (
+	"encoding/xml"
 	"flag"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/*.golden")
@@ -100,6 +104,64 @@ func TestGolden(t *testing.T) {
 	}
 }
 
+// TestRenderedXMLIsWellFormed parses every XML definition, so a golden regenerated with -update
+// cannot hide a broken document. The Task Scheduler XML declares UTF-16 but the text is UTF-8 in
+// memory: the adapter encodes it when it writes the file. plutil checks the plist goldens when the
+// host has it.
+func TestRenderedXMLIsWellFormed(t *testing.T) {
+	cases := []struct {
+		file string
+		spec Spec
+		kind Kind
+		root string
+	}{
+		{"darwin_user_launchagent.plist", testSpec(TargetDarwin, ModeUser), KindService, "plist"},
+		{"darwin_system_launchdaemon.plist", testSpec(TargetDarwin, ModeSystem), KindService, "plist"},
+		{"helper_darwin.plist", testSpec(TargetDarwin, ModeSystem), KindHelper, "plist"},
+		{"windows_user_logon_task.xml", testSpec(TargetWindows, ModeUser), KindService, "Task"},
+		{"helper_windows_logon_task.xml", testSpec(TargetWindows, ModeSystem), KindHelper, "Task"},
+	}
+	for _, c := range cases {
+		t.Run(c.file, func(t *testing.T) {
+			got, err := Render(c.spec, c.kind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			d := xml.NewDecoder(strings.NewReader(got))
+			d.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
+			first := ""
+			for {
+				tok, err := d.Token()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatalf("not well-formed XML: %v\n%s", err, got)
+				}
+				if se, ok := tok.(xml.StartElement); ok && first == "" {
+					first = se.Name.Local
+				}
+			}
+			if first != c.root {
+				t.Errorf("root element %q, want %q", first, c.root)
+			}
+		})
+	}
+	plutil, err := exec.LookPath("plutil")
+	if err != nil {
+		t.Skip("plutil is not on this host: plist goldens not linted")
+	}
+	for _, c := range cases {
+		if c.root != "plist" {
+			continue
+		}
+		file := filepath.Join("testdata", c.file+".golden")
+		if out, err := exec.Command(plutil, "-lint", file).CombinedOutput(); err != nil {
+			t.Errorf("plutil -lint %s: %v\n%s", file, err, out)
+		}
+	}
+}
+
 // A clean exit must not restart: no definition may ask for restart "always".
 func TestNoRestartAlways(t *testing.T) {
 	for _, tg := range []Target{TargetDarwin, TargetLinux, TargetWindows} {
@@ -119,13 +181,13 @@ func TestNoRestartAlways(t *testing.T) {
 
 func TestRestartDelayIsRendered(t *testing.T) {
 	s := testSpec(TargetLinux, ModeUser)
-	s.RestartDelay = 45 * 1e9
+	s.RestartDelay = 45 * time.Second
 	got, _ := Render(s, KindService)
 	if !strings.Contains(got, "RestartSec=45s") {
 		t.Errorf("restart delay not rendered:\n%s", got)
 	}
 	w := testSpec(TargetWindows, ModeUser)
-	w.RestartDelay = 61 * 1e9
+	w.RestartDelay = 61 * time.Second
 	got, _ = Render(w, KindService)
 	if !strings.Contains(got, "<Interval>PT2M</Interval>") {
 		t.Errorf("Task Scheduler interval is not rounded up to whole minutes:\n%s", got)
@@ -155,16 +217,21 @@ func TestQuoting(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	bad := map[string]func(*Spec){
-		"relative binary":   func(s *Spec) { s.Binary = "local-server" },
-		"relative data dir": func(s *Spec) { s.DataDir = "data" },
-		"bad name":          func(s *Spec) { s.Name = "a b" },
-		"empty name":        func(s *Spec) { s.Name = "" },
-		"bad mode":          func(s *Spec) { s.Mode = "both" },
-		"short delay":       func(s *Spec) { s.RestartDelay = 0 },
-		"zero count":        func(s *Spec) { s.RestartCount = 0 },
-		"huge count":        func(s *Spec) { s.RestartCount = 1000 },
-		"run-as in user":    func(s *Spec) { s.RunAs = "root" },
-		"bad target":        func(s *Spec) { s.Target = "plan9" },
+		"relative binary":     func(s *Spec) { s.Binary = "local-server" },
+		"relative data dir":   func(s *Spec) { s.DataDir = "data" },
+		"bad name":            func(s *Spec) { s.Name = "a b" },
+		"empty name":          func(s *Spec) { s.Name = "" },
+		"leading dash name":   func(s *Spec) { s.Name = "-x" },
+		"bad mode":            func(s *Spec) { s.Mode = "both" },
+		"short delay":         func(s *Spec) { s.RestartDelay = 0 },
+		"zero count":          func(s *Spec) { s.RestartCount = 0 },
+		"huge count":          func(s *Spec) { s.RestartCount = 1000 },
+		"run-as in user":      func(s *Spec) { s.RunAs = "root" },
+		"bad target":          func(s *Spec) { s.Target = "plan9" },
+		"newline in data dir": func(s *Spec) { s.DataDir = "/home/ana/data\nExecStartPre=/bin/evil" },
+		"space in system run-as": func(s *Spec) {
+			s.Mode, s.RunAs = ModeSystem, "a b"
+		},
 	}
 	for name, mut := range bad {
 		s := testSpec(TargetLinux, ModeUser)
@@ -172,6 +239,22 @@ func TestValidate(t *testing.T) {
 		if _, err := Render(s, KindService); err == nil {
 			t.Errorf("%s: expected an error", name)
 		}
+	}
+	// A Windows account may hold a space.
+	ws := testSpec(TargetWindows, ModeSystem)
+	ws.RunAs = `NT AUTHORITY\LocalService`
+	if _, err := Render(ws, KindService); err != nil {
+		t.Errorf("a Windows account with a space must be accepted: %v", err)
+	}
+	// The helper's logon task is the current user's: without a name it cannot be rendered, but the
+	// Windows system service does not use the name.
+	hs := testSpec(TargetWindows, ModeSystem)
+	hs.UserName = ""
+	if _, err := Render(hs, KindHelper); err == nil {
+		t.Error("a Windows helper logon task without a user must be refused")
+	}
+	if _, err := Render(hs, KindService); err != nil {
+		t.Errorf("the Windows service needs no user name: %v", err)
 	}
 	sys := testSpec(TargetLinux, ModeSystem)
 	sys.DataDir = ""

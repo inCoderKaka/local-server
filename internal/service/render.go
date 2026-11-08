@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -37,6 +38,9 @@ const (
 func Render(s Spec, k Kind) (string, error) {
 	if err := s.Validate(); err != nil {
 		return "", err
+	}
+	if k == KindHelper && s.Target == TargetWindows && s.UserName == "" {
+		return "", errors.New("service: the helper's logon task needs the name of the current user")
 	}
 	d := s.definition(k)
 	switch s.Target {
@@ -174,16 +178,6 @@ func windowsQuote(a string) string {
 	return b.String()
 }
 
-// WindowsArguments is the command line after the executable, quoted for Windows.
-func (s Spec) WindowsArguments(k Kind) string {
-	d := s.definition(k)
-	q := make([]string, len(d.args))
-	for i, a := range d.args {
-		q[i] = windowsQuote(a)
-	}
-	return strings.Join(q, " ")
-}
-
 // taskXML renders a Task Scheduler task that starts at the logon of one user and is restarted by
 // RestartOnFailure when a run fails. Task Scheduler restarts at intervals of whole minutes, at
 // least one, so the interval is the restart delay rounded up to a minute.
@@ -230,7 +224,9 @@ type WindowsServiceDef struct {
 	Name, DisplayName, Description string
 	Executable                     string
 	Arguments                      []string
-	// RunAs is the account; empty means LocalSystem.
+	// RunAs is the account; empty means LocalSystem. It must be an account that needs no password,
+	// such as NT AUTHORITY\LocalService, NT AUTHORITY\NetworkService or a managed service account:
+	// the adapter never passes a password to the Service Control Manager.
 	RunAs string
 	// RestartDelay is the recovery action "restart the service" after an unexpected exit, for
 	// every failure; ResetPeriod is when the failure count starts again.

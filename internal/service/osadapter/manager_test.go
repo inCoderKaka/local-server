@@ -46,9 +46,13 @@ type memFS struct {
 	denied bool
 	// written lists every path ever written, in order.
 	written []string
+	// writtenData is the last bytes written to each path, kept after Remove.
+	writtenData map[string][]byte
 }
 
-func newMemFS() *memFS { return &memFS{files: map[string][]byte{}} }
+func newMemFS() *memFS {
+	return &memFS{files: map[string][]byte{}, writtenData: map[string][]byte{}}
+}
 
 func (m *memFS) ReadFile(p string) ([]byte, error) {
 	b, ok := m.files[p]
@@ -62,6 +66,7 @@ func (m *memFS) WriteFile(p string, data []byte, _ fs.FileMode) error {
 	if m.denied {
 		return &fs.PathError{Op: "open", Path: p, Err: fs.ErrPermission}
 	}
+	m.writtenData[p] = data
 	m.files[p] = data
 	m.written = append(m.written, p)
 	return nil
@@ -300,6 +305,49 @@ func TestLinuxUserLifecycle(t *testing.T) {
 	wantCalls(t, r)
 }
 
+// While systemd waits to restart a crashed unit, is-active says "activating" (exit 3): the unit is
+// not running, but Stop must still cancel the pending restart.
+func TestLinuxStopCancelsPendingRestart(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, service.TargetLinux, service.ModeUser)
+	noErr(r.m.Install(ctx))
+	r.run.take()
+	r.run.answers["systemctl --user is-active local-server.service"] = Result{Code: 3, Output: "activating"}
+	if st := noErr(r.m.Status(ctx)); !st.Installed || st.Running {
+		t.Errorf("status while waiting to restart: %+v", st)
+	}
+	r.run.take()
+	if o := noErr(r.m.Stop(ctx)); !o.Changed {
+		t.Errorf("stop while waiting to restart: %+v", o)
+	}
+	wantCalls(t, r, "systemctl --user is-active local-server.service", "systemctl --user stop local-server.service")
+}
+
+// is-active exits 0 or 3 for a state it knows. Any other exit means systemctl could not ask the
+// manager, so the state is unknown: Status and Stop must not report "stopped" or "not running".
+func TestLinuxUnknownStateIsAnError(t *testing.T) {
+	ctx := context.Background()
+	const isActive = "systemctl --user is-active local-server.service"
+	answer := Result{Code: 1, Output: "Failed to connect to bus: No medium found"}
+	r := newRig(t, service.TargetLinux, service.ModeUser)
+	noErr(r.m.Install(ctx))
+	r.run.take()
+	r.run.answers[isActive] = answer
+	if _, err := r.m.Status(ctx); err == nil || !strings.Contains(err.Error(), "Failed to connect to bus") {
+		t.Errorf("status with an unreachable manager: %v", err)
+	}
+	if o, err := r.m.Stop(ctx); err == nil {
+		t.Errorf("stop with an unreachable manager must fail, got %+v", o)
+	}
+	// Without a unit file the answer does not matter: the service is not installed.
+	r = newRig(t, service.TargetLinux, service.ModeUser)
+	r.run.answers[isActive] = answer
+	st, err := r.m.Status(ctx)
+	if err != nil || st.Installed {
+		t.Errorf("status when not installed: %+v, %v", st, err)
+	}
+}
+
 func TestLinuxLingerFailureIsOnlyANote(t *testing.T) {
 	r := newRig(t, service.TargetLinux, service.ModeUser)
 	r.run.answers["loginctl enable-linger ana"] = Result{Code: 1, Output: "Access denied"}
@@ -365,6 +413,18 @@ func TestWindowsLogonTaskLifecycle(t *testing.T) {
 	wantCalls(t, r, query, `schtasks /Create /TN local-server /XML C:\Temp\local-server.xml /F`)
 	if len(r.fs.written) != 1 || r.fs.written[0] != `C:\Temp\local-server.xml` {
 		t.Fatalf("written: %q", r.fs.written)
+	}
+	// What schtasks reads is the rendered definition as UTF-16LE with a byte order mark.
+	b := r.fs.writtenData[`C:\Temp\local-server.xml`]
+	if len(b) < 2 || len(b)%2 != 0 || b[0] != 0xFF || b[1] != 0xFE {
+		t.Fatalf("task file is not UTF-16LE with a byte order mark: % x", b)
+	}
+	u := make([]uint16, 0, len(b)/2)
+	for i := 2; i < len(b); i += 2 {
+		u = append(u, uint16(b[i])|uint16(b[i+1])<<8)
+	}
+	if want := noErr(service.Render(r.spec, service.KindService)); string(utf16.Decode(u)) != want {
+		t.Errorf("task file holds a different definition:\n got %q\nwant %q", string(utf16.Decode(u)), want)
 	}
 	if len(r.fs.files) != 0 {
 		t.Error("temporary task file was not removed")
@@ -456,6 +516,18 @@ func TestWindowsSystemService(t *testing.T) {
 	r.win.failWith = errors.New("Access is denied.")
 	if _, err := r.m.Install(ctx); !errors.Is(err, service.ErrNeedsAdmin) {
 		t.Errorf("install without rights: %v", err)
+	}
+}
+
+// kardianos reads a service password only from Option["Password"], which the adapter never sets, so
+// a Windows system service runs as an account that needs no password.
+func TestKardianosConfigRunAsHasNoPassword(t *testing.T) {
+	cfg := kardianosConfig(service.WindowsServiceDef{Name: "local-server", RunAs: `NT AUTHORITY\LocalService`})
+	if cfg.UserName != `NT AUTHORITY\LocalService` {
+		t.Errorf("UserName = %q", cfg.UserName)
+	}
+	if _, ok := cfg.Option["Password"]; ok {
+		t.Error("the adapter must not set a Password option")
 	}
 }
 

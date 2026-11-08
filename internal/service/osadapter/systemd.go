@@ -73,8 +73,20 @@ func (s *systemd) probe(ctx context.Context) (probed, error) {
 	if err != nil {
 		return probed{}, err
 	}
+	// is-active exits 0 when active and 3 for every other known state (inactive, failed,
+	// activating...). Any other exit means systemctl could not ask the manager, for example
+	// "Failed to connect to bus" without a user session: the state is unknown, not stopped.
+	if installed && r.Code != 0 && r.Code != 3 {
+		args := []string{"is-active", s.unit()}
+		if s.spec.Mode == service.ModeUser {
+			args = append([]string{"--user"}, args...)
+		}
+		return probed{}, s.toolFailed("systemctl", args, r)
+	}
 	active := r.Code == 0
-	return probed{installed: installed, running: active, stoppable: active}, nil
+	// "activating" is the auto-restart window after a crash: not running, but a stop cancels it.
+	restarting := !active && hasLine(r.Output, "activating")
+	return probed{installed: installed, running: active, stoppable: active || restarting}, nil
 }
 
 func (s *systemd) start(ctx context.Context, _ probed) error {
@@ -106,7 +118,7 @@ func (s *systemd) uninstall(ctx context.Context) (service.Outcome, error) {
 	}
 	out := service.Outcome{Changed: true}
 	if s.spec.Mode == service.ModeUser {
-		out.Notes = append(out.Notes, "login lingering was left as it is")
+		out.Notes = append(out.Notes, "login lingering was left as it is; turn it off with `loginctl disable-linger` if nothing else needs it")
 	}
 	return out, nil
 }

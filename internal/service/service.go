@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Mode is the service mode (docs/glossary.md "Service mode"): user starts at login and needs no
@@ -77,7 +78,9 @@ type Spec struct {
 	// UserName is the OS user the user-mode definition belongs to ("DOMAIN\user" on Windows).
 	UserName string
 	// RunAs is the account a system-mode service runs as. Empty means the service manager's
-	// default (root, LocalSystem).
+	// default (root, LocalSystem). On Windows it must be an account that needs no password, such
+	// as NT AUTHORITY\LocalService, NT AUTHORITY\NetworkService or a managed service account: the
+	// adapter never passes a password to the Service Control Manager.
 	RunAs string
 	// RestartDelay, RestartCount, RestartResetPeriod: see the Default constants.
 	RestartDelay       time.Duration
@@ -110,10 +113,14 @@ func (s Spec) ValidateIdentity() error {
 	if s.Name == "" {
 		return errors.New("service: the service name is empty")
 	}
+	const badName = "service: the service name %q must start with a letter or digit and may only hold letters, digits, '.', '-' and '_'"
+	if c := s.Name[0]; !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
+		return fmt.Errorf(badName, s.Name)
+	}
 	for _, r := range s.Name {
 		ok := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_'
 		if !ok {
-			return fmt.Errorf("service: the service name %q may only hold letters, digits, '.', '-' and '_'", s.Name)
+			return fmt.Errorf(badName, s.Name)
 		}
 	}
 	return nil
@@ -123,6 +130,16 @@ func (s Spec) ValidateIdentity() error {
 func (s Spec) Validate() error {
 	if err := s.ValidateIdentity(); err != nil {
 		return err
+	}
+	for _, f := range []struct{ what, value string }{
+		{"binary path", s.Binary}, {"data directory", s.DataDir}, {"account", s.RunAs}, {"user name", s.UserName},
+	} {
+		if strings.IndexFunc(f.value, unicode.IsControl) >= 0 {
+			return fmt.Errorf("service: the %s %q holds a control character", f.what, f.value)
+		}
+	}
+	if s.Target == TargetLinux && s.RunAs != "" && strings.IndexFunc(s.RunAs, func(r rune) bool { return unicode.IsSpace(r) || r == '%' }) >= 0 {
+		return fmt.Errorf("service: the account %q cannot be used in a systemd unit", s.RunAs)
 	}
 	if !isAbs(s.Target, s.Binary) {
 		return fmt.Errorf("service: the binary path %q is not absolute", s.Binary)
@@ -197,7 +214,11 @@ var ErrNeedsAdmin = errors.New("administrator rights are needed for system mode;
 
 // Manager is the port to the OS service manager (req_001 D-30): install, remove, start, stop and
 // ask about one background service in one mode. An adapter exists per OS family. Install and
-// Uninstall are idempotent: asking twice is not an error, the second Outcome says nothing changed.
+// Uninstall are idempotent: asking twice is not an error. A second Uninstall, and a second Install
+// whose definition is unchanged, return Changed false with a note. A backend that cannot compare the
+// registered definition with the rendered one says so in a note: the Windows logon task replaces
+// its task (Changed true), and the Windows service is left as it is until it is uninstalled
+// (Changed false).
 type Manager interface {
 	// Install registers the service so the OS starts it at login (user mode) or boot (system
 	// mode), restarting it after an unexpected exit. It does not start it.

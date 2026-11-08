@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +61,7 @@ func newServiceRig(target service.Target) *serviceRig {
 			executable: func() (string, error) { return "/opt/local-server/local-server", nil },
 			target:     target,
 			userName:   func() (string, error) { return "ana", nil },
+			underSudo:  func() bool { return false },
 			newManager: func(s service.Spec) (service.Manager, error) {
 				m := r.mgrs[s.Mode]
 				m.spec = s
@@ -75,7 +77,18 @@ func (r *serviceRig) run(args ...string) int {
 	return r.app.run(context.Background(), append([]string{"service"}, args...))
 }
 
+// skipOnWindowsHost skips a test that installs for a macOS or Linux target: serviceInstall and
+// dataDir make paths absolute with the host's rules (filepath.Abs), so on a Windows host
+// "/var/ls" becomes "C:\var\ls" and Validate refuses it for the POSIX target (PLT-B-073).
+func skipOnWindowsHost(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX-target install paths go through the host's filepath.Abs (PLT-B-073)")
+	}
+}
+
 func TestServiceInstallDefaultsToUserMode(t *testing.T) {
+	skipOnWindowsHost(t)
 	r := newServiceRig(service.TargetLinux)
 	r.mgrs[service.ModeUser].outcome = service.Outcome{Changed: true}
 	if code := r.run("install"); code != 0 {
@@ -94,12 +107,64 @@ func TestServiceInstallDefaultsToUserMode(t *testing.T) {
 	if !strings.Contains(r.out.String(), "installed (user mode)") || !strings.Contains(r.out.String(), "local-server service start") {
 		t.Errorf("output: %q", r.out.String())
 	}
-	if len(r.mgrs[service.ModeSystem].calls) != 0 {
-		t.Error("system mode must not be touched")
+	// The other mode is only read, to warn when a service of that mode is installed too.
+	if got := strings.Join(r.mgrs[service.ModeSystem].calls, ","); got != "status" {
+		t.Errorf("system mode may only be asked for its status, calls %q", got)
+	}
+	if strings.Contains(r.out.String(), "installed too") {
+		t.Errorf("no warning expected when the other mode is not installed: %q", r.out.String())
+	}
+}
+
+func TestServiceInstallWarnsWhenOtherModeIsInstalled(t *testing.T) {
+	skipOnWindowsHost(t)
+	r := newServiceRig(service.TargetLinux)
+	r.mgrs[service.ModeUser].outcome = service.Outcome{Changed: true}
+	r.mgrs[service.ModeSystem].status = service.Status{Installed: true}
+	if code := r.run("install"); code != 0 {
+		t.Fatalf("exit %d: %s", code, r.errb.String())
+	}
+	if !strings.Contains(r.out.String(), "the system mode service is installed too") ||
+		!strings.Contains(r.out.String(), "`local-server service uninstall --mode system`") {
+		t.Errorf("output: %q", r.out.String())
+	}
+	// A failing probe changes nothing.
+	r.mgrs[service.ModeSystem].err = errors.New("cannot find systemctl")
+	if code := r.run("install"); code != 0 || strings.Contains(r.out.String(), "installed too") {
+		t.Errorf("exit %d: %q", code, r.out.String())
+	}
+}
+
+func TestServiceUserModeRefusedUnderSudo(t *testing.T) {
+	skipOnWindowsHost(t)
+	r := newServiceRig(service.TargetLinux)
+	r.app.svc.underSudo = func() bool { return true }
+	for _, action := range []string{"install", "uninstall", "start", "stop"} {
+		if code := r.run(action); code != 2 || !strings.Contains(r.errb.String(), "without sudo") {
+			t.Errorf("%s: exit %d: %q", action, code, r.errb.String())
+		}
+	}
+	if len(r.mgrs[service.ModeUser].calls)+len(r.mgrs[service.ModeSystem].calls) != 0 {
+		t.Error("no manager may be called")
+	}
+	// System mode and status are fine under sudo.
+	r.mgrs[service.ModeSystem].outcome = service.Outcome{Changed: true}
+	if code := r.run("install", "--mode", "system", "--data-dir", "/var/ls"); code != 0 {
+		t.Errorf("system install: exit %d: %s", code, r.errb.String())
+	}
+	if code := r.run("status"); code != 0 {
+		t.Errorf("status: exit %d: %s", code, r.errb.String())
+	}
+	// Windows is never checked.
+	w := newServiceRig(service.TargetWindows)
+	w.app.svc.underSudo = func() bool { return true }
+	if code := w.run("start"); code != 0 {
+		t.Errorf("windows start: exit %d: %s", code, w.errb.String())
 	}
 }
 
 func TestServiceInstallFlags(t *testing.T) {
+	skipOnWindowsHost(t)
 	r := newServiceRig(service.TargetDarwin)
 	r.mgrs[service.ModeSystem].outcome = service.Outcome{Changed: true}
 	code := r.run("install", "--mode", "system", "--name", "my.label", "--data-dir", "/var/ls", "--run-as", "ana",
@@ -124,6 +189,7 @@ func TestServiceInstallFlags(t *testing.T) {
 }
 
 func TestServiceInstallSystemNeedsDataDir(t *testing.T) {
+	skipOnWindowsHost(t)
 	r := newServiceRig(service.TargetLinux)
 	if code := r.run("install", "--mode", "system"); code != 2 || !strings.Contains(r.errb.String(), "--data-dir") {
 		t.Errorf("exit %d: %s", code, r.errb.String())
@@ -143,16 +209,17 @@ func TestServiceInstallSystemNeedsDataDir(t *testing.T) {
 func TestServiceCommandLineErrorsExit2(t *testing.T) {
 	r := newServiceRig(service.TargetLinux)
 	for name, args := range map[string][]string{
-		"no action":            {},
-		"unknown action":       {"restart"},
-		"bad mode":             {"install", "--mode", "both"},
-		"unknown flag":         {"install", "--nope"},
-		"install flag on stop": {"stop", "--data-dir", "/x"},
-		"extra argument":       {"start", "now"},
-		"restart delay zero":   {"install", "--restart-delay", "0s"},
-		"restart count 0":      {"install", "--restart-count", "0"},
-		"run-as in user mode":  {"install", "--run-as", "root"},
-		"bad name":             {"install", "--name", "a b"},
+		"no action":                 {},
+		"unknown action":            {"restart"},
+		"bad mode":                  {"install", "--mode", "both"},
+		"unknown flag":              {"install", "--nope"},
+		"install flag on stop":      {"stop", "--data-dir", "/x"},
+		"extra argument":            {"start", "now"},
+		"restart delay zero":        {"install", "--restart-delay", "0s"},
+		"restart count 0":           {"install", "--restart-count", "0"},
+		"run-as in user mode":       {"install", "--run-as", "root"},
+		"bad name":                  {"install", "--name", "a b"},
+		"name starting with a dash": {"install", "--name", "-x"},
 	} {
 		if code := r.run(args...); code != 2 {
 			t.Errorf("%s: exit %d, want 2 (stderr %q)", name, code, r.errb.String())
@@ -200,6 +267,7 @@ func TestServiceNothingToDoIsNotAnError(t *testing.T) {
 }
 
 func TestServiceFailuresExit1WithoutStackTrace(t *testing.T) {
+	skipOnWindowsHost(t)
 	r := newServiceRig(service.TargetLinux)
 	r.mgrs[service.ModeUser].err = service.ErrNotInstalled
 	if code := r.run("start"); code != 1 || !strings.Contains(r.errb.String(), "service install") {

@@ -26,6 +26,8 @@ type serviceHooks struct {
 	userName func() (string, error)
 	// newManager returns the Manager for a Spec; nil means the real adapter for this OS.
 	newManager func(service.Spec) (service.Manager, error)
+	// underSudo says whether root runs this command through sudo; nil means the real check.
+	underSudo func() bool
 }
 
 const serviceUsageText = `usage:
@@ -60,6 +62,13 @@ func (a *app) hookUserName() (string, error) {
 		return a.svc.userName()
 	}
 	return osadapter.CurrentUserName()
+}
+
+func (a *app) hookUnderSudo() bool {
+	if a.svc.underSudo != nil {
+		return a.svc.underSudo()
+	}
+	return osadapter.RunByRootThroughSudo()
 }
 
 func (a *app) hookManager(s service.Spec) (service.Manager, error) {
@@ -97,8 +106,8 @@ func (a *app) serviceCmd(ctx context.Context, args []string) int {
 	)
 	if action == "install" {
 		dataDirFlag = fs.String("data-dir", "", "data directory the service uses (default: as for serve; required in system mode)")
-		runAs = fs.String("run-as", "", "system mode: the account the service runs as (default: root, LocalSystem)")
-		restartDelay = fs.Duration("restart-delay", service.DefaultRestartDelay, "wait before restarting after an unexpected exit")
+		runAs = fs.String("run-as", "", "system mode: the account the service runs as (default: root, LocalSystem; on Windows only an account that needs no password, such as NT AUTHORITY\\LocalService, NT AUTHORITY\\NetworkService or a managed service account)")
+		restartDelay = fs.Duration("restart-delay", service.DefaultRestartDelay, "wait before restarting after an unexpected exit (the Windows logon task rounds it up to whole minutes)")
 		restartCount = fs.Int("restart-count", service.DefaultRestartCount, "Windows logon task: how many times to restart after a failed run")
 		resetPeriod = fs.Duration("restart-reset-period", service.DefaultRestartResetPeriod, "Windows service: run this long without failing to reset the failure count")
 		linger = fs.Bool("linger", true, "Linux user mode: keep the service running after logout and start it at boot (loginctl enable-linger)")
@@ -135,6 +144,12 @@ func (a *app) serviceCmd(ctx context.Context, args []string) int {
 	case string(service.ModeUser), string(service.ModeSystem):
 	default:
 		fmt.Fprintf(a.stderr, "local-server service %s: --mode must be user or system\n", action)
+		return 2
+	}
+
+	// A user-mode service belongs to the signed-in user: under sudo it would be set up for root.
+	if action != "status" && modes[0] == service.ModeUser && (target == service.TargetDarwin || target == service.TargetLinux) && a.hookUnderSudo() {
+		fmt.Fprintf(a.stderr, "local-server service %s: user mode belongs to the signed-in user, but this command runs as root through sudo; run it without sudo, or add --mode system\n", action)
 		return 2
 	}
 
@@ -233,10 +248,35 @@ func (a *app) serviceInstall(ctx context.Context, base service.Spec, mode servic
 		return a.serviceFailed("install", mode, err)
 	}
 	a.serviceReport("install", mode, out)
+	a.serviceWarnOtherMode(ctx, base, mode)
 	if out.Changed {
 		fmt.Fprintf(a.stdout, "Start it now with: local-server service start%s\n", modeArg(mode))
 	}
 	return 0
+}
+
+// serviceWarnOtherMode is a best-effort note after an install: a service of the other mode that is
+// installed too would listen on the same ports. It only reads, and every error of the probe is
+// ignored, so it never changes what install reports or its exit code.
+func (a *app) serviceWarnOtherMode(ctx context.Context, base service.Spec, mode service.Mode) {
+	o := base
+	o.Mode = service.ModeUser
+	if mode == service.ModeUser {
+		o.Mode = service.ModeSystem
+	}
+	if o.ValidateIdentity() != nil {
+		return
+	}
+	mgr, err := a.hookManager(o)
+	if err != nil {
+		return
+	}
+	st, err := mgr.Status(ctx)
+	if err != nil || !st.Installed {
+		return
+	}
+	fmt.Fprintf(a.stdout, "local-server background service (%s mode): the %s mode service is installed too; two background services cannot both listen on the same ports, so remove one with `local-server service uninstall%s`.\n",
+		mode, o.Mode, modeArg(o.Mode))
 }
 
 func modeArg(m service.Mode) string {

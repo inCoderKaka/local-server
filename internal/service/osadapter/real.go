@@ -55,6 +55,10 @@ func CurrentUserName() (string, error) {
 	return u.Username, nil
 }
 
+// RunByRootThroughSudo says whether this process is root because someone ran it with sudo. A
+// user-mode service belongs to the signed-in user, so under sudo it would be set up for root.
+func RunByRootThroughSudo() bool { return os.Getuid() == 0 && os.Getenv("SUDO_USER") != "" }
+
 // Executable is the absolute path of the running local-server binary, which a service definition
 // runs.
 func Executable() (string, error) {
