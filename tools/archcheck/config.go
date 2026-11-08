@@ -86,6 +86,7 @@ func DefaultConfig() Config {
 			"github.com/prometheus/client_golang": {"internal/telemetry/slogprom"},
 			"github.com/zalando/go-keyring":       {"internal/hostkeys"},
 			"github.com/kardianos/service":        {"internal/service/osadapter"},
+			"github.com/aws":                      {"internal/offhost/snapshot/s3"},
 		},
 		NoteDir:      "docs/modules",
 		NoteHeadings: []string{"## Purpose", "## Owns", "## Imports", "## Decisions"},

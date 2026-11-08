@@ -21,6 +21,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/ledger/checkpoint"
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
+	"github.com/inCoderKaka/local-server/internal/offhost/snapshot"
 	"github.com/inCoderKaka/local-server/internal/policy"
 	"github.com/inCoderKaka/local-server/internal/power"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
@@ -49,6 +50,8 @@ type services struct {
 	rules func(ctx context.Context)
 	// purge removes the data of consumers deleted longer ago than the retention (PLT-F-097).
 	purge func(ctx context.Context)
+	// backup takes the periodic off-host snapshots (PLT-F-044).
+	backup *snapshot.Runner
 }
 
 // wire builds every module on d, keys and eng, in dependency order, and returns what serve
@@ -124,6 +127,14 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 		return nil, fmt.Errorf("admin: %w", err)
 	}
 	sv.admin, sv.rules, sv.purge = adm.Handler(), adm.RunRuleSweeper, adm.RunConsumerPurge
+
+	// Off-host backups: the snapshot pipeline with the gzip compressor and, through backupTargets,
+	// the local-folder and S3-compatible adapters (req_001 D-41, D-103). It raises backup.failed
+	// on the event bus (D-71).
+	if sv.backup, err = snapshot.NewRunner(snapshot.RunnerConfig{DB: db, Settings: st, Keys: keys, Events: bus, Log: log,
+		Targets: backupTargets, Compressor: backupCompressor()}); err != nil {
+		return nil, fmt.Errorf("backup: %w", err)
+	}
 	return sv, nil
 }
 
@@ -163,4 +174,7 @@ func (sv *services) startWorkers(ctx context.Context, sup *supervisor, log *slog
 	sup.Go(ctx, "policy-rule-sweeper", func(ctx context.Context) error { sv.rules(ctx); return nil })
 	// Purges consumers deleted longer ago than consumers.deleted_retention (PLT-F-097).
 	sup.Go(ctx, "consumer-purge", func(ctx context.Context) error { sv.purge(ctx); return nil })
+	// Sends an encrypted snapshot of the database to the host's folder or bucket every
+	// backup.interval while backup.enabled is true (PLT-F-044).
+	sup.Go(ctx, "backup", func(ctx context.Context) error { sv.backup.Run(ctx); return nil })
 }

@@ -25,11 +25,14 @@ const (
 	AccessKeyRevoked       Type = "access_key.revoked"
 	GrantChanged           Type = "grant.changed"
 	PolicyRuleInvalid      Type = "policy.rule_invalid"
+	// BackupFailed is raised when a backup run fails (req_001 D-71); its payload has a reason code
+	// and, for a broken minimize rule, the table names, never content.
+	BackupFailed Type = "backup.failed"
 )
 
 // Types lists every defined event type.
 func Types() []Type {
-	return []Type{HostPaused, QuotaNearLimit, ResourceRequestCreated, ResourceRequestDecided, JobDone, MeteringFailed, PlatformSyncFailed, AccessKeyRevoked, GrantChanged, PolicyRuleInvalid}
+	return []Type{HostPaused, QuotaNearLimit, ResourceRequestCreated, ResourceRequestDecided, JobDone, MeteringFailed, PlatformSyncFailed, AccessKeyRevoked, GrantChanged, PolicyRuleInvalid, BackupFailed}
 }
 
 // Known reports whether t is a defined event type.

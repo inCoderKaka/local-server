@@ -489,6 +489,31 @@ func (s *Service) FailInterrupted(ctx context.Context) (int, error) {
 	return int(n), nil
 }
 
+// FailPayloadMinimized marks every queued or running job that has no payload row failed with
+// reason payload_minimized and returns how many it marked (req_001 D-68). `local-server restore`
+// calls it on a restored database when the snapshot left sch_job_payload out (D-64): the job
+// cannot run without its request, and the client resubmits with its Idempotency-Key. Restore
+// runs before the host starts, so the start-up host_restart pass finds these jobs already
+// terminal and payload_minimized takes precedence (D-72). A job that still has its payload is
+// left alone.
+func FailPayloadMinimized(ctx context.Context, db *storage.DB, now time.Time) (int, error) {
+	var n int64
+	err := db.Write(ctx, func(tx *storage.Tx) error {
+		res, err := tx.Exec(`UPDATE sch_job SET status = 'failed', failure_reason = ?, finished_at = ?
+			WHERE status IN ('queued', 'running') AND NOT EXISTS (SELECT 1 FROM sch_job_payload p WHERE p.job_id = sch_job.id)`,
+			ReasonPayloadMinimized, ms(now))
+		if err != nil {
+			return err
+		}
+		n, err = res.RowsAffected()
+		return err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("jobs: mark jobs whose payload was minimized: %w", err)
+	}
+	return int(n), nil
+}
+
 // deleteTerminalPayloads deletes the payload of every job that is not queued or running.
 func deleteTerminalPayloads(tx *storage.Tx) error {
 	_, err := tx.Exec(`DELETE FROM sch_job_payload WHERE job_id IN (SELECT id FROM sch_job WHERE status NOT IN ('queued', 'running'))`)

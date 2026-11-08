@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/inCoderKaka/local-server/internal/offhost/snapshot"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
 )
@@ -54,6 +55,11 @@ func openWith(ctx context.Context, path, mode string) (*database, error) {
 	}
 	st := settings.New(db)
 	if err := registerSettings(st); err != nil {
+		db.Close()
+		return nil, err
+	}
+	// One minimize switch per table of ops_data_catalog, which the open above filled (req_001 D-64).
+	if err := snapshot.RegisterSettings(ctx, db, st); err != nil {
 		db.Close()
 		return nil, err
 	}

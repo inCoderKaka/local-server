@@ -5,6 +5,8 @@
 //	local-server serve  [--data-dir DIR] [--engine ollama|fake]
 //	local-server doctor [--data-dir DIR] [--json]
 //	local-server recovery-code [--data-dir DIR]
+//	local-server restore [--data-dir DIR] [--from DIR | --bucket NAME ...] [--snapshot NAME]
+//	local-server backup-credentials [--data-dir DIR]
 //	local-server service install|uninstall|start|stop|status [--mode user|system] [flags]
 //	local-server --version
 //
@@ -13,6 +15,11 @@
 //
 // recovery-code shows the host's recovery code again after an admin login on a terminal; it is
 // audited (req_001 D-80, D-101).
+//
+// restore replaces the database with an encrypted snapshot from a folder or an S3-compatible
+// bucket, using the recovery code (LS_RECOVERY_CODE or a prompt); it runs while the host is
+// stopped (req_001 D-41, D-72). backup-credentials stores the bucket's access key sealed with the
+// host master key (D-40). Backups themselves are taken by the running host (setting backup.*).
 //
 // The data directory is the only thing configured outside the database: --data-dir, else the
 // environment variable LS_DATA_DIR, else "local-server" inside the user's configuration
@@ -140,6 +147,8 @@ const usageText = `usage:
   local-server serve  [--data-dir DIR] [--engine ollama|fake]
   local-server doctor [--data-dir DIR] [--json]
   local-server recovery-code [--data-dir DIR]
+  local-server restore [--data-dir DIR] [--from DIR | --bucket NAME [--endpoint URL] [--region R] [--prefix P] [--path-style=BOOL]] [--snapshot NAME]
+  local-server backup-credentials [--data-dir DIR]
   local-server service install|uninstall|start|stop|status [--mode user|system] [flags]
   local-server --version
 
@@ -156,6 +165,10 @@ func (a *app) run(ctx context.Context, args []string) int {
 			return a.doctor(ctx, args[1:])
 		case "recovery-code":
 			return a.recoveryCode(ctx, args[1:])
+		case "restore":
+			return a.restore(ctx, args[1:])
+		case "backup-credentials":
+			return a.backupCredentials(ctx, args[1:])
 		case "service":
 			return a.serviceCmd(ctx, args[1:])
 		}

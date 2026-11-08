@@ -337,6 +337,16 @@ func (k *Keys) IdentityPublicKey() ed25519.PublicKey {
 // never log or store the key.
 func (k *Keys) DataKey() []byte { return append([]byte(nil), k.dataKey...) }
 
+// SealSecret seals plaintext with the host master key (AES-256-GCM, see Seal), bound to aad, so
+// a module can keep a secret of its own (a bucket credential) at rest like the host's keys
+// (req_001 D-40). The master key never leaves Keys. Unseal it with UnsealSecret and the same aad.
+func (k *Keys) SealSecret(plaintext, aad []byte) ([]byte, error) {
+	return Seal(k.master, plaintext, aad)
+}
+
+// UnsealSecret reverses SealSecret.
+func (k *Keys) UnsealSecret(sealed, aad []byte) ([]byte, error) { return Unseal(k.master, sealed, aad) }
+
 // RecoveryCode returns the recovery code form of the host data key: 52 base32 characters in groups
 // of four (req_001 D-41). It lets the audited re-show command of req_001 D-80 print the code
 // after setup. Callers must never log, store or return it anywhere but to the host at a terminal.
