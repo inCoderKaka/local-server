@@ -149,6 +149,84 @@ func (r *ConsumerRepo) SoftDelete(tx *storage.Tx, id string) error {
 	return r.captureCurrent(tx, id, "update")
 }
 
+// PurgeCounts is what Purge removed or changed, per table.
+type PurgeCounts struct {
+	Consents        int64 // idn_consent rows deleted, with their evidence
+	Credentials     int64 // idn_credential rows deleted
+	Sessions        int64 // idn_session rows deleted
+	AccessKeys      int64 // idn_access_key rows deleted
+	InvitesUnlinked int64 // idn_invite rows whose redeemed_consumer_id was cleared
+}
+
+// Total is the number of rows Purge removed or changed.
+func (c PurgeCounts) Total() int64 {
+	return c.Consents + c.Credentials + c.Sessions + c.AccessKeys + c.InvitesUnlinked
+}
+
+// purgeableWhere selects the deleted consumers that still hold a row Purge removes. That EXISTS
+// test is what makes the purge idempotent: a consumer already purged is not selected again, and
+// no marker column is needed (req_001 D-136).
+const purgeableWhere = `p.status = 'deleted' AND p.updated_at < ? AND c.id > ? AND (
+  EXISTS (SELECT 1 FROM idn_consent x WHERE x.principal_id = p.id)
+  OR EXISTS (SELECT 1 FROM idn_credential x WHERE x.principal_id = p.id)
+  OR EXISTS (SELECT 1 FROM idn_session x WHERE x.principal_id = p.id)
+  OR EXISTS (SELECT 1 FROM idn_access_key x WHERE x.consumer_id = c.id)
+  OR EXISTS (SELECT 1 FROM idn_invite x WHERE x.redeemed_consumer_id = c.id))`
+
+// ListPurgeable returns up to limit consumers, in id order after afterID (from the start when
+// empty), whose principal was deleted before the cutoff and that still hold rows Purge removes.
+// A deleted principal's updated_at is the moment of deletion, because deleted is final
+// (req_001 D-134, D-136).
+func (r *ConsumerRepo) ListPurgeable(ctx context.Context, rd *storage.Reader, cutoff time.Time, afterID string, limit int) ([]Consumer, error) {
+	rows, err := rd.Query(ctx, `SELECT c.id, c.principal_id, c.kind, c.display_name, c.email, c.billing_mode, c.row_version, c.created_at, c.updated_at
+FROM idn_consumer c JOIN idn_principal p ON p.id = c.principal_id WHERE `+purgeableWhere+` ORDER BY c.id LIMIT ?`, ms(cutoff), afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return collect(rows, scanConsumer)
+}
+
+// Purge removes everything personal or credential-bearing that a soft-deleted consumer still
+// holds: its consent rows with their evidence, credentials, sessions and access keys, and it
+// clears redeemed_consumer_id on the invites it redeemed. The idn_consumer and idn_principal rows
+// stay as a tombstone, because the audit trail and the grants refer to them with RESTRICT, so
+// this is not a syn_change event (req_001 D-136, D-106). It fails with ErrNotFound for an unknown
+// consumer and refuses a consumer whose principal is not deleted. Usage and ledger rows keep
+// their plain access_key_id column (no foreign key).
+func (r *ConsumerRepo) Purge(tx *storage.Tx, consumerID string) (PurgeCounts, error) {
+	type ref struct{ principalID, status string }
+	got, err := first[ref](tx.Query(`SELECT p.id, p.status FROM idn_consumer c JOIN idn_principal p ON p.id = c.principal_id WHERE c.id = ?`, consumerID))(
+		func(r storage.Row) (ref, error) { var x ref; return x, r.Scan(&x.principalID, &x.status) })
+	if err != nil {
+		return PurgeCounts{}, err
+	}
+	principalID, status := got.principalID, got.status
+	if status != StatusDeleted {
+		return PurgeCounts{}, fmt.Errorf("identity: purge consumer %s: principal is %s, not deleted", consumerID, status)
+	}
+	var out PurgeCounts
+	for _, st := range []struct {
+		n    *int64
+		sql  string
+		args []any
+	}{
+		{&out.Consents, `DELETE FROM idn_consent WHERE principal_id = ?`, []any{principalID}},
+		{&out.Credentials, `DELETE FROM idn_credential WHERE principal_id = ?`, []any{principalID}},
+		{&out.Sessions, `DELETE FROM idn_session WHERE principal_id = ?`, []any{principalID}},
+		{&out.AccessKeys, `DELETE FROM idn_access_key WHERE consumer_id = ?`, []any{consumerID}},
+		{&out.InvitesUnlinked, `UPDATE idn_invite SET redeemed_consumer_id = NULL WHERE redeemed_consumer_id = ?`, []any{consumerID}},
+	} {
+		res, err := tx.Exec(st.sql, st.args...)
+		if err != nil {
+			return PurgeCounts{}, fmt.Errorf("identity: purge consumer %s: %w", consumerID, err)
+		}
+		if *st.n, err = res.RowsAffected(); err != nil {
+			return PurgeCounts{}, err
+		}
+	}
+	return out, nil
+}
+
 func (r *ConsumerRepo) captureCurrent(tx *storage.Tx, id, op string) error {
 	c, err := first[Consumer](tx.Query(`SELECT `+consumerCols+` FROM idn_consumer WHERE id = ?`, id))(scanConsumer)
 	if err != nil {

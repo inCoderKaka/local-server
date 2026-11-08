@@ -47,6 +47,8 @@ type services struct {
 	power      *power.Keeper
 	// rules switches off policy rules that failed too many times (PLT-F-026).
 	rules func(ctx context.Context)
+	// purge removes the data of consumers deleted longer ago than the retention (PLT-F-097).
+	purge func(ctx context.Context)
 }
 
 // wire builds every module on d, keys and eng, in dependency order, and returns what serve
@@ -121,7 +123,7 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 	if err != nil {
 		return nil, fmt.Errorf("admin: %w", err)
 	}
-	sv.admin, sv.rules = adm.Handler(), adm.RunRuleSweeper
+	sv.admin, sv.rules, sv.purge = adm.Handler(), adm.RunRuleSweeper, adm.RunConsumerPurge
 	return sv, nil
 }
 
@@ -159,4 +161,6 @@ func (sv *services) startWorkers(ctx context.Context, sup *supervisor, log *slog
 	sup.Go(ctx, "power", sv.power.Run)
 	// Switches off a policy rule without deny that failed policy.rule.max_failures times (PLT-F-026).
 	sup.Go(ctx, "policy-rule-sweeper", func(ctx context.Context) error { sv.rules(ctx); return nil })
+	// Purges consumers deleted longer ago than consumers.deleted_retention (PLT-F-097).
+	sup.Go(ctx, "consumer-purge", func(ctx context.Context) error { sv.purge(ctx); return nil })
 }

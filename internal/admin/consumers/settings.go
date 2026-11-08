@@ -17,6 +17,9 @@ const (
 	KeyListPageSize      = "admin.list_page_size"
 	KeyInviteTTL         = "invites.ttl"
 	KeyInviteLinkBaseURL = "invites.link_base_url"
+	// KeyDeletedRetention is how long a deleted consumer's consent records, sessions and access
+	// keys are kept before the purge removes them (req_001 D-106, D-134, D-136).
+	KeyDeletedRetention = "consumers.deleted_retention"
 )
 
 // Defs are the settings of the consumer, access key and invite operations; New registers them.
@@ -29,6 +32,8 @@ func Defs() []settings.Def {
 			Description: "How long a new invite stays valid when the request gives no expiry. A change applies to invites created after it."},
 		{Key: KeyInviteLinkBaseURL, Kind: settings.String, Default: "", Owner: h,
 			Description: "The address of the consumer web page, for example https://my-host.example.ts.net, put in front of /invite#<token> to make an invite link. Empty gives the relative link /invite#<token>."},
+		{Key: KeyDeletedRetention, Kind: settings.Duration, Default: "2160h", Owner: h,
+			Description: "How long after a consumer was deleted its consent records, sessions and access keys are kept before they are removed for good. The default is 90 days. The consumer's id and its usage records stay. Zero or less keeps them forever. A change applies to the next purge run."},
 	}
 }
 

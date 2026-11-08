@@ -34,6 +34,7 @@ const (
 	ActionConsumerSuspended   = "consumer.suspended"
 	ActionConsumerReactivated = "consumer.reactivated"
 	ActionConsumerDeleted     = "consumer.deleted"
+	ActionConsumerPurged      = "consumer.purged"
 	ActionKeyUpdated          = "access_key.updated"
 	ActionInviteCreated       = "invite.created"
 	ActionInviteRevoked       = "invite.revoked"

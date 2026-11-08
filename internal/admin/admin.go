@@ -165,6 +165,11 @@ func New(cfg Config) (*Admin, error) {
 // Config.RuleFailures. Run it as a background worker.
 func (a *Admin) RunRuleSweeper(ctx context.Context) { a.grs.RunRuleSweeper(ctx) }
 
+// RunConsumerPurge purges the consumers deleted longer ago than consumers.deleted_retention, now
+// and then every retention.interval, until ctx is done (req_001 D-106, D-134, D-136). Run it as a
+// background worker.
+func (a *Admin) RunConsumerPurge(ctx context.Context) { a.cons.RunPurge(ctx) }
+
 // Authenticate checks a login name and password with the login lockout (req_001 D-54). See
 // Authenticator.Authenticate.
 func (a *Admin) Authenticate(ctx context.Context, username, password, remoteAddr string) (Authenticated, error) {

@@ -16,6 +16,13 @@
 // So a row's detail holds ids, kinds, key prefixes and field names only: never a display name,
 // an email, a key name or an invite note, and never a key or a token.
 //
+// # Purge of deleted consumers
+//
+// PurgeDeleted removes a deleted consumer's consent records, sessions and access keys after
+// consumers.deleted_retention, one unit of work and one consumer.purged audit row per consumer,
+// and keeps the consumer and principal rows as a tombstone (req_001 D-106, D-134, D-136). RunPurge
+// repeats it every retention.interval.
+//
 // # Secrets
 //
 // IssueAccessKey and CreateInvite return their secrets as telemetry.Redacted, so a log line or an

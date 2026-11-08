@@ -131,6 +131,7 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Dataset | A named group of tables that can be shared or synced as one unit (usage, audit, consumer directory). Each has its own encryption key. | Data set | D-43 |
 | Sharing grant | A grantor's time-boxed permission for a grantee to read one dataset, with a stated purpose and terms version. It can be revoked. | Data sharing | D-43 |
 | Consent record | A stored acceptance of a policy (terms, privacy, a sharing grant) with its version and evidence. It can be withdrawn. | Consent | D-44, D-45 |
+| Tombstone | What stays of a deleted consumer after the purge: its consumer row and its deleted principal row, without personal details, kept because the audit trail, the grants and the usage records refer to them. The consent records, sessions and access keys are gone. | — | D-136, D-106 |
 | Content capture | The port (`ContentCapture` in `internal/identity`) through which prompts or responses could be stored, only behind a matching, unwithdrawn consent record. Defined and off in Phase 1: it has no adapter. | Content logging | D-31, D-40, D-45 |
 | Data classification | The label on every table and column: `public`, `internal`, `personal`, `sensitive` or `content`, plus a *billable* flag. | — | D-44 |
 | Off-host backup | Encrypted database snapshots the host machine sends to a folder or a bucket the host owns. The default. Which tables are minimized (left empty) is the host's choice (D-64). | Backup | D-41, D-64 |
