@@ -3,13 +3,13 @@
 The persisted id → big|small map for every feature and chore ticket in `backlog.md`. Bugs are counted apart and are not in it. Convention: `docs/tracks/README.md` (Per-phase file set). Read by `ops/bin/ticket-drift`.
 
 **Map date:** 2026-11-07
-**Covers ids up to:** PLT-F-106, PLT-C-019
+**Covers ids up to:** PLT-F-109, PLT-C-019
 
 **Rule.** *big* = the ticket touches 3 or more files across 2 or more directories, or changes a shared contract (`api/openapi.yaml`, the storage unit of work and migration layout, the event catalog, the module-boundary config). *small* = anything else. Test files and tracking docs do not count as files. Only the orchestrate session edits this file (the plan call adds a row for each new ticket and moves the two header lines above); builders, reviewers and docs sessions do not. A ticket with an id above the header's "Covers ids up to" is reported by `ticket-drift` as a warning (`WARN-unsized`) until the next plan call adds it; an older open ticket without a row is a finding.
 
 **Seeding.** The open rows are the plan call's classification of 2026-11-06 (Effort *Rich* → big, *Quick win* → small). Chores were not in that call, so their rows were classified by the rule and the Why says so. Closed rows were classified by the rule from their build commit.
 
-**Open totals (features and chores, 2026-11-07):** 20 big / 57 small (PLT-F-105 small, PLT-F-106 big added; PLT-C-009 and PLT-C-017 closed; PLT-B-054 is a bug and is not counted).
+**Open totals (features and chores, 2026-11-08):** 19 big / 59 small (PLT-F-107..109 small added; PLT-F-041 closed big, PLT-F-097 closed small; the bugs PLT-B-068..073 are not counted).
 
 | ID | Size | Why |
 |---|---|---|
@@ -138,3 +138,6 @@ The persisted id → big|small map for every feature and chore ticket in `backlo
 | PLT-C-019 | big | Chore logged 2026-11-07; 85 code files reviewed and fixed across modules. |
 | PLT-F-105 | small | Idea captured 2026-11-07 (P3); two call sites in the gateway. |
 | PLT-F-106 | big | Idea captured 2026-11-07 (P3); a consumer route, so `api/openapi.yaml` and `internal/api` change. |
+| PLT-F-107 | small | Idea captured 2026-11-08 (P3); one install path in the service CLI. |
+| PLT-F-108 | small | Idea captured 2026-11-08 (P3); one settings field in the admin UI. |
+| PLT-F-109 | small | Idea captured 2026-11-08 (P3); one field in the invite view. |
