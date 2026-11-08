@@ -55,12 +55,12 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 
 ### B8 — Packaging
 
-26. S43 ~~**PLT-F-041** Background service: per-user by default, system mode optional~~ built 2026-11-08 (`a193a07`, `17d39f2`; gate owed after PLT-F-044)  ∥  S44 ~~**PLT-F-042** Sleep lock while sharing~~ built 2026-11-06 (`a457ece`; gated `734ae20`)  ∥  S45 **PLT-C-003** Release pipeline with checksums (deps: PLT-C-001, PLT-F-032, PLT-F-036) **gate it**
+26. S43 ~~**PLT-F-041** Background service: per-user by default, system mode optional~~ built 2026-11-08 (`a193a07`, `17d39f2`; gated, set A, `8fea837`)  ∥  S44 ~~**PLT-F-042** Sleep lock while sharing~~ built 2026-11-06 (`a457ece`; gated `734ae20`)  ∥  S45 **PLT-C-003** Release pipeline with checksums (deps: PLT-C-001, PLT-F-032, PLT-F-036) **gate it**
 27. S46 **PLT-F-043** Install, upgrade and uninstall scripts (deps: PLT-F-041, PLT-C-003) **gate it**
 
 ### B9 — Off-host data and sharing
 
-28. S47 ~~**PLT-F-044** Backups to a local folder and the host's own bucket, and restore~~ built 2026-11-08 (`7678f06`, `71862a6`; gate owed, set A)  ∥  S48 **PLT-F-045** Export and import of signed data bundles (deps: PLT-F-002, PLT-F-005) **gate it**  ∥  S49 **PLT-F-046** Opt-in platform sync with per-dataset keys (deps: PLT-F-002, PLT-F-004, PLT-F-005, PLT-F-020, PLT-F-029) **gate it**
+28. S47 ~~**PLT-F-044** Backups to a local folder and the host's own bucket, and restore~~ built 2026-11-08 (`7678f06`, `71862a6`; gated, set A, `8fea837`)  ∥  S48 **PLT-F-045** Export and import of signed data bundles (deps: PLT-F-002, PLT-F-005) **gate it**  ∥  S49 **PLT-F-046** Opt-in platform sync with per-dataset keys (deps: PLT-F-002, PLT-F-004, PLT-F-005, PLT-F-020, PLT-F-029) **gate it**
 29. S50 **PLT-F-047** Sharing grants with the platform admin (backend and admin tool) (deps: PLT-F-046, PLT-F-029, PLT-F-007) **gate it**
 30. S51 **PLT-F-048** Admin UI: data-sharing approvals (deps: PLT-F-047, PLT-F-035)
 

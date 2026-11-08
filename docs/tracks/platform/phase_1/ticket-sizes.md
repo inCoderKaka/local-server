@@ -143,3 +143,5 @@ The persisted id → big|small map for every feature and chore ticket in `backlo
 | PLT-F-109 | small | Idea captured 2026-11-08 (P3); one field in the invite view. |
 | PLT-F-110 | big | Idea captured 2026-11-08 (P2); key custody across `hostkeys`, restore and the snapshot module. |
 | PLT-F-111 | small | Idea captured 2026-11-08 (P3); one display in `doctor` and the admin status screen. |
+| PLT-F-112 | big | Idea captured 2026-11-08 (P3); a new status state across three service backends and the CLI. |
+| PLT-F-113 | small | Idea captured 2026-11-08 (P3); one command that wakes the backup worker. |
