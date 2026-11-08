@@ -2,14 +2,14 @@
 
 The persisted id → big|small map for every feature and chore ticket in `backlog.md`. Bugs are counted apart and are not in it. Convention: `docs/tracks/README.md` (Per-phase file set). Read by `ops/bin/ticket-drift`.
 
-**Map date:** 2026-11-07
-**Covers ids up to:** PLT-F-111, PLT-C-019
+**Map date:** 2026-11-08
+**Covers ids up to:** PLT-F-113, PLT-C-020
 
 **Rule.** *big* = the ticket touches 3 or more files across 2 or more directories, or changes a shared contract (`api/openapi.yaml`, the storage unit of work and migration layout, the event catalog, the module-boundary config). *small* = anything else. Test files and tracking docs do not count as files. Only the orchestrate session edits this file (the plan call adds a row for each new ticket and moves the two header lines above); builders, reviewers and docs sessions do not. A ticket with an id above the header's "Covers ids up to" is reported by `ticket-drift` as a warning (`WARN-unsized`) until the next plan call adds it; an older open ticket without a row is a finding.
 
 **Seeding.** The open rows are the plan call's classification of 2026-11-06 (Effort *Rich* → big, *Quick win* → small). Chores were not in that call, so their rows were classified by the rule and the Why says so. Closed rows were classified by the rule from their build commit.
 
-**Open totals (features and chores, 2026-11-08):** 19 big / 60 small (PLT-F-044 closed big; PLT-F-110 big and PLT-F-111 small added; PLT-F-107..109 small added; PLT-F-041 closed big, PLT-F-097 closed small; the bugs PLT-B-068..073 are not counted).
+**Open totals (features and chores, 2026-11-08):** 20 big / 61 small (PLT-F-112 big and PLT-F-113 small added, PLT-C-020 closed big; PLT-F-044 closed big; PLT-F-110 big and PLT-F-111 small added; PLT-F-107..109 small added; PLT-F-041 closed big, PLT-F-097 closed small; the bugs PLT-B-068..073 are not counted).
 
 | ID | Size | Why |
 |---|---|---|
@@ -145,3 +145,4 @@ The persisted id → big|small map for every feature and chore ticket in `backlo
 | PLT-F-111 | small | Idea captured 2026-11-08 (P3); one display in `doctor` and the admin status screen. |
 | PLT-F-112 | big | Idea captured 2026-11-08 (P3); a new status state across three service backends and the CLI. |
 | PLT-F-113 | small | Idea captured 2026-11-08 (P3); one command that wakes the backup worker. |
+| PLT-C-020 | big | Closed. By the rule from build commits d6f7d6c, 8fea837: 33 non-test file(s) in 16 directories. |

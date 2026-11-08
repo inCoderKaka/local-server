@@ -4,6 +4,13 @@ Software choices the AI made that no ticket, design doc or requirement decision 
 
 | ID | Date | Kind | Ticket | Decision | Reverse-by | Status |
 |---|---|---|---|---|---|---|
+| I-445 | 2026-11-08 | design | PLT-F-097 | The purge audit field is `invite_refs_cleared`, not a link count; the privacy notice states the 90-day removal (D-134, D-136). | Revert `8fea837`. | unreviewed |
+| I-444 | 2026-11-08 | design | PLT-F-044 | `backup-credentials` writes one redacted `setting.changed` audit row in the same transaction (D-07); folder targets need an absolute path; leftover temp copies are swept at the start of a backup. | Revert `8fea837`. | unreviewed |
+| I-443 | 2026-11-08 | design | PLT-F-044 | The minimize rule reads and parses the value inside the write through `Store.BoolTx`, so `1` or `True` cannot slip past a protected table (D-69). | Revert `8fea837`. | unreviewed |
+| I-442 | 2026-11-08 | design | PLT-F-044 | An empty bucket endpoint with region `auto` is refused with a clear message, so the default cannot point at Amazon by accident (D-59). | Revert `8fea837`. | unreviewed |
+| I-441 | 2026-11-08 | design | PLT-F-041 | A second install with an unchanged definition returns Changed false with a note; the Windows logon task replaces its task (Changed true); the Windows service is left as it is until uninstalled. | Revert `8fea837`. | unreviewed |
+| I-440 | 2026-11-08 | design | PLT-F-041 | `service` user mode is refused when root runs it through sudo (status excepted); install warns when the other mode's service is installed too; the systemd probe tells an unknown state from stopped. | Revert `d6f7d6c`, `8fea837`. | unreviewed |
+| I-439 | 2026-11-08 | design | PLT-F-041 | A service name must start with a letter or digit; control characters are refused in the binary path, data directory, account and user name; a systemd account holding whitespace or `%` is refused. | Revert `d6f7d6c`. | unreviewed |
 | I-438 | 2026-11-08 | design | PLT-F-044 | Multipart abort bounded by the host setting `backup.s3.abort_timeout`, default 1m. | Reuse `backup.run_timeout`. | unreviewed |
 | I-437 | 2026-11-08 | design | PLT-F-044 | Ports live in package `snapshot` with adapters as sub-packages (`gzipcodec`, `folder`, `s3`); `cmd` wires them through a `TargetFactory`; no `OffHostSync` interface yet. | Add the interface in `internal/offhost` when PLT-F-046 needs it (`7678f06`). | unreviewed |
 | I-436 | 2026-11-08 | design | PLT-F-044 | Minimize switches are per-table Bool settings `backup.minimize.<table>`, registered from `ops_data_catalog` each time the database opens (a scoped setting has one default for all scopes). | Use one scoped setting (`7678f06`). | unreviewed |
