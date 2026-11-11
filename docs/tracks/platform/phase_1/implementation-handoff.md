@@ -2,6 +2,8 @@
 
 Only what is open. Rewritten whole at the end of each implementation session.
 
+> **2026-11-12: `finish-plan.md` replaces the work order below (req_001 D-141..D-144).** Next chat starts milestone M0. Of "Waiting on you", only the pending-migrations go and the PLT-C-002 drafts still matter; the rest is out of phase 1. PLT-F-045 is out.
+
 ## Last session
 
 - 2026-11-08, passive. It finished the set A code gate over `ee41663..d6f7d6c` (PLT-C-020) for PLT-F-097, PLT-F-041 and PLT-F-044. The fixes are `d6f7d6c` and `8fea837`; the gate's close-out is `47bf594`. Nothing new was built; the token budget ran out after the gate.
