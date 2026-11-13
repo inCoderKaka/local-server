@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -33,6 +34,19 @@ type env struct {
 func loadMaster(path string, create bool) ([]byte, MasterKeySource, error) {
 	return LoadMasterKey(MasterKeyConfig{FallbackPath: path, Create: create, Timeout: time.Minute})
 }
+
+// opensWith is a Verify that accepts only want, as a host sealed under want would.
+func opensWith(want []byte) func([]byte) error {
+	return func(k []byte) error {
+		if !bytes.Equal(k, want) {
+			return fmt.Errorf("host data key: %w", ErrOpen)
+		}
+		return nil
+	}
+}
+
+// acceptAny is a Verify that accepts every key.
+func acceptAny([]byte) error { return nil }
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
@@ -321,11 +335,12 @@ func TestMasterKeyInKeychain(t *testing.T) {
 func TestMasterKeyNotRecreatedWhenKeychainLocked(t *testing.T) {
 	keyring.MockInit()
 	path := filepath.Join(t.TempDir(), "master.key")
-	if _, _, err := loadMaster(path, true); err != nil {
+	k, _, err := loadMaster(path, true)
+	if err != nil {
 		t.Fatal(err)
 	}
 	keyring.MockInitWithError(errors.New("locked"))
-	_, _, err := loadMaster(path, false)
+	_, _, err = LoadMasterKey(MasterKeyConfig{FallbackPath: path, Timeout: time.Minute, Verify: opensWith(k)})
 	if err == nil || !strings.Contains(err.Error(), "keychain") {
 		t.Fatalf("LoadMasterKey(create=false) with a locked keychain = %v; want a keychain error", err)
 	}
@@ -337,8 +352,9 @@ func TestMasterKeyNotRecreatedWhenKeychainLocked(t *testing.T) {
 func TestMasterKeyNotCreatedWhenMissingForExistingInstall(t *testing.T) {
 	keyring.MockInit()
 	path := filepath.Join(t.TempDir(), "master.key")
-	if _, _, err := loadMaster(path, false); err == nil {
-		t.Fatal("LoadMasterKey(create=false) with no key anywhere succeeded")
+	_, _, err := LoadMasterKey(MasterKeyConfig{FallbackPath: path, Timeout: time.Minute, Verify: acceptAny})
+	if !errors.Is(err, ErrMasterKeyNotFound) {
+		t.Fatalf("LoadMasterKey(create=false) with no key anywhere = %v; want ErrMasterKeyNotFound", err)
 	}
 	if _, err := keyring.Get(keychainService, keychainUser); !errors.Is(err, keyring.ErrNotFound) {
 		t.Errorf("the keychain was written to: %v", err)
@@ -479,22 +495,23 @@ func (f *fakeKeychain) setCount() int {
 
 const tinyTimeout = 20 * time.Millisecond
 
-// An existing install whose keychain does not answer fails, names the setting, and neither
-// reads a stale key file nor creates a key (req_001 D-81, D-102, PLT-B-014).
+// An existing install whose keychain does not answer and whose key file does not hold the key
+// that opens the host fails, names the setting and both stores, and neither writes to the
+// keychain nor creates a key (req_001 D-81, D-102, D-114, PLT-B-014).
 func TestKeychainTimeoutExistingInstallFails(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "master.key")
-	// A key file exists, as a leftover could: it must not be used silently.
+	// A stale key file exists, as a leftover could: its key does not open the host, so it is not used.
 	if _, _, err := LoadMasterKey(MasterKeyConfig{FallbackPath: path, Create: true, Timeout: time.Minute, Keychain: &fakeKeychain{getErr: errors.New("down")}}); err != nil {
 		t.Fatal(err)
 	}
 	block := make(chan struct{})
 	defer close(block)
 	kc := &fakeKeychain{blockGet: block}
-	_, _, err := LoadMasterKey(MasterKeyConfig{FallbackPath: path, Create: false, Timeout: tinyTimeout, Keychain: kc})
-	if !errors.Is(err, ErrKeychainTimeout) {
-		t.Fatalf("err = %v; want ErrKeychainTimeout", err)
+	_, _, err := LoadMasterKey(MasterKeyConfig{FallbackPath: path, Timeout: tinyTimeout, Keychain: kc, Verify: opensWith(make([]byte, KeySize))})
+	if !errors.Is(err, ErrKeychainTimeout) || !errors.Is(err, ErrMasterKeyMismatch) {
+		t.Fatalf("err = %v; want ErrKeychainTimeout and ErrMasterKeyMismatch", err)
 	}
-	for _, want := range []string{KeyKeychainTimeout, "unlock the keychain"} {
+	for _, want := range []string{KeyKeychainTimeout, "unlock the keychain", "OS keychain", "Key file " + path} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}
@@ -504,11 +521,107 @@ func TestKeychainTimeoutExistingInstallFails(t *testing.T) {
 	}
 }
 
+// The key file of an existing install opens the host after a keychain timeout (req_001 D-114).
+func TestKeychainTimeoutExistingInstallUsesTheKeyFileThatOpens(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "master.key")
+	fileKey, _, err := LoadMasterKey(MasterKeyConfig{FallbackPath: path, Create: true, Timeout: time.Minute, Keychain: &fakeKeychain{getErr: errors.New("down")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := make(chan struct{})
+	defer close(block)
+	k, src, err := LoadMasterKey(MasterKeyConfig{FallbackPath: path, Timeout: tinyTimeout, Keychain: &fakeKeychain{blockGet: block}, Verify: opensWith(fileKey)})
+	if err != nil || src != SourceFile || !bytes.Equal(k, fileKey) {
+		t.Fatalf("LoadMasterKey = %v, %v; want the key file's key", src, err)
+	}
+}
+
+// The failure of PLT-B-041 (req_001 D-114): a first run whose keychain timed out sealed the
+// host with the key file; a later start whose keychain holds a different key must still open it.
+func TestFirstRunTimeoutThenDifferentKeychainKeyOpensTheHost(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, storage.DefaultConfig(filepath.Join(t.TempDir(), "t.db"), settings.Module(), host.Module()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	st := settings.New(db)
+	path := filepath.Join(t.TempDir(), "master.key")
+
+	block := make(chan struct{})
+	defer close(block)
+	first, src, err := LoadMasterKey(MasterKeyConfig{FallbackPath: path, Create: true, Timeout: tinyTimeout, Keychain: &fakeKeychain{blockGet: block}})
+	if err != nil || src != SourceFile {
+		t.Fatalf("first run = %v, %v; want the key file", src, err)
+	}
+	if _, code, err := Open(ctx, db, st, first); err != nil || code == "" {
+		t.Fatalf("first Open = code present %v, %v", code != "", err)
+	}
+
+	other, err := randomKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := MasterKeyConfig{FallbackPath: path, Timeout: time.Minute, Verify: MasterKeyVerifier(ctx, db),
+		Keychain: &fakeKeychain{secret: encodeKey(other)}}
+	k, src, err := LoadMasterKey(cfg)
+	if err != nil || src != SourceFile || !bytes.Equal(k, first) {
+		t.Fatalf("later start = %v, %v; want the key file's key", src, err)
+	}
+	if _, code, err := Open(ctx, db, st, k); err != nil || code != "" {
+		t.Fatalf("later Open = code present %v, %v; want the host to open", code != "", err)
+	}
+
+	// The keychain key is preferred when it is the one that opens the host.
+	cfg.Keychain = &fakeKeychain{secret: encodeKey(first)}
+	if _, src, err := LoadMasterKey(cfg); err != nil || src != SourceKeychain {
+		t.Fatalf("keychain holding the right key = %v, %v; want the keychain", src, err)
+	}
+
+	// Neither opens it: refused, naming both stores, and no key text in the error.
+	if err := os.WriteFile(path, []byte(encodeKey(other)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	third, _ := randomKey()
+	cfg.Keychain = &fakeKeychain{secret: encodeKey(third)}
+	_, _, err = LoadMasterKey(cfg)
+	if !errors.Is(err, ErrMasterKeyMismatch) {
+		t.Fatalf("err = %v; want ErrMasterKeyMismatch", err)
+	}
+	for _, want := range []string{"OS keychain", "Key file " + path} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err, want)
+		}
+	}
+	for _, secret := range [][]byte{first, other, third} {
+		if strings.Contains(err.Error(), encodeKey(secret)) {
+			t.Error("the error holds key material")
+		}
+	}
+}
+
+func TestExistingHostNeedsVerify(t *testing.T) {
+	_, _, err := LoadMasterKey(MasterKeyConfig{FallbackPath: filepath.Join(t.TempDir(), "k"), Timeout: time.Minute, Keychain: &fakeKeychain{}})
+	if err == nil || !strings.Contains(err.Error(), "Verify") {
+		t.Errorf("err = %v; want an error naming Verify", err)
+	}
+}
+
+// A check that cannot run (not a wrong key) stops the load instead of moving to the next store.
+func TestLoadMasterKeyStopsWhenVerifyCannotRun(t *testing.T) {
+	boom := errors.New("database is gone")
+	_, _, err := LoadMasterKey(MasterKeyConfig{FallbackPath: filepath.Join(t.TempDir(), "k"), Timeout: time.Minute,
+		Keychain: &fakeKeychain{secret: encodeKey(make([]byte, KeySize))}, Verify: func([]byte) error { return boom }})
+	if !errors.Is(err, boom) {
+		t.Errorf("err = %v; want the Verify error", err)
+	}
+}
+
 func TestKeychainTimeoutExistingInstallNeverCreatesFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "master.key")
 	block := make(chan struct{})
 	defer close(block)
-	_, _, err := LoadMasterKey(MasterKeyConfig{FallbackPath: path, Create: false, Timeout: tinyTimeout, Keychain: &fakeKeychain{blockGet: block}})
+	_, _, err := LoadMasterKey(MasterKeyConfig{FallbackPath: path, Timeout: tinyTimeout, Keychain: &fakeKeychain{blockGet: block}, Verify: acceptAny})
 	if !errors.Is(err, ErrKeychainTimeout) {
 		t.Fatalf("err = %v", err)
 	}
@@ -531,7 +644,7 @@ func TestKeychainGetTimeoutFirstRunFallsBackToFile(t *testing.T) {
 	} else if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %o; want 600", fi.Mode().Perm())
 	}
-	if again, src, err := LoadMasterKey(MasterKeyConfig{FallbackPath: path, Create: false, Timeout: time.Minute, Keychain: &fakeKeychain{getErr: errors.New("down")}}); err != nil || src != SourceFile || !bytes.Equal(again, k) {
+	if again, src, err := LoadMasterKey(MasterKeyConfig{FallbackPath: path, Timeout: time.Minute, Keychain: &fakeKeychain{getErr: errors.New("down")}, Verify: opensWith(k)}); err != nil || src != SourceFile || !bytes.Equal(again, k) {
 		t.Errorf("reload from file = %v, %v", src, err)
 	}
 }

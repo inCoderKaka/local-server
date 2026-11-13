@@ -103,7 +103,7 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 	defer tel.Close()
 	log := tel.Logger()
 
-	keys, err := a.openKeys(ctx, d, cfg, dataDir)
+	keys, err := a.openKeys(ctx, d, cfg, dataDir, log)
 	if err != nil {
 		return err
 	}
@@ -221,12 +221,14 @@ func sinkErrorInterval(d *database) func() time.Duration {
 	}
 }
 
-// openKeys loads the master key and opens key custody. A first run is judged from the host rows
+// openKeys loads the master key and opens key custody. An existing host uses the key that opens
+// it, from the keychain first and then the key file, and the store used is logged (req_001
+// D-114). A first run is judged from the host rows
 // in the database, never from a missing key file (req_001 D-102). On a first run the recovery
 // code is printed once, straight to stderr and never through the logger, and only when stderr is
 // a terminal; with no terminal the first run stops before the master key or any host row exists
 // (req_001 D-101).
-func (a *app) openKeys(ctx context.Context, d *database, cfg startupConfig, dataDir string) (*hostkeys.Keys, error) {
+func (a *app) openKeys(ctx context.Context, d *database, cfg startupConfig, dataDir string, log *slog.Logger) (*hostkeys.Keys, error) {
 	done, err := hostkeys.Bootstrapped(ctx, d.db)
 	if err != nil {
 		return nil, fmt.Errorf("read host state: %w", err)
@@ -235,15 +237,21 @@ func (a *app) openKeys(ctx context.Context, d *database, cfg startupConfig, data
 	if first && !a.stderrIsTerminal() {
 		return nil, errFirstRunNeedsTerminal
 	}
-	master, src, err := hostkeys.LoadMasterKey(hostkeys.MasterKeyConfig{
+	mkc := hostkeys.MasterKeyConfig{
 		FallbackPath: filepath.Join(dataDir, masterKeyFileName),
 		Create:       first,
 		Timeout:      cfg.KeychainTimeout,
 		Keychain:     a.keychain,
-	})
+	}
+	if !first {
+		// An existing host uses the key that opens it: the keychain first, then the key file (req_001 D-114).
+		mkc.Verify = hostkeys.MasterKeyVerifier(ctx, d.db)
+	}
+	master, src, err := hostkeys.LoadMasterKey(mkc)
 	if err != nil {
 		return nil, err
 	}
+	log.Info("host master key loaded", "store", string(src)) // never the key itself (req_001 D-40)
 	if first && src == hostkeys.SourceFile {
 		fmt.Fprintf(a.stderr, "local-server: the OS keychain could not be used, so the host master key is kept in the file %s, readable only by you\n", filepath.Join(dataDir, masterKeyFileName))
 	}

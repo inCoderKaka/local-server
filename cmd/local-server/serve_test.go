@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net"
@@ -313,8 +314,8 @@ func TestServeHoldsSleepLockWhileSharing(t *testing.T) {
 	waitFor(t, "the sleep lock to be taken", func() bool { return ta.power.(*fakePower).count() > 0 })
 }
 
-// An existing install whose keychain does not answer stops with an error naming the setting; it
-// neither falls back to the key file nor creates a key (req_001 D-81, D-102).
+// An existing install whose keychain does not answer and that has no key file stops with an
+// error naming the setting; it never creates a key (req_001 D-81, D-102, D-114).
 func TestServeExistingInstallKeychainTimeout(t *testing.T) {
 	ta := newTestApp(t, true)
 	seed(t, ta.dir, loopbackAny)
@@ -379,6 +380,63 @@ func TestServeFirstRunKeychainTimeoutUsesKeyFile(t *testing.T) {
 	}
 	if strings.Contains(ta2.err.String(), "recovery code") || strings.Contains(ta2.err.String(), "master key is kept in the file") {
 		t.Errorf("a later start printed a first-run notice:\n%s", ta2.err.String())
+	}
+}
+
+// PLT-B-041 (req_001 D-114): a first run whose keychain timed out sealed the host with the key
+// file. A later start whose keychain answers with a different key (the entry is one per OS user,
+// so it can be stale or another install's) opens the host with the key file, and the store used
+// is logged. A host whose two keys both fail is refused, naming both stores.
+func TestServeUsesTheKeyThatOpensTheHost(t *testing.T) {
+	ta := newTestApp(t, true)
+	seed(t, ta.dir, merge(loopbackAny, map[string]string{hostkeys.KeyKeychainTimeout: "50ms"}))
+	block := make(chan struct{})
+	ta.kc.mu.Lock()
+	ta.kc.block = block
+	ta.kc.mu.Unlock()
+	if code := startServe(t, ta, "--engine", "fake").stop(); code != 0 {
+		t.Fatalf("first run exit = %d; stderr:\n%s", code, ta.err.String())
+	}
+	close(block)
+	keyFile := filepath.Join(ta.dir, masterKeyFileName)
+	if !exists(keyFile) {
+		t.Fatal("no key file after a first run with a stuck keychain")
+	}
+
+	// A later start: the keychain now answers with a different key.
+	other := base64.StdEncoding.EncodeToString(make([]byte, hostkeys.KeySize))
+	ta.kc.mu.Lock()
+	ta.kc.block, ta.kc.secret = nil, other
+	ta.kc.mu.Unlock()
+	ta2 := newTestApp(t, false)
+	ta2.dir, ta2.kc, ta2.keychain, ta2.logDir = ta.dir, ta.kc, ta.kc, ta.logDir
+	if code := startServe(t, ta2, "--engine", "fake").stop(); code != 0 {
+		t.Fatalf("start with a different keychain key: exit = %d; stderr:\n%s", code, ta2.err.String())
+	}
+	if _, sets := ta.kc.calls(); sets != 0 {
+		t.Errorf("keychain writes = %d, want 0", sets)
+	}
+	logs, err := os.ReadFile(filepath.Join(ta.logDir, logFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	contains(t, "log", string(logs), "host master key loaded", `"store":"file"`)
+	if strings.Contains(string(logs), other) {
+		t.Error("the log holds key material")
+	}
+
+	// Neither store holds the key that opens the host: refuse, naming both.
+	if err := os.WriteFile(keyFile, []byte(other+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ta3 := newTestApp(t, false)
+	ta3.dir, ta3.kc, ta3.keychain, ta3.logDir = ta.dir, ta.kc, ta.kc, ta.logDir
+	if code := ta3.run(context.Background(), []string{"serve", "--engine", "fake", "--data-dir", ta.dir}); code != 1 {
+		t.Fatalf("exit = %d, want 1", code)
+	}
+	contains(t, "stderr", ta3.err.String(), "OS keychain", "Key file "+keyFile, "does not open this host")
+	if strings.Contains(ta3.err.String(), other) {
+		t.Error("the error holds key material")
 	}
 }
 

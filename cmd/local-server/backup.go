@@ -190,7 +190,8 @@ func (a *app) openKeysNoCreate(ctx context.Context, d *database, dataDir string)
 		return nil, fmt.Errorf("read setting %s: %w", hostkeys.KeyKeychainTimeout, err)
 	}
 	master, _, err := hostkeys.LoadMasterKey(hostkeys.MasterKeyConfig{
-		FallbackPath: filepath.Join(dataDir, masterKeyFileName), Create: false, Timeout: timeout, Keychain: a.keychain})
+		FallbackPath: filepath.Join(dataDir, masterKeyFileName), Create: false, Timeout: timeout, Keychain: a.keychain,
+		Verify: hostkeys.MasterKeyVerifier(ctx, d.db)})
 	if err != nil {
 		return nil, err
 	}
@@ -333,10 +334,13 @@ func (a *app) restoredKeysNotice(ctx context.Context, dataDir string) string {
 		return unchecked(err)
 	}
 	fallback := filepath.Join(dataDir, masterKeyFileName)
-	master, _, err := hostkeys.LoadMasterKey(hostkeys.MasterKeyConfig{FallbackPath: fallback, Create: false, Timeout: timeout, Keychain: a.keychain})
+	master, _, err := hostkeys.LoadMasterKey(hostkeys.MasterKeyConfig{FallbackPath: fallback, Create: false, Timeout: timeout, Keychain: a.keychain,
+		Verify: hostkeys.MasterKeyVerifier(ctx, db)})
 	switch {
 	case errors.Is(err, hostkeys.ErrMasterKeyNotFound):
 		return fmt.Sprintf(restoreKeyMissing, fallback)
+	case errors.Is(err, hostkeys.ErrMasterKeyMismatch):
+		return restoreKeyMismatch
 	case err != nil:
 		return unchecked(err)
 	}

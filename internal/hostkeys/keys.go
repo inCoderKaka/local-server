@@ -188,6 +188,36 @@ func Bootstrapped(ctx context.Context, db *storage.DB) (bool, error) {
 	return n > 0, nil
 }
 
+// MasterKeyVerifier returns the check LoadMasterKey needs for an existing host: it reads
+// hst_host and tries to unseal the host data key with the candidate (req_001 D-114). It returns
+// nil when the key opens it, an error wrapping ErrOpen when it does not, and any other error when
+// the database could not be read. It writes nothing and never includes the key in an error.
+func MasterKeyVerifier(ctx context.Context, db *storage.DB) func(key []byte) error {
+	return func(key []byte) error {
+		rows, err := db.Reader().Query(ctx, `SELECT id, data_key_sealed FROM hst_host`)
+		if err != nil {
+			return err
+		}
+		var hostID string
+		var sealed []byte
+		if rows.Next() {
+			err = rows.Scan(&hostID, &sealed)
+		} else {
+			err = errors.New("hostkeys: no host row")
+		}
+		if cerr := rows.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := Unseal(key, sealed, dataKeyAAD(hostID)); err != nil {
+			return fmt.Errorf("hostkeys: host data key: %w (is this the right master key?)", err)
+		}
+		return nil
+	}
+}
+
 // bootstrap creates the host on the first run. It returns the recovery code, or "".
 func (k *Keys) bootstrap(ctx context.Context) (string, error) {
 	done, err := Bootstrapped(ctx, k.db)

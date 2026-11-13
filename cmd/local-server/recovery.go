@@ -190,6 +190,7 @@ func (a *app) runRecoveryCode(ctx context.Context, dataDir string) error {
 		Create:       false,
 		Timeout:      timeout,
 		Keychain:     a.keychain,
+		Verify:       hostkeys.MasterKeyVerifier(ctx, d.db),
 	})
 	if err != nil {
 		return err

@@ -133,8 +133,9 @@ func TestDoctorKeychain(t *testing.T) {
 			t.Errorf("keychain = %+v; want a warn naming %s", c, hostkeys.KeyKeychainTimeout)
 		}
 	})
-	// An existing install cannot start while the keychain is stuck (serve never falls back to the
-	// key file after a timeout), so doctor fails rather than warns.
+	// An existing install with no key file cannot start while the keychain is stuck, so doctor
+	// fails rather than warns. With a key file, serve tries it after the wait (req_001 D-114), so
+	// doctor warns.
 	t.Run("an existing install with a stuck keychain fails", func(t *testing.T) {
 		ta := newTestApp(t, true)
 		seed(t, ta.dir, merge(loopbackAny, map[string]string{keyOllamaBaseURL: ollamaStub(t, "0.12.6").URL, hostkeys.KeyKeychainTimeout: "30ms"}))
@@ -155,6 +156,27 @@ func TestDoctorKeychain(t *testing.T) {
 			t.Errorf("exit = %d, want 1", code)
 		}
 	})
+}
+
+func TestDoctorKeychainTimeoutWithKeyFileWarns(t *testing.T) {
+	ta := newTestApp(t, true)
+	seed(t, ta.dir, merge(loopbackAny, map[string]string{keyOllamaBaseURL: ollamaStub(t, "0.12.6").URL, hostkeys.KeyKeychainTimeout: "30ms"}))
+	if code := startServe(t, ta, "--engine", "fake").stop(); code != 0 {
+		t.Fatalf("first run exit = %d; stderr:\n%s", code, ta.err.String())
+	}
+	if err := os.WriteFile(filepath.Join(ta.dir, masterKeyFileName), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	block := make(chan struct{})
+	defer close(block)
+	ta.kc.mu.Lock()
+	ta.kc.block = block
+	ta.kc.mu.Unlock()
+	_, rep := runDoctorJSON(t, ta)
+	c := rep.byName(t, "keychain")
+	if c.Status != statusWarn || !strings.Contains(c.Advice, "key file") || !strings.Contains(c.Advice, hostkeys.KeyKeychainTimeout) {
+		t.Errorf("keychain = %+v; want a warn naming the key file and %s", c, hostkeys.KeyKeychainTimeout)
+	}
 }
 
 func TestDoctorPorts(t *testing.T) {

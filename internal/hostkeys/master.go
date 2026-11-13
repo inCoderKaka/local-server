@@ -40,7 +40,7 @@ const KeyKeychainTimeout = "hostkeys.keychain_timeout"
 // person to answer an unlock prompt, short enough that a headless host does not hang forever.
 var KeychainTimeoutDef = settings.Def{
 	Key: KeyKeychainTimeout, Kind: settings.Duration, Default: "2m", Owner: settings.Host,
-	Description: "Longest local-server waits for the operating system's keychain (for example an unanswered unlock prompt) when it reads or writes the host master key. On a first run a timeout makes it keep the key in a protected file instead; on an existing install it stops with an error. A change applies on the next start.",
+	Description: "Longest local-server waits for the operating system's keychain (for example an unanswered unlock prompt) when it reads or writes the host master key. On a first run a timeout makes it keep the key in a protected file instead; on an existing install it then tries the key file, and stops with an error only if neither holds the key that opens the host. A change applies on the next start.",
 }
 
 // Keychain is the OS secret store. The OS keychain is used when MasterKeyConfig.Keychain is
@@ -55,7 +55,7 @@ type Keychain interface {
 var ErrKeychainNotFound = keyring.ErrNotFound
 
 // ErrMasterKeyNotFound is returned (wrapped) by LoadMasterKey with Create false when the keychain
-// answered and neither it nor the key file holds the master key.
+// answered with no entry and the key file does not exist.
 var ErrMasterKeyNotFound = errors.New("hostkeys: the host master key is not in the OS keychain or at the key file")
 
 // ErrKeychainTimeout is returned (wrapped) when a keychain call did not answer in time.
@@ -109,6 +109,14 @@ type MasterKeyConfig struct {
 	// existing install never gets a new master key (its secrets are sealed under the old one)
 	// and a timeout cannot silently switch key stores (req_001 D-102).
 	Create bool
+	// Verify says whether a candidate key opens this host's sealed data (MasterKeyVerifier): nil
+	// when it does, an error wrapping ErrOpen when it does not, any other error when the check
+	// itself could not run (LoadMasterKey then stops with it).
+	// Required when Create is false: an existing install uses the key that opens its host, from
+	// the keychain first and then the key file, so a stale or different key in one store never
+	// stops the other from being used (req_001 D-114). Ignored when Create is true, because
+	// there is no host yet.
+	Verify func(key []byte) error
 	// Timeout bounds each keychain call (the setting KeyKeychainTimeout). It must be greater
 	// than zero: there is no unbounded mode (req_001 D-102).
 	Timeout time.Duration
@@ -116,18 +124,34 @@ type MasterKeyConfig struct {
 	Keychain Keychain
 }
 
+// ErrMasterKeyMismatch is returned (wrapped) by LoadMasterKey with Create false when a store
+// holds a master key but it does not open this host (req_001 D-114).
+var ErrMasterKeyMismatch = errors.New("hostkeys: a master key was found but it does not open this host")
+
+// masterKeyError is the refusal of an existing install: it names both stores and says why
+// neither worked. It carries the sentinels that describe the causes, so callers can match them.
+type masterKeyError struct {
+	msg    string
+	causes []error
+}
+
+func (e *masterKeyError) Error() string   { return e.msg }
+func (e *masterKeyError) Unwrap() []error { return e.causes }
+
 // LoadMasterKey returns the host master key. With Create it creates the key on first use; with
-// Create false a key that cannot be found is an error. It prefers the OS keychain (macOS
-// Keychain, Windows Credential Manager, Linux Secret Service). Where the keychain is
-// unavailable, for example on a headless Linux host, it keeps the key in a user-only (0600) file
-// at FallbackPath instead. A key already in the file stays there even if the keychain later
-// becomes available. The key is never logged.
+// Create false it returns the key that opens the existing host (Verify), from the OS keychain
+// first and then from the key file, and reports which store it came from; if neither opens it,
+// the error names both stores and why each was refused (req_001 D-114). The OS keychain is macOS
+// Keychain, Windows Credential Manager or Linux Secret Service. Where it is unavailable, for
+// example on a headless Linux host, a first run keeps the key in a user-only (0600) file at
+// FallbackPath instead. A key already in the file stays there even if the keychain later becomes
+// available. The key is never logged and never put in an error.
 //
-// Every keychain call is bounded by Timeout (req_001 D-81, D-102). A timeout on an existing
-// install (Create false) is an error that names KeyKeychainTimeout; it never falls back to the
-// key file and never creates a key. A timeout on a first run uses the key file, as an
-// unavailable keychain does. If a timed-out write to the keychain finishes later, it stores the
-// same key the file holds.
+// Every keychain call is bounded by Timeout (req_001 D-81, D-102). A timeout on a first run uses
+// the key file, as an unavailable keychain does. On an existing install a timeout moves on to
+// the key file, and the key file is used only if its key opens the host, so a stale leftover
+// cannot be used by mistake and no key is ever created (req_001 D-102, D-114). If a timed-out
+// write to the keychain finishes later, it stores the same key the file holds.
 func LoadMasterKey(cfg MasterKeyConfig) ([]byte, MasterKeySource, error) {
 	if cfg.FallbackPath == "" {
 		return nil, "", errors.New("hostkeys: a fallback path for the master key file is required")
@@ -135,58 +159,107 @@ func LoadMasterKey(cfg MasterKeyConfig) ([]byte, MasterKeySource, error) {
 	if cfg.Timeout <= 0 {
 		return nil, "", fmt.Errorf("hostkeys: %s must be greater than zero", KeyKeychainTimeout)
 	}
+	if !cfg.Create && cfg.Verify == nil {
+		return nil, "", errors.New("hostkeys: an existing host needs a Verify function to pick its master key")
+	}
 	kc := cfg.Keychain
 	if kc == nil {
 		kc = SystemKeychain()
 	}
-	fallbackPath, create := cfg.FallbackPath, cfg.Create
+	if !cfg.Create {
+		return loadExistingMasterKey(cfg, kc)
+	}
+	// A first run: no host rows exist, so any key is as good as any other.
+	fallbackPath := cfg.FallbackPath
 	v, err := callBounded(cfg.Timeout, func() (string, error) { return kc.Get(keychainService, keychainUser) })
-	switch {
-	case err == nil:
+	if err == nil {
 		k, derr := decodeKey(v)
 		if derr != nil {
 			return nil, "", fmt.Errorf("hostkeys: keychain entry is damaged: %w", derr)
 		}
 		return k, SourceKeychain, nil
-	case errors.Is(err, ErrKeychainNotFound):
-		if k, ferr := readKeyFile(fallbackPath); ferr == nil {
-			return k, SourceFile, nil
-		} else if !errors.Is(ferr, fs.ErrNotExist) {
-			return nil, "", ferr
-		}
-		if !create {
-			return nil, "", fmt.Errorf("%w (%s); this database was created with it, so restore it rather than starting over", ErrMasterKeyNotFound, fallbackPath)
-		}
-		k, kerr := randomKey()
-		if kerr != nil {
-			return nil, "", kerr
-		}
+	}
+	// The keychain holds no key, is unavailable, or timed out: use a key file that is already
+	// there, else make a key.
+	if k, ferr := readKeyFile(fallbackPath); ferr == nil {
+		return k, SourceFile, nil
+	} else if !errors.Is(ferr, fs.ErrNotExist) {
+		return nil, "", ferr
+	}
+	k, kerr := randomKey()
+	if kerr != nil {
+		return nil, "", kerr
+	}
+	if errors.Is(err, ErrKeychainNotFound) {
 		_, serr := callBounded(cfg.Timeout, func() (struct{}, error) {
 			return struct{}{}, kc.Set(keychainService, keychainUser, encodeKey(k))
 		})
 		if serr == nil {
 			return k, SourceKeychain, nil
 		}
-		return createKeyFile(fallbackPath, k)
-	case errors.Is(err, ErrKeychainTimeout) && !create:
-		// An existing install: do not look at the key file, which may be a stale leftover, and
-		// never create a key (req_001 D-102).
-		return nil, "", err
-	default: // keychain unavailable, or a timeout on a first run
-		if k, ferr := readKeyFile(fallbackPath); ferr == nil {
-			return k, SourceFile, nil
-		} else if !errors.Is(ferr, fs.ErrNotExist) {
-			return nil, "", ferr
-		}
-		if !create {
-			return nil, "", fmt.Errorf("hostkeys: the OS keychain is unavailable or locked: %w; unlock it and start again", err)
-		}
-		k, kerr := randomKey()
-		if kerr != nil {
-			return nil, "", kerr
-		}
-		return createKeyFile(fallbackPath, k)
 	}
+	return createKeyFile(fallbackPath, k)
+}
+
+// loadExistingMasterKey tries the keychain, then the key file, and returns the first key that
+// opens the host (req_001 D-114). It never writes to either store.
+func loadExistingMasterKey(cfg MasterKeyConfig, kc Keychain) ([]byte, MasterKeySource, error) {
+	var causes []error
+	mismatch := false
+
+	var kcWhy string
+	v, err := callBounded(cfg.Timeout, func() (string, error) { return kc.Get(keychainService, keychainUser) })
+	switch {
+	case err == nil:
+		k, derr := decodeKey(v)
+		switch {
+		case derr != nil:
+			kcWhy = "its entry is damaged (" + derr.Error() + ")"
+		default:
+			switch verr := cfg.Verify(k); {
+			case verr == nil:
+				return k, SourceKeychain, nil
+			case !errors.Is(verr, ErrOpen):
+				return nil, "", fmt.Errorf("hostkeys: check the keychain's master key against the host: %w", verr)
+			}
+			kcWhy = "it holds a key that does not open this host"
+			mismatch = true
+		}
+	case errors.Is(err, ErrKeychainNotFound):
+		kcWhy = "it holds no master key"
+	case errors.Is(err, ErrKeychainTimeout):
+		kcWhy = err.Error() // names the setting to raise
+		causes = append(causes, ErrKeychainTimeout)
+	default:
+		kcWhy = "it is unavailable or locked: " + err.Error()
+	}
+
+	var fileWhy string
+	k, ferr := readKeyFile(cfg.FallbackPath)
+	switch {
+	case ferr == nil:
+		switch verr := cfg.Verify(k); {
+		case verr == nil:
+			return k, SourceFile, nil
+		case !errors.Is(verr, ErrOpen):
+			return nil, "", fmt.Errorf("hostkeys: check the key file's master key against the host: %w", verr)
+		}
+		fileWhy = "it holds a key that does not open this host"
+		mismatch = true
+	case errors.Is(ferr, fs.ErrNotExist):
+		fileWhy = "there is no such file"
+	default:
+		fileWhy = ferr.Error()
+	}
+
+	switch {
+	case mismatch:
+		causes = append(causes, ErrMasterKeyMismatch)
+	case errors.Is(err, ErrKeychainNotFound) && errors.Is(ferr, fs.ErrNotExist):
+		causes = append(causes, ErrMasterKeyNotFound)
+	}
+	msg := fmt.Sprintf("hostkeys: no master key opens this host. OS keychain: %s. Key file %s: %s. This database was created with its master key, so restore it to the keychain or to the key file rather than starting over", kcWhy, cfg.FallbackPath, fileWhy)
+	return nil, "", &masterKeyError{msg: msg, causes: causes}
 }
 
 // KeychainStatus is what CheckKeychain found.

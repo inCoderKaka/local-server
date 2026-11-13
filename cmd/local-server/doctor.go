@@ -252,7 +252,8 @@ func checkOllama(ctx context.Context, cfg startupConfig) check {
 
 // checkKeychain only reads the keychain, bounded by hostkeys.keychain_timeout. It never creates
 // or writes a key (req_001 D-81, D-102). It mirrors hostkeys.LoadMasterKey with Create false for
-// an existing install, so it fails exactly when serve would refuse to start. keyFile is where a
+// an existing install as far as a read-only look can: it fails when neither store can hold the
+// key, and cannot tell whether a key it finds opens the host (req_001 D-114). keyFile is where a
 // first run keeps the master key when the keychain cannot be used.
 func (a *app) checkKeychain(cfg startupConfig, existing bool, keyFile string) check {
 	c := check{Name: "keychain"}
@@ -267,9 +268,13 @@ func (a *app) checkKeychain(cfg startupConfig, existing bool, keyFile string) ch
 		c.Advice = "serve cannot start without the master key: restore it to the OS keychain or to " + keyFile
 	case err == nil:
 		c.Status, c.Detail = statusOK, "the OS keychain answered and holds no master key (a first run creates one; otherwise the key is in the key file)"
+	case errors.Is(err, hostkeys.ErrKeychainTimeout) && existing && haveKeyFile:
+		// serve then tries the key file and uses it only if its key opens the host (req_001 D-114).
+		c.Status, c.Detail = statusWarn, err.Error()
+		c.Advice = "serve waits for the keychain on every start, then tries the key file at " + keyFile + "; unlock the keychain, or raise " + hostkeys.KeyKeychainTimeout
 	case errors.Is(err, hostkeys.ErrKeychainTimeout) && existing:
 		c.Status, c.Detail = statusFail, err.Error()
-		c.Advice = "serve cannot start until the keychain answers (the key file is not used after a timeout): unlock the keychain, or raise " + hostkeys.KeyKeychainTimeout
+		c.Advice = "serve cannot start until the keychain answers (there is no key file at " + keyFile + "): unlock the keychain, or raise " + hostkeys.KeyKeychainTimeout
 	case errors.Is(err, hostkeys.ErrKeychainTimeout):
 		c.Status, c.Detail = statusWarn, err.Error()
 		c.Advice = "unlock the keychain, or raise " + hostkeys.KeyKeychainTimeout + "; on a headless host a first run keeps the key in a protected file instead"
