@@ -2,6 +2,8 @@
 
 Only what is open. Rewritten whole at the end of each implementation session.
 
+> **2026-11-13: every design question for M0..M5 is answered in req_001 D-145..D-158; read those rows before building.** The PLT-C-002 drafts are approved (D-153) and no migration go is needed (D-149), so nothing under "Waiting on you" blocks a finish-line ticket.
+>
 > **2026-11-12: `finish-plan.md` replaces the work order below (req_001 D-141..D-144).** Next chat starts milestone M0. Of "Waiting on you", only the pending-migrations go and the PLT-C-002 drafts still matter; the rest is out of phase 1. PLT-F-045 is out.
 
 ## Last session

@@ -1,6 +1,6 @@
 # platform / phase_1 — finish plan
 
-Written 2026-11-12. Decisions: req_001 D-141..D-144. This file overrides `next-steps.md` for work order and overrides any skill that says "capture everything". Every chat on this repo reads this file first and works on the first milestone that is not done.
+Written 2026-11-12, updated 2026-11-13. Decisions: req_001 D-141..D-158. This file overrides `next-steps.md` for work order and overrides any skill that says "capture everything". Every chat on this repo reads this file first and works on the first milestone that is not done.
 
 ## Finish line (D-141)
 
@@ -8,7 +8,7 @@ Phase 1 is done when all six statements are true on real machines, not only in t
 
 1. A host installs the binary on macOS with one command and it runs as a background service against a real Ollama.
 2. The host opens the admin UI, sees host total, share budget and other apps' use on every page, sets the share, creates a consumer, a grant with model and context limits, and an access key.
-3. A consumer on another machine reaches the host over Tailscale and gets chat (streamed and not) and embeddings with that key. personal-assistant's provider works against it unchanged.
+3. A consumer on another machine reaches the host over Tailscale and gets chat (streamed and not) and embeddings with that key. personal-assistant is not a blocker: its requirement file is kept current instead (D-145).
 4. The consumer signs up from an invite, logs in to the consumer page, sees limits, usage and keys, and files a resource request with comments. The host approves or rejects it in the admin UI.
 5. The host sees current usage and usage over time per consumer.
 6. A tagged release exists with checksums, and `README.md`, the user guide, the developer guide, the HLD and the LLD describe what is built.
@@ -22,13 +22,15 @@ Nothing else is phase 1.
 | Milestone | Tickets |
 |---|---|
 | M0 Prove the core | PLT-C-011 (real Ollama run), PLT-B-031, PLT-B-028, PLT-B-041, PLT-B-084, PLT-B-056, first push and first CI run |
-| M1 Reachable | PLT-F-038 (Tailscale transport), PLT-B-008 (remote admin login, D-86), a personal-assistant call across two machines |
+| M1 Reachable | PLT-F-038 (Tailscale transport, D-147, D-148), PLT-B-008 (remote admin login, D-86), the three calls from a second machine |
 | M2 Host UI | PLT-F-032, PLT-F-033, PLT-F-034, PLT-F-035 |
 | M3 Consumers | PLT-F-027, PLT-F-028, PLT-F-036, PLT-F-037 |
 | M4 Ship | PLT-B-001 (pin CI actions, D-88), PLT-C-003, PLT-F-043 |
 | M5 Docs and close | PLT-C-004, HLD and LLD reconciled with the code, user guide, developer guide, `/phase-retro` |
 
-Narrowed tickets: PLT-F-032, PLT-F-035 and PLT-F-037 are built without the notification, webhook and data-sharing pages, because those backends are out. The admin UI shows a count of pending resource requests instead of live notifications.
+Narrowed tickets: PLT-F-032, PLT-F-035 and PLT-F-037 are built without the notification, webhook and data-sharing pages, because those backends are out. The admin UI shows a count of pending resource requests instead of live notifications (polled, D-157).
+
+Kept inside those tickets (D-154): keys bound to a tailnet node, consumer change-password, add-passkey and settings page, `install.ps1`. Parked: a host-issued login reset link.
 
 ### Out (moved to phase 2, not built, not discussed)
 
@@ -81,21 +83,23 @@ Measured: 24 past sessions cost about $514 at list prices, which is 17.7 five-ho
 
 ## Milestone checks
 
-- **M0 done when:** `local-server serve` against the Ollama on this machine answers a streamed chat, a non-streamed chat with `temperature`, and an embeddings call with a key made through the admin API; usage shows the three calls; the pending migrations are applied to a real data directory after a backup; CI is green on GitHub.
-- **M1 done when:** the same three calls succeed from a second machine over the tailnet, personal-assistant completes a call through its provider, and the admin logs in remotely.
-- **M2 done when:** statement 2 and statement 5 pass in a browser with no curl.
-- **M3 done when:** statement 4 passes in a browser on a second machine.
-- **M4 done when:** a tag builds release artefacts with checksums and the install script sets up a working service on a clean macOS user account.
+- **M0 done when:** `local-server serve` against the Ollama on this machine answers a streamed chat, a non-streamed chat with `temperature`, and an embeddings call with a key made through the admin API; usage shows the three calls; it runs on a throwaway data directory with `llama3.2:3b` and `nomic-embed-text` (D-149); PA's requirement file is rewritten (D-145); CI is green on GitHub on all three runners with no skipped test (D-158).
+- **M1 done when:** the same three calls succeed from a second machine over the tailnet and the admin logs in remotely. The user runs the session's check script on the second machine; the pass is read from host-side records (D-146).
+- **M2 done when:** statement 2 and statement 5 pass in a browser with no curl, proven by a Playwright test (D-152).
+- **M3 done when:** statement 4 passes in a Playwright test, and once by the user in a browser on a second machine, read from host-side records (D-146).
+- **M4 done when:** `v0.1.0-rc.1` builds all six artefacts with checksums and the install script sets up a working service on a clean macOS user account; then `v0.1.0` (D-156).
 - **M5 done when:** statement 6 passes and `/phase-retro platform 1` is written.
 
 ## Needed from the user
 
 | Before | What |
 |---|---|
-| M0 | Push the repo so CI runs. Say go for applying the pending migrations to a real data directory. |
-| M1 | Tailscale installed on this machine and on a second machine in the same tailnet. |
-| M3 | Approve the Terms of Use and Privacy drafts (PLT-C-002); PLT-F-027 cannot build without it. |
-| M4 | Say whether Windows and Linux artefacts are released as untested or held back. |
+| M0 | Make the repo public, then push so CI runs (D-156). Push again after each CI fix commit. |
+| M1 | Install the standalone Tailscale app (D-147) on this machine and on a second machine in the same tailnet; turn on MagicDNS and HTTPS certificates in the tailnet's admin console. Run the M1 check script on the second machine. |
+| M3 | Click through the M3 checklist in a browser on the second machine. |
+| M4 | Push the `v0.1.0-rc.1` tag, run the install command on a clean macOS user account, then push `v0.1.0`. |
+
+Nothing else waits on the user: the legal drafts are approved (D-153), the artefact question is answered (D-156) and no migration go is needed (D-149).
 
 ## Progress
 
