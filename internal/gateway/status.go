@@ -195,7 +195,7 @@ func (g *Gateway) GetCapabilities(ctx context.Context) (*api.Capabilities, error
 		if c := m.limit.MaxOutputTokens; c != nil && *c > 0 {
 			outLimit = *c
 		}
-		out.Models = append(out.Models, api.GrantModelLimit{Model: m.name, ContextLimit: clampInt(ctxLimit), MaxOutputTokens: clampInt(outLimit)})
+		out.Models = append(out.Models, api.GrantModelLimit{Model: m.name, ContextLimit: api.NewOptNilInt(clampInt(ctxLimit)), MaxOutputTokens: api.NewOptNilInt(clampInt(outLimit))})
 	}
 	conc, err := g.cfg.Settings.Int(ctx, scheduler.KeyGrantConcurrency, "")
 	if err != nil {

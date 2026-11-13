@@ -119,9 +119,9 @@ func (s *Service) versionModels(ctx context.Context, in []ModelLimit) ([]grants.
 			return nil, invalid(param+".model", "A model name must not be empty.")
 		case seen[m.Model]:
 			return nil, invalid(param+".model", "The model is listed twice.")
-		case m.ContextLimit < 1:
+		case m.ContextLimit != nil && *m.ContextLimit < 1:
 			return nil, invalid(param+".context_limit", "The value is below the lowest allowed.")
-		case m.MaxOutputTokens < 1:
+		case m.MaxOutputTokens != nil && *m.MaxOutputTokens < 1:
 			return nil, invalid(param+".max_output_tokens", "The value is below the lowest allowed.")
 		}
 		seen[m.Model] = true
@@ -143,8 +143,16 @@ func (s *Service) versionModels(ctx context.Context, in []ModelLimit) ([]grants.
 		case !row.Allowed:
 			return nil, invalid(param+".model", "The host has not opened this model for sharing.")
 		}
-		cl, mo := m.ContextLimit, m.MaxOutputTokens
-		out = append(out, grants.VersionModel{ModelID: row.ID, ContextCap: &cl, MaxOutputTokens: &mo})
+		out = append(out, grants.VersionModel{ModelID: row.ID, ContextCap: copyCap(m.ContextLimit), MaxOutputTokens: copyCap(m.MaxOutputTokens)})
 	}
 	return out, nil
+}
+
+// copyCap returns a copy of a cap, so a stored version never shares memory with the request.
+func copyCap(c *int64) *int64 {
+	if c == nil {
+		return nil
+	}
+	v := *c
+	return &v
 }

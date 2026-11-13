@@ -66,7 +66,7 @@ func grantLimitsIn(r *api.GrantLimits) admingrants.Limits {
 	in := admingrants.Limits{Quotas: quotaEntriesIn(r.Quotas), Concurrency: int64(r.Concurrency),
 		OnContextOverflow: string(r.OnContextOverflow), AllowedProperties: r.AllowedRequestProperties}
 	for _, m := range r.Models {
-		in.Models = append(in.Models, admingrants.ModelLimit{Model: m.Model, ContextLimit: int64(m.ContextLimit), MaxOutputTokens: int64(m.MaxOutputTokens)})
+		in.Models = append(in.Models, admingrants.ModelLimit{Model: m.Model, ContextLimit: nilInt64(m.ContextLimit), MaxOutputTokens: nilInt64(m.MaxOutputTokens)})
 	}
 	if q, ok := r.Quota.Get(); ok {
 		in.Quota = &consumers.Quota{Tokens: optInt64(q.Tokens), Requests: optInt64(q.Requests)}
@@ -94,7 +94,7 @@ func grantVersionOut(v admingrants.GrantVersion) (*api.GrantVersion, error) {
 		Concurrency: int(v.Limits.Concurrency), OnContextOverflow: api.ContextOverflow(v.Limits.OnContextOverflow),
 		AllowedRequestProperties: v.Limits.AllowedProperties}
 	for i, m := range v.Limits.Models {
-		l.Models[i] = api.GrantModelLimit{Model: m.Model, ContextLimit: int(m.ContextLimit), MaxOutputTokens: int(m.MaxOutputTokens)}
+		l.Models[i] = api.GrantModelLimit{Model: m.Model, ContextLimit: optNilCap(m.ContextLimit), MaxOutputTokens: optNilCap(m.MaxOutputTokens)}
 	}
 	if q := v.Limits.Quota; q != nil {
 		o := api.Quota{Tokens: optInt64Out(q.Tokens), Requests: optInt64Out(q.Requests)}
@@ -125,4 +125,24 @@ func optInt64Out(v *int64) api.OptInt64 {
 		return api.OptInt64{}
 	}
 	return api.NewOptInt64(*v)
+}
+
+// nilInt64 is the value of a nullable spec integer, or nil when it is absent or null.
+func nilInt64(o api.OptNilInt) *int64 {
+	v, ok := o.Get()
+	if !ok {
+		return nil
+	}
+	n := int64(v)
+	return &n
+}
+
+// optNilCap sends a cap as its value, or as an explicit null when the grant sets none.
+func optNilCap(c *int64) api.OptNilInt {
+	var o api.OptNilInt
+	if c == nil {
+		o.SetToNull()
+		return o
+	}
+	return api.NewOptNilInt(int(*c))
 }

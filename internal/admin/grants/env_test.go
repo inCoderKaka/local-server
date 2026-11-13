@@ -194,7 +194,7 @@ func wantKind(t *testing.T, err error, kind admingrants.ErrorKind, param string)
 func limits(models ...string) admingrants.Limits {
 	l := admingrants.Limits{Concurrency: 2, OnContextOverflow: "refuse", AllowedProperties: []string{"background"}}
 	for _, m := range models {
-		l.Models = append(l.Models, admingrants.ModelLimit{Model: m, ContextLimit: 4096, MaxOutputTokens: 1024})
+		l.Models = append(l.Models, admingrants.ModelLimit{Model: m, ContextLimit: i64(4096), MaxOutputTokens: i64(1024)})
 	}
 	return l
 }

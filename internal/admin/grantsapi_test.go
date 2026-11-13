@@ -294,3 +294,55 @@ func (e *env) openAllModels(token string) {
 		status(e.t, e.call(token, "PATCH", "/admin/v1/models/"+id, `{"allowed":true}`), http.StatusOK)
 	}
 }
+
+func TestGrantCapsOverHTTPAreNullWhenNotSet(t *testing.T) {
+	e := newEnv(t)
+	token := e.setup()
+	c := e.createConsumer(token, `{"kind":"application","display_name":"Example App"}`)
+	cid, _ := c["id"].(string)
+	path := "/admin/v1/consumers/" + cid + "/grant"
+	e.openAllModels(token)
+	const withCaps = `{"model":"fake-chat","context_limit":4096,"max_output_tokens":1024}`
+
+	// Caps left out, and caps sent as null, both mean no cap; both read back as an explicit null.
+	for name, model := range map[string]string{
+		"absent": `{"model":"fake-chat"}`,
+		"null":   `{"model":"fake-chat","context_limit":null,"max_output_tokens":null}`,
+	} {
+		r := e.call(token, "PUT", path, strings.Replace(grantBody, withCaps, model, 1))
+		status(t, r, http.StatusOK)
+		for _, got := range []resp{r, e.call(token, "GET", path, "")} {
+			ms, _ := got.obj("limits")["models"].([]any)
+			if len(ms) != 1 {
+				t.Fatalf("%s: models = %s", name, got.Body.String())
+			}
+			m := ms[0].(map[string]any)
+			if cl, ok := m["context_limit"]; !ok || cl != nil {
+				t.Fatalf("%s: context_limit = %v (present %v), want null", name, cl, ok)
+			}
+			if mo, ok := m["max_output_tokens"]; !ok || mo != nil {
+				t.Fatalf("%s: max_output_tokens = %v (present %v), want null", name, mo, ok)
+			}
+		}
+	}
+
+	// A cap that is present is stored and shown as written.
+	r := e.call(token, "PUT", path, grantBody)
+	status(t, r, http.StatusOK)
+	m := e.call(token, "GET", path, "").obj("limits")["models"].([]any)[0].(map[string]any)
+	if m["context_limit"] != float64(4096) || m["max_output_tokens"] != float64(1024) {
+		t.Fatalf("model = %v", m)
+	}
+
+	// A present cap of 0 is still refused (the spec's minimum of 1 stops it at the door).
+	for name, body := range map[string]string{
+		"context_limit":     `{"model":"fake-chat","context_limit":0,"max_output_tokens":1024}`,
+		"max_output_tokens": `{"model":"fake-chat","context_limit":4096,"max_output_tokens":0}`,
+	} {
+		r = e.call(token, "PUT", path, strings.Replace(grantBody, withCaps, body, 1))
+		status(t, r, http.StatusBadRequest)
+		if r.errBody(t)["type"] != "invalid_request_error" {
+			t.Fatalf("%s: error = %s", name, r.Body.String())
+		}
+	}
+}

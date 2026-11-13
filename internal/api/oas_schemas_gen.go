@@ -3214,15 +3214,18 @@ func (s *GrantLimits) SetExpiresAt(val OptNilDateTime) {
 	s.ExpiresAt = val
 }
 
-// One model a grant allows, with its limits.
+// One model a grant allows, with its limits. A limit the grant does not set is null, and the host
+// defaults apply (on `GET /v1/capabilities` the values are the effective limits and are never null).
 // Ref: #/components/schemas/GrantModelLimit
 type GrantModelLimit struct {
 	// The model name.
 	Model string `json:"model"`
-	// The largest context window in tokens (sent to the engine as `num_ctx`).
-	ContextLimit int `json:"context_limit"`
-	// The most tokens one call may generate.
-	MaxOutputTokens int `json:"max_output_tokens"`
+	// The largest context window in tokens (sent to the engine as `num_ctx`). Null or absent means the
+	// grant sets no limit and the host default applies.
+	ContextLimit OptNilInt `json:"context_limit"`
+	// The most tokens one call may generate. Null or absent means the grant sets no limit and the host
+	// default applies.
+	MaxOutputTokens OptNilInt `json:"max_output_tokens"`
 }
 
 // GetModel returns the value of Model.
@@ -3231,12 +3234,12 @@ func (s *GrantModelLimit) GetModel() string {
 }
 
 // GetContextLimit returns the value of ContextLimit.
-func (s *GrantModelLimit) GetContextLimit() int {
+func (s *GrantModelLimit) GetContextLimit() OptNilInt {
 	return s.ContextLimit
 }
 
 // GetMaxOutputTokens returns the value of MaxOutputTokens.
-func (s *GrantModelLimit) GetMaxOutputTokens() int {
+func (s *GrantModelLimit) GetMaxOutputTokens() OptNilInt {
 	return s.MaxOutputTokens
 }
 
@@ -3246,12 +3249,12 @@ func (s *GrantModelLimit) SetModel(val string) {
 }
 
 // SetContextLimit sets the value of ContextLimit.
-func (s *GrantModelLimit) SetContextLimit(val int) {
+func (s *GrantModelLimit) SetContextLimit(val OptNilInt) {
 	s.ContextLimit = val
 }
 
 // SetMaxOutputTokens sets the value of MaxOutputTokens.
-func (s *GrantModelLimit) SetMaxOutputTokens(val int) {
+func (s *GrantModelLimit) SetMaxOutputTokens(val OptNilInt) {
 	s.MaxOutputTokens = val
 }
 

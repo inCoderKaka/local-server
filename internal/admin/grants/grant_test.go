@@ -246,7 +246,7 @@ func TestGrantModelsAreChecked(t *testing.T) {
 	_, err = e.svc.SetGrant(ctx, e.admin, c.ID, limits("m1", "ghost"))
 	wantKind(t, err, admingrants.KindInvalid, "limits.models.1.model")
 	v, err := e.svc.SetGrant(ctx, e.admin, c.ID, limits("m1"))
-	if err != nil || len(v.Limits.Models) != 1 || v.Limits.Models[0] != (admingrants.ModelLimit{Model: "m1", ContextLimit: 4096, MaxOutputTokens: 1024}) {
+	if err != nil || len(v.Limits.Models) != 1 || v.Limits.Models[0].Model != "m1" || *v.Limits.Models[0].ContextLimit != 4096 || *v.Limits.Models[0].MaxOutputTokens != 1024 {
 		t.Fatalf("grant = %+v, %v", v, err)
 	}
 
@@ -374,8 +374,8 @@ func TestGrantLimitsAreChecked(t *testing.T) {
 	}{
 		{"concurrency", func(l *admingrants.Limits) { l.Concurrency = 0 }, "limits.concurrency"},
 		{"overflow", func(l *admingrants.Limits) { l.OnContextOverflow = "shrug" }, "limits.on_context_overflow"},
-		{"context limit", func(l *admingrants.Limits) { l.Models[0].ContextLimit = 0 }, "limits.models.0.context_limit"},
-		{"max output", func(l *admingrants.Limits) { l.Models[0].MaxOutputTokens = 0 }, "limits.models.0.max_output_tokens"},
+		{"context limit", func(l *admingrants.Limits) { l.Models[0].ContextLimit = i64(0) }, "limits.models.0.context_limit"},
+		{"max output", func(l *admingrants.Limits) { l.Models[0].MaxOutputTokens = i64(0) }, "limits.models.0.max_output_tokens"},
 		{"duplicate model", func(l *admingrants.Limits) { l.Models = append(l.Models, l.Models[0]) }, "limits.models.1.model"},
 		{"blank model", func(l *admingrants.Limits) { l.Models[0].Model = " " }, "limits.models.0.model"},
 		{"past expiry", func(l *admingrants.Limits) { t := e.now.Add(-time.Minute); l.ExpiresAt = &t }, "limits.expires_at"},
@@ -487,4 +487,40 @@ func (e *env) issueKey(consumerID string) string {
 		e.t.Fatal(err)
 	}
 	return k.Secret.Reveal()
+}
+
+func TestGrantCapsAreEmptyWhenNotSet(t *testing.T) {
+	e := newEnv(t)
+	e.openModels()
+	c := e.newConsumer("App")
+
+	// A model written without caps reads back without caps, never as 0.
+	l := limits("m1")
+	l.Models[0].ContextLimit, l.Models[0].MaxOutputTokens = nil, nil
+	if _, err := e.svc.SetGrant(ctx, e.admin, c.ID, l); err != nil {
+		t.Fatal(err)
+	}
+	v, err := e.svc.GetGrant(ctx, c.ID)
+	if err != nil || len(v.Limits.Models) != 1 || v.Limits.Models[0].ContextLimit != nil || v.Limits.Models[0].MaxOutputTokens != nil {
+		t.Fatalf("grant without caps = %+v, %v", v, err)
+	}
+
+	// Only one cap set: the other stays empty.
+	l.Models[0].MaxOutputTokens = i64(256)
+	if _, err := e.svc.SetGrant(ctx, e.admin, c.ID, l); err != nil {
+		t.Fatal(err)
+	}
+	v, err = e.svc.GetGrant(ctx, c.ID)
+	if err != nil || v.Limits.Models[0].ContextLimit != nil || v.Limits.Models[0].MaxOutputTokens == nil || *v.Limits.Models[0].MaxOutputTokens != 256 {
+		t.Fatalf("grant with one cap = %+v, %v", v, err)
+	}
+
+	// Both caps set read back as written.
+	if _, err := e.svc.SetGrant(ctx, e.admin, c.ID, limits("m1")); err != nil {
+		t.Fatal(err)
+	}
+	v, err = e.svc.GetGrant(ctx, c.ID)
+	if err != nil || *v.Limits.Models[0].ContextLimit != 4096 || *v.Limits.Models[0].MaxOutputTokens != 1024 {
+		t.Fatalf("grant with caps = %+v, %v", v, err)
+	}
 }

@@ -24,9 +24,11 @@ var _ Auth = (*auth.Service)(nil)
 
 // ModelLimit is one model a grant allows, by the engine's name, with its caps.
 type ModelLimit struct {
-	Model           string
-	ContextLimit    int64
-	MaxOutputTokens int64
+	Model string
+	// ContextLimit and MaxOutputTokens are nil when the grant sets no cap (the host default
+	// applies); a cap that is set is at least 1.
+	ContextLimit    *int64
+	MaxOutputTokens *int64
 }
 
 // Limits are the terms of a grant version.
@@ -163,14 +165,8 @@ func (s *Service) views(ctx context.Context, consumerID string, vs []grants.Vers
 			l.Concurrency = *v.MaxConcurrency
 		}
 		for _, m := range v.Models {
-			ml := ModelLimit{Model: names[m.ModelID]}
-			// A cap that is empty (the host default) shows as 0; the admin API always writes both.
-			if m.ContextCap != nil {
-				ml.ContextLimit = *m.ContextCap
-			}
-			if m.MaxOutputTokens != nil {
-				ml.MaxOutputTokens = *m.MaxOutputTokens
-			}
+			// A cap that is empty in storage (the host default) stays nil; it is never shown as 0.
+			ml := ModelLimit{Model: names[m.ModelID], ContextLimit: m.ContextCap, MaxOutputTokens: m.MaxOutputTokens}
 			l.Models = append(l.Models, ml)
 		}
 		slices.SortFunc(l.Models, func(a, b ModelLimit) int { return strings.Compare(a.Model, b.Model) })

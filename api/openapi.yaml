@@ -5165,19 +5165,19 @@ components:
           example: null
     GrantModelLimit:
       type: object
-      description: One model a grant allows, with its limits.
-      required: [model, context_limit, max_output_tokens]
+      description: One model a grant allows, with its limits. A limit the grant does not set is null, and the host defaults apply (on `GET /v1/capabilities` the values are the effective limits and are never null).
+      required: [model]
       properties:
         model:
           type: string
           description: The model name.
         context_limit:
-          type: integer
-          description: The largest context window in tokens (sent to the engine as `num_ctx`).
+          type: [integer, 'null']
+          description: The largest context window in tokens (sent to the engine as `num_ctx`). Null or absent means the grant sets no limit and the host default applies.
           minimum: 1
         max_output_tokens:
-          type: integer
-          description: The most tokens one call may generate.
+          type: [integer, 'null']
+          description: The most tokens one call may generate. Null or absent means the grant sets no limit and the host default applies.
           minimum: 1
     ContextOverflow:
       type: string

@@ -6435,12 +6435,16 @@ func (s *GrantModelLimit) encodeFields(e *jx.Encoder) {
 		e.Str(s.Model)
 	}
 	{
-		e.FieldStart("context_limit")
-		e.Int(s.ContextLimit)
+		if s.ContextLimit.Set {
+			e.FieldStart("context_limit")
+			s.ContextLimit.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("max_output_tokens")
-		e.Int(s.MaxOutputTokens)
+		if s.MaxOutputTokens.Set {
+			e.FieldStart("max_output_tokens")
+			s.MaxOutputTokens.Encode(e)
+		}
 	}
 }
 
@@ -6472,11 +6476,9 @@ func (s *GrantModelLimit) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"model\"")
 			}
 		case "context_limit":
-			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
-				v, err := d.Int()
-				s.ContextLimit = int(v)
-				if err != nil {
+				s.ContextLimit.Reset()
+				if err := s.ContextLimit.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -6484,11 +6486,9 @@ func (s *GrantModelLimit) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"context_limit\"")
 			}
 		case "max_output_tokens":
-			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
-				v, err := d.Int()
-				s.MaxOutputTokens = int(v)
-				if err != nil {
+				s.MaxOutputTokens.Reset()
+				if err := s.MaxOutputTokens.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -6505,7 +6505,7 @@ func (s *GrantModelLimit) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
