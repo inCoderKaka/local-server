@@ -135,7 +135,10 @@ func BenchmarkReceiptSigning(b *testing.B) {
 	report(b, d)
 }
 
-// sloTarget reads a target from the settings and scales it for the race detector.
+// sloTarget reads a target from the settings and scales it for the race detector and for the
+// operating system (windows_test.go). It is used by every SLO timing check below, so the Windows
+// factor applies to the overhead, admission and receipt-signing checks alike: the windows-latest
+// runners are slower across the board.
 func sloTarget(t *testing.T, e *env, key string) time.Duration {
 	t.Helper()
 	d, err := e.st.Duration(context.Background(), key, "")
@@ -145,7 +148,7 @@ func sloTarget(t *testing.T, e *env, key string) time.Duration {
 	if raceEnabled {
 		d *= raceSlowdown
 	}
-	return d
+	return d * osSlowdownNum / osSlowdownDen
 }
 
 func TestSLOGatewayOverhead(t *testing.T) {
