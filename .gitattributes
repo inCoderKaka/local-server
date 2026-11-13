@@ -1,0 +1,4 @@
+# A Windows checkout must not turn this file's line ends into CRLF: TestSchemaDoc compares it
+# byte for byte with the generated text (req_001 D-158). Narrow per-file rules only; no repo-wide
+# text=auto.
+docs/schema-reference.md text eol=lf
