@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# consumer-api-check: three real calls against a running local-server's consumer API.
+#
+#   LS_KEY=ls_<prefix>_<secret> ops/checks/consumer-api-check [options]
+#
+# Calls (with the access key, header "Authorization: Bearer <key>"):
+#   a. POST /v1/chat/completions, stream true: must answer 200 with an SSE stream that ends in
+#      "data: [DONE]". Prints the chunk count and the token counts of the usage chunk.
+#   b. POST /v1/chat/completions, stream false, temperature 0.2: must answer 200. Prints the
+#      token counts.
+#   c. POST /v1/embeddings: must answer 200 with a vector. Prints its dimension.
+#
+# Options (flag, or the environment variable in brackets; the flag wins):
+#   --host H          consumer API host            [LS_HOST, default 127.0.0.1]
+#   --port P          consumer API port            [LS_PORT, default 8484]
+#   --chat-model M    chat model name              [LS_CHAT_MODEL, default llama3.2:3b]
+#   --embed-model M   embedding model name         [LS_EMBED_MODEL, default nomic-embed-text:latest]
+#                     Model names match exactly, as the host lists them (Ollama adds ":latest").
+#   --max-time S      seconds allowed per call     [LS_MAX_TIME, default 120]
+# The key comes only from LS_KEY (never a flag, so it stays out of the process list). A key is
+# never printed.
+#
+# Output: status codes, model names, chunk and token counts, timings. Never prompt or response
+# text. Exit 0 when all three calls pass, 1 when any call fails (every call still runs and is
+# reported), 2 for a usage error.
+#
+# Usage is not read here. A consumer key cannot read the host's records, so confirm the three
+# calls from the host side (admin usage rollups, GET /admin/v1/usage) after the next rollup pass.
+
+set -euo pipefail
+
+host=${LS_HOST:-127.0.0.1}
+port=${LS_PORT:-8484}
+chat_model=${LS_CHAT_MODEL:-llama3.2:3b}
+embed_model=${LS_EMBED_MODEL:-nomic-embed-text:latest}
+max_time=${LS_MAX_TIME:-120}
+
+usage() { sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --host) host=${2:?--host needs a value}; shift 2 ;;
+    --port) port=${2:?--port needs a value}; shift 2 ;;
+    --chat-model) chat_model=${2:?--chat-model needs a value}; shift 2 ;;
+    --embed-model) embed_model=${2:?--embed-model needs a value}; shift 2 ;;
+    --max-time) max_time=${2:?--max-time needs a value}; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+if [ -z "${LS_KEY:-}" ]; then
+  echo "LS_KEY is not set (the consumer access key)" >&2
+  exit 2
+fi
+command -v curl >/dev/null || { echo "curl is required" >&2; exit 2; }
+
+base="http://$host:$port"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+# The key goes to curl through a config file, not the command line.
+(umask 077; printf 'header = "Authorization: Bearer %s"\n' "$LS_KEY" > "$tmp/auth")
+
+fail=0
+bad() { echo "  FAIL: $1"; fail=1; }
+
+# call NAME PATH JSON: writes the body to $tmp/NAME.body, sets $code and $secs.
+call() {
+  local out
+  out=$(curl -sS -N --max-time "$max_time" -K "$tmp/auth" -H 'Content-Type: application/json' \
+    -o "$tmp/$1.body" -w '%{http_code} %{time_total}' -X POST "$base$2" -d "$3") || { code=000; secs=0; return; }
+  code=${out% *}
+  secs=${out#* }
+}
+
+# tokens FIELD FILE: the last number of a "FIELD":N pair, or 0.
+tokens() { { grep -o "\"$1\": *[0-9]*" "$2" || true; } | tail -n 1 | grep -o '[0-9]*$' || echo 0; }
+
+echo "consumer API $base"
+
+echo "a. streamed chat, model $chat_model"
+call stream /v1/chat/completions "{\"model\":\"$chat_model\",\"stream\":true,\"stream_options\":{\"include_usage\":true},\"max_tokens\":32,\"messages\":[{\"role\":\"user\",\"content\":\"Say hello.\"}]}"
+echo "  status $code, $secs s"
+if [ "$code" != 200 ]; then
+  bad "status $code, want 200"
+else
+  chunks=$(grep -c '^data: {' "$tmp/stream.body" || true)
+  last=$(grep '^data: ' "$tmp/stream.body" | tail -n 1 || true)
+  receipt=no; grep -q '^: ls-receipt ' "$tmp/stream.body" && receipt=yes
+  echo "  chunks $chunks, ends with [DONE]: $([ "$last" = 'data: [DONE]' ] && echo yes || echo no), receipt comment: $receipt"
+  echo "  prompt_tokens $(tokens prompt_tokens "$tmp/stream.body"), completion_tokens $(tokens completion_tokens "$tmp/stream.body")"
+  [ "$chunks" -gt 0 ] || bad "no stream chunks"
+  [ "$last" = 'data: [DONE]' ] || bad "stream does not end with data: [DONE]"
+fi
+
+echo "b. non-streamed chat with temperature 0.2, model $chat_model"
+call chat /v1/chat/completions "{\"model\":\"$chat_model\",\"stream\":false,\"temperature\":0.2,\"max_tokens\":32,\"messages\":[{\"role\":\"user\",\"content\":\"Say hello.\"}]}"
+echo "  status $code, $secs s"
+if [ "$code" != 200 ]; then
+  bad "status $code, want 200"
+else
+  echo "  prompt_tokens $(tokens prompt_tokens "$tmp/chat.body"), completion_tokens $(tokens completion_tokens "$tmp/chat.body")"
+fi
+
+echo "c. embeddings, model $embed_model"
+call embed /v1/embeddings "{\"model\":\"$embed_model\",\"input\":\"hello\"}"
+echo "  status $code, $secs s"
+if [ "$code" != 200 ]; then
+  bad "status $code, want 200"
+else
+  dim=$({ grep -o '"embedding": *\[[^]]*\]' "$tmp/embed.body" || true; } | head -n 1 | tr ',' '\n' | wc -l | tr -d ' ')
+  echo "  dimension $dim, prompt_tokens $(tokens prompt_tokens "$tmp/embed.body")"
+  [ "$dim" -gt 1 ] || bad "no embedding vector in the reply"
+fi
+
+if [ "$fail" -eq 0 ]; then echo "PASS: 3 of 3 calls"; else echo "FAIL: see above"; fi
+exit "$fail"

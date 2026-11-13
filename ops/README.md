@@ -26,6 +26,21 @@ ops/bin/closeout-check --base 6e5d49d
 
 `_opslib.py` holds the shared parsing (markdown tables, tickets, worklog, size map) and is not a command.
 
+## ops/checks
+
+Shell checks of the running product. Unlike `ops/bin` they talk to a live local-server, and nothing here ships in the binary.
+
+| Script | What it does |
+|---|---|
+| `consumer-api-check` | Makes three real calls with a consumer access key against the consumer API: a streamed chat (stream ends in `data: [DONE]`), a non-streamed chat with `temperature` set, and an embeddings call. Prints status codes, model names, chunk and token counts, timings and the vector dimension, never prompt or response text. Exit 0 when all three pass, 1 when any fails, 2 for a usage error. |
+
+```
+LS_KEY=ls_<prefix>_<secret> ops/checks/consumer-api-check                # 127.0.0.1:8484, llama3.2:3b, nomic-embed-text:latest
+LS_KEY=... ops/checks/consumer-api-check --host H --port P --chat-model M --embed-model M
+```
+
+The key is read only from `LS_KEY`. The script cannot read usage with a consumer key: confirm the calls from the host side (admin usage rollups, `GET /admin/v1/usage`, after the next rollup pass).
+
 ## Size map
 
 `docs/tracks/<track>/phase_<N>/ticket-sizes.md` maps each feature and chore ticket to `big` or `small` (rule in `docs/tracks/README.md`). Only the orchestrate session edits it. The map's header says which ids it covers; a newer open ticket without a row is a `WARN-unsized`, an older one is a finding.
