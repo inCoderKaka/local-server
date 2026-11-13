@@ -7,10 +7,12 @@
 //
 // The gateway (PLT-F-018) calls, in this order for one request:
 //
-//   - Limiter.CheckLockout before auth.Service.Authenticate, so a locked-out address or key
-//     prefix is refused without verifying the secret;
+//   - Limiter.CheckLockout before auth.Service.Authenticate, so a locked-out address is refused
+//     without verifying the secret;
 //   - Limiter.AuthResult with Authenticate's error (nil on success): failures count toward
-//     lockout, success clears only the key prefix's counter, never the address's (req_001 D-99);
+//     lockout, success clears only the key prefix's counter, never the address's (req_001 D-99).
+//     It returns the key-prefix lock: a failed attempt under a locked prefix is refused as locked
+//     out, but a correct secret is never refused by the prefix lock (req_001 D-112);
 //   - Limiter.LimitBody before it reads the body;
 //   - Limiter.Check after auth: rate limit, then a fresh check that the key and consumer are
 //     still active, then quotas. A refusal is a *RateLimitError, *QuotaError, or one of

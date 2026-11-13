@@ -622,21 +622,22 @@ func TestSuccessClearsOnlyKeyPrefixCounter(t *testing.T) {
 	}
 
 	// Prefix counter: two wrong guesses at good's prefix from address A, then the holder
-	// authenticates from B. One more wrong guess from C must not lock the prefix.
+	// authenticates from B. The next wrong guesses (from C, D, E) are the first three since the
+	// success: none is refused, and the third locks the prefix. Without the clear, the second would
+	// be the third failure and the lock would already refuse it.
 	fail(guess(p.Prefix), "203.0.113.1:1")
 	fail(guess(p.Prefix), "203.0.113.1:1")
 	e.lim.AuthResult(ctx(), "203.0.113.2:1", good.hdr, nil)
-	fail(guess(p.Prefix), "203.0.113.3:1")
-	if err := e.lim.CheckLockout(ctx(), "203.0.113.4:1", guess(p.Prefix)); err != nil {
-		t.Fatalf("success must clear the key prefix counter: %v", err)
+	for i, from := range []string{"203.0.113.3:1", "203.0.113.5:1", "203.0.113.6:1"} {
+		if err := e.lim.AuthResult(ctx(), from, guess(p.Prefix), auth.ErrInvalidKey); err != nil {
+			t.Fatalf("failure %d since the success must not be refused: %v", i+1, err)
+		}
 	}
-	fail(guess(p.Prefix), "203.0.113.3:1")
-	fail(guess(p.Prefix), "203.0.113.3:1") // 3 since the success
-	if err := e.lim.CheckLockout(ctx(), "203.0.113.4:1", guess(p.Prefix)); !errors.Is(err, limits.ErrRateLimited) {
+	if err := e.lim.AuthResult(ctx(), "203.0.113.7:1", guess(p.Prefix), auth.ErrInvalidKey); !errors.Is(err, limits.ErrRateLimited) {
 		t.Fatalf("prefix must lock after 3 failures: %v", err)
 	}
 	e.lim.AuthResult(ctx(), "203.0.113.2:1", good.hdr, nil)
-	if err := e.lim.CheckLockout(ctx(), "203.0.113.4:1", guess(p.Prefix)); !errors.Is(err, limits.ErrRateLimited) {
+	if err := e.lim.AuthResult(ctx(), "203.0.113.8:1", guess(p.Prefix), auth.ErrInvalidKey); !errors.Is(err, limits.ErrRateLimited) {
 		t.Fatalf("success must not lift an active lockout: %v", err)
 	}
 
@@ -648,6 +649,73 @@ func TestSuccessClearsOnlyKeyPrefixCounter(t *testing.T) {
 	fail(guess("cccccccccccc"), "198.51.100.7:1")
 	if err := e.lim.CheckLockout(ctx(), "198.51.100.7:1", ""); !errors.Is(err, limits.ErrRateLimited) {
 		t.Fatalf("success must not clear the address counter: %v", err)
+	}
+}
+
+// A key-prefix lockout counts failed attempts only: a request with the correct secret for a
+// locked prefix passes, a wrong secret under it is still refused, and the address lock is
+// unchanged (req_001 D-112).
+func TestPrefixLockCorrectSecret(t *testing.T) {
+	e := setup(t, nil)
+	e.set(limits.KeyLockoutFailures, "3")
+	e.set(limits.KeyLockoutDuration, "15m")
+	good := e.issue(auth.Narrowing{})
+	p, err := auth.ParseHeader(good.hdr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrong := "Bearer " + auth.FormatKey(p.Prefix, strings.Repeat("0", 64))
+	// attempt is one gateway request: the address check, authentication, then the result.
+	attempt := func(hdr, from string) error {
+		t.Helper()
+		if err := e.lim.CheckLockout(ctx(), from, hdr); err != nil {
+			return err
+		}
+		_, aerr := e.auth.Authenticate(ctx(), hdr, from)
+		if lerr := e.lim.AuthResult(ctx(), from, hdr, aerr); lerr != nil {
+			return lerr
+		}
+		return aerr
+	}
+
+	// Failed attempts from three addresses still count toward the prefix lock and trigger it; the
+	// attempt that triggers it is refused as a bad key, as before.
+	for i, from := range []string{"203.0.113.1:1", "203.0.113.2:1", "203.0.113.3:1"} {
+		if err := attempt(wrong, from); !errors.Is(err, auth.ErrInvalidKey) {
+			t.Fatalf("failure %d: %v", i+1, err)
+		}
+	}
+	// The prefix is locked: a wrong secret is refused as locked out, with the lockout duration.
+	err = attempt(wrong, "203.0.113.4:1")
+	var re *limits.RateLimitError
+	if !errors.As(err, &re) || !re.LockedOut || !errors.Is(err, limits.ErrRateLimited) || re.RetryAfter != 15*time.Minute {
+		t.Fatalf("wrong secret under a locked prefix: %v (%+v)", err, re)
+	}
+	// The correct secret passes the prefix check, from a fresh address and from one that guessed.
+	for _, from := range []string{"198.51.100.1:1", "203.0.113.1:1"} {
+		if err := attempt(good.hdr, from); err != nil {
+			t.Fatalf("correct secret under a locked prefix from %s: %v", from, err)
+		}
+	}
+	// It did not lift the lock.
+	if err := attempt(wrong, "203.0.113.4:1"); !errors.Is(err, limits.ErrRateLimited) {
+		t.Fatalf("lock must stay after a correct secret: %v", err)
+	}
+
+	// The address lock is unchanged: a locked address is refused even with the correct secret.
+	// 203.0.113.4 has failed twice by now (the two refused guesses above count against it);
+	// one more locks it.
+	if err := attempt(wrong, "203.0.113.4:1"); !errors.Is(err, limits.ErrRateLimited) {
+		t.Fatalf("third failure from the address: %v", err)
+	}
+	err = attempt(good.hdr, "203.0.113.4:1")
+	if !errors.As(err, &re) || !re.LockedOut || !errors.Is(err, limits.ErrRateLimited) {
+		t.Fatalf("correct secret from a locked address must be refused: %v", err)
+	}
+	// Once the lock expires the wrong secret is a plain bad key again.
+	e.advance(15*time.Minute + time.Second)
+	if err := attempt(wrong, "192.0.2.1:1"); !errors.Is(err, auth.ErrInvalidKey) {
+		t.Fatalf("after the lock expired: %v", err)
 	}
 }
 

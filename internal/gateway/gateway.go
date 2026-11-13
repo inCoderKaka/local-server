@@ -39,7 +39,7 @@ type Authenticator interface {
 // Limiter is the part of limits.Limiter the gateway uses, in the order it calls it.
 type Limiter interface {
 	CheckLockout(ctx context.Context, remoteAddr, header string) error
-	AuthResult(ctx context.Context, remoteAddr, header string, authErr error)
+	AuthResult(ctx context.Context, remoteAddr, header string, authErr error) error
 	LimitBody(ctx context.Context, r *http.Request) error
 	Check(ctx context.Context, id *auth.Identity) error
 	CountAdmitted(ctx context.Context, id *auth.Identity) error
@@ -336,7 +336,11 @@ func (g *Gateway) HandleAccessKeyAuth(ctx context.Context, op api.OperationName,
 		return nil, err
 	}
 	id, err := g.cfg.Auth.Authenticate(ctx, header, remote)
-	g.cfg.Limits.AuthResult(ctx, remote, header, err)
+	// A failed attempt under a locked key prefix is refused as locked out. A correct secret is
+	// never refused by the prefix lock (D-112).
+	if lerr := g.cfg.Limits.AuthResult(ctx, remote, header, err); lerr != nil {
+		return nil, lerr
+	}
 	if err != nil {
 		return nil, err
 	}

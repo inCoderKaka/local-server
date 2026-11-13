@@ -38,18 +38,27 @@ type lockoutCfg struct {
 
 // subjects returns the tracker keys for a request. A header that does not parse has no prefix.
 func subjects(remoteAddr, header string) []string {
-	var out []string
-	if remoteAddr != "" {
-		host, _, err := net.SplitHostPort(remoteAddr)
-		if err != nil {
-			host = remoteAddr
-		}
-		out = append(out, "a:"+host)
+	return append(addrSubjects(remoteAddr), prefixSubjectsOf(header)...)
+}
+
+// addrSubjects returns the source-address tracker key of a request, if it has an address.
+func addrSubjects(remoteAddr string) []string {
+	if remoteAddr == "" {
+		return nil
 	}
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	return []string{"a:" + host}
+}
+
+// prefixSubjectsOf returns the key-prefix tracker key of a header, if it parses.
+func prefixSubjectsOf(header string) []string {
 	if p, err := auth.ParseHeader(header); err == nil {
-		out = append(out, "k:"+p.Prefix)
+		return []string{"k:" + p.Prefix}
 	}
-	return out
+	return nil
 }
 
 func (t *tracker) locked(keys []string, now time.Time) time.Duration {
@@ -168,17 +177,21 @@ func (l *Limiter) lockoutCfg(ctx context.Context) (on bool, c lockoutCfg, err er
 	return true, c, nil
 }
 
-// CheckLockout refuses a caller that is locked out. Call it before auth.Service.Authenticate
-// with the Authorization header value and the client's address: the connection's remote
-// address, or for a public-mode (Funnel) connection the original client address the transport
-// reports, never the relay's (otherwise every public caller shares one address lock). The error
-// is a *RateLimitError with LockedOut set. A locked-out address is refused even with a good key.
-func (l *Limiter) CheckLockout(ctx context.Context, remoteAddr, header string) error {
+// CheckLockout refuses a caller whose source address is locked out. Call it before
+// auth.Service.Authenticate with the Authorization header value and the client's address: the
+// connection's remote address, or for a public-mode (Funnel) connection the original client
+// address the transport reports, never the relay's (otherwise every public caller shares one
+// address lock). The error is a *RateLimitError with LockedOut set. A locked-out address is
+// refused even with a good key. A locked key prefix is not checked here: the prefix is public, so
+// refusing a correct secret because of it would let anyone lock a consumer out with a few bad
+// requests. AuthResult applies the prefix lock to failed attempts only (req_001 D-112). header is
+// unused here and stays in the signature so the call order in the gateway does not change.
+func (l *Limiter) CheckLockout(ctx context.Context, remoteAddr, _ string) error {
 	on, _, err := l.lockoutCfg(ctx)
 	if err != nil || !on {
 		return err
 	}
-	if wait := l.fails.locked(subjects(remoteAddr, header), l.now()); wait > 0 {
+	if wait := l.fails.locked(addrSubjects(remoteAddr), l.now()); wait > 0 {
 		return &RateLimitError{LockedOut: true, RetryAfter: retryAfterAtLeast(wait, time.Millisecond)}
 	}
 	return nil
@@ -192,22 +205,33 @@ func (l *Limiter) CheckLockout(ctx context.Context, remoteAddr, header string) e
 // holder of one valid key could reset its address counter while guessing other prefixes
 // (req_001 D-99). Any other error (a database failure, a missing grant, a failed bound-node
 // lookup, auth.ErrNodeLookup) is not a failed guess and changes nothing.
-func (l *Limiter) AuthResult(ctx context.Context, remoteAddr, header string, authErr error) {
+//
+// The returned error is the key-prefix lock (req_001 D-112): a failed attempt under a locked prefix
+// returns a *RateLimitError with LockedOut set, which the caller returns instead of authErr. A
+// success is never refused by the prefix lock, so a correct secret passes even while the prefix is
+// locked. The failed attempt still counts against the source address.
+func (l *Limiter) AuthResult(ctx context.Context, remoteAddr, header string, authErr error) error {
 	on, c, err := l.lockoutCfg(ctx)
 	if err != nil {
 		l.log.Warn("limits: lockout settings unreadable, failure not counted", "err", err)
-		return
+		return nil
 	}
 	if !on {
-		return
+		return nil
 	}
 	keys := subjects(remoteAddr, header)
+	now := l.now()
 	switch {
 	case authErr == nil:
-		l.fails.clear(prefixSubjects(keys), l.now())
+		l.fails.clear(prefixSubjects(keys), now)
 	case isCredentialFailure(authErr):
-		l.fails.fail(keys, l.now(), c)
+		wait := l.fails.locked(prefixSubjects(keys), now)
+		l.fails.fail(keys, now, c)
+		if wait > 0 {
+			return &RateLimitError{LockedOut: true, RetryAfter: retryAfterAtLeast(wait, time.Millisecond)}
+		}
 	}
+	return nil
 }
 
 func isCredentialFailure(err error) bool {
