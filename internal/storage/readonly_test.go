@@ -84,6 +84,44 @@ func TestOpenReadOnlyDoesNotCreateMissingFile(t *testing.T) {
 	}
 }
 
+// PLT-B-084: the immutable open reads a stopped database without creating a -wal or -shm file, and
+// refuses when such a file is already there (the main file may then lack recent changes).
+func TestOpenReadOnlyImmutableCreatesNoSidecarFiles(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.db")
+	m := demo(map[string]string{"0001_a.sql": demoSQL})
+	w := open(t, path, m)
+	if err := w.Write(ctx, func(tx *Tx) error {
+		_, err := tx.Exec(`INSERT INTO tst_item (id, name) VALUES (7, 'x')`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	before, _ := os.ReadDir(dir)
+
+	ro, err := OpenReadOnlyImmutable(ctx, path, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, ro, `SELECT count(*) FROM tst_item WHERE id = 7`); n != 1 {
+		t.Errorf("read %d rows, want 1", n)
+	}
+	ro.Close()
+	if after, _ := os.ReadDir(dir); len(after) != len(before) {
+		t.Errorf("the immutable open changed the folder: %v, was %v", after, before)
+	}
+
+	// A -wal file next to the database: nothing is opened.
+	if err := os.WriteFile(path+"-wal", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenReadOnlyImmutable(ctx, path, m); !errors.Is(err, ErrSidecarFiles) {
+		t.Errorf("err = %v; want ErrSidecarFiles", err)
+	}
+}
+
 func TestOpenReadOnlyRefusesDifferentSchemaVersion(t *testing.T) {
 	ctx := context.Background()
 	two := map[string]string{"0001_a.sql": demoSQL, "0002_b.sql": "ALTER TABLE tst_item ADD COLUMN extra TEXT;\n--@column tst_item.extra classification=internal billable=false | Extra.\n"}

@@ -59,6 +59,29 @@ func (e *SchemaMismatchError) Is(target error) bool { return target == ErrSchema
 // directions; otherwise OpenReadOnly returns a *SchemaMismatchError naming both versions per
 // module, because a build must not read tables it does not know. Call Close when done.
 func OpenReadOnly(ctx context.Context, path string, modules ...Module) (*DB, error) {
+	return openReadOnly(ctx, path, "", modules)
+}
+
+// ErrSidecarFiles is returned by OpenReadOnlyImmutable when the database has a -wal or -shm file.
+var ErrSidecarFiles = errors.New("storage: the database has -wal or -shm files, so it may be open elsewhere or hold changes outside the main file")
+
+// OpenReadOnlyImmutable is OpenReadOnly for a database nobody has open: SQLite is told the file
+// cannot change, so it takes no locks and creates no -wal or -shm file next to it (a plain
+// read-only open of a database in WAL mode does create them). It is for the offline commands that
+// must read a setting before deciding whether to touch anything, such as restore looking for a
+// running host. If a -wal or -shm file exists, the main file may be missing recent changes, so it
+// returns ErrSidecarFiles and opens nothing; use OpenReadOnly then, which creates no file that is
+// already there.
+func OpenReadOnlyImmutable(ctx context.Context, path string, modules ...Module) (*DB, error) {
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(path + suffix); err == nil {
+			return nil, ErrSidecarFiles
+		}
+	}
+	return openReadOnly(ctx, path, "&immutable=1", modules)
+}
+
+func openReadOnly(ctx context.Context, path, extraDSN string, modules []Module) (*DB, error) {
 	if path == "" || path == ":memory:" {
 		return nil, errors.New("storage: OpenReadOnly needs a database file path")
 	}
@@ -74,7 +97,7 @@ func OpenReadOnly(ctx context.Context, path string, modules ...Module) (*DB, err
 		return nil, err
 	}
 	busy := DefaultBusyTimeout
-	r, err := sql.Open("sqlite", dsn(path, busy, true, "")+"&mode=ro")
+	r, err := sql.Open("sqlite", dsn(path, busy, true, "")+"&mode=ro"+extraDSN)
 	if err != nil {
 		return nil, err
 	}

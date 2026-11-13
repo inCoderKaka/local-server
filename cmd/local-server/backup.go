@@ -266,6 +266,12 @@ func (a *app) runRestore(ctx context.Context, dataDir string, src restoreSource)
 	if err != nil {
 		return errors.New("the recovery code is not valid (it is 52 letters and digits in groups of four)")
 	}
+	// A running host next, before anything opens the database (PLT-B-084): opening it, even
+	// read-only, creates -shm and -wal files, and the configured target below opens it to read the
+	// target. The guard handed to snapshot.Restore checks again just before the database is moved.
+	if err := a.refuseIfRunning(ctx, dataDir); err != nil {
+		return err
+	}
 	target, creds, err := a.restoreTarget(ctx, dataDir, src)
 	if err != nil {
 		return err
@@ -389,9 +395,18 @@ func (a *app) restoreTarget(ctx context.Context, dataDir string, src restoreSour
 // refuseIfRunning stops a restore while a host is running: it tries to bind the consumer and admin
 // addresses the database's settings name (the defaults when there is no database). A running host
 // holds them, so a failed bind means one is up. It needs no OS lock.
+//
+// It must not leave a file in the data directory (PLT-B-084). The addresses are read with
+// storage.OpenReadOnlyImmutable, which creates no -wal or -shm; when those files already exist
+// (a host may be running, or one crashed), the plain read-only open is used, which then creates none.
 func (a *app) refuseIfRunning(ctx context.Context, dataDir string) error {
 	addrs := []string{defaultConsumerListen, defaultAdminListen}
-	if db, err := storage.OpenReadOnly(ctx, filepath.Join(dataDir, dbFileName), registryModules()...); err == nil {
+	dbPath := filepath.Join(dataDir, dbFileName)
+	db, err := storage.OpenReadOnlyImmutable(ctx, dbPath, registryModules()...)
+	if errors.Is(err, storage.ErrSidecarFiles) {
+		db, err = storage.OpenReadOnly(ctx, dbPath, registryModules()...)
+	}
+	if err == nil {
 		st := settings.New(db)
 		if registerSettings(st) == nil {
 			for i, key := range []string{keyConsumerListen, keyAdminListen} {

@@ -278,6 +278,57 @@ func TestRestoreRefusesWhileAHostIsRunning(t *testing.T) {
 	}
 }
 
+// PLT-B-084: a running host is detected without opening the database. The host here is stopped
+// cleanly (its database has no -wal or -shm) and something else holds the host's two addresses, as
+// a running host would. Restore must refuse and leave the data folder exactly as it was: opening
+// the database, even read-only, would create -shm and -wal files next to it.
+func TestRestoreRefusesARunningHostWithoutOpeningTheDatabase(t *testing.T) {
+	ta := newTestApp(t, true)
+	offhost := filepath.Join(t.TempDir(), "offhost")
+	cfg := backupSettings(offhost)
+	consumer, admin := freePort(t), freePort(t)
+	cfg[keyConsumerListen], cfg[keyAdminListen] = consumer, admin
+	seed(t, ta.dir, cfg)
+	r := startServe(t, ta, "--engine", "fake")
+	m := codeRe.FindStringSubmatch(ta.err.String())
+	if m == nil {
+		t.Fatalf("no recovery code:\n%s", ta.err.String())
+	}
+	waitFor(t, "a snapshot", func() bool { return len(snapshotFiles(offhost)) > 0 })
+	if code := r.stop(); code != 0 {
+		t.Fatalf("serve exit = %d", code)
+	}
+	dbPath := filepath.Join(ta.dir, dbFileName)
+	for _, s := range []string{"-wal", "-shm"} {
+		if exists(dbPath + s) {
+			t.Fatalf("a stopped host left %s", s)
+		}
+	}
+	for _, addr := range []string{consumer, admin} {
+		ln, err := net.Listen("tcp", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ln.Close()
+	}
+	before, entries := fileHash(t, dbPath), dirNames(t, ta.dir)
+
+	for name, args := range map[string][]string{
+		"from a folder":          {"restore", "--data-dir", ta.dir, "--from", offhost},
+		"from the configured":    {"restore", "--data-dir", ta.dir},
+		"from a folder, by name": {"restore", "--data-dir", ta.dir, "--from", offhost, "--snapshot", snapshotFiles(offhost)[0]},
+	} {
+		ra := restoreApp(t, ta, m[1]+"\n")
+		if exit := ra.run(context.Background(), args); exit != 1 {
+			t.Fatalf("%s: exit = %d, want 1; stderr:\n%s", name, exit, ra.err.String())
+		}
+		contains(t, name+": stderr", ra.err.String(), "seems to be running")
+		if fileHash(t, dbPath) != before || strings.Join(dirNames(t, ta.dir), ",") != strings.Join(entries, ",") {
+			t.Fatalf("%s: the data folder changed (now %v, was %v)", name, dirNames(t, ta.dir), entries)
+		}
+	}
+}
+
 // The bucket path end to end: the access key is stored sealed through backup-credentials, the
 // host backs up to an S3 fake, and restore reads it back by flags and environment.
 func TestBackupCredentialsAndBucketRoundTrip(t *testing.T) {
