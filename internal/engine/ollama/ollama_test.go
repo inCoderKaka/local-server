@@ -30,11 +30,15 @@ type fakeOllama struct {
 	chunkGap  time.Duration // wait before the second chat line
 	midError  string        // error line sent after the first chat chunk
 	embedFail string        // embed answers 500 with this error text
+	// unloading counts the /api/ps reads that still list a model after an
+	// unload (0.31.1 evicts asynchronously; the entry's expiry is already past).
+	unloading map[string]int
+	unloadLag int
 	srv       *httptest.Server
 }
 
 func newFakeOllama(t *testing.T) *fakeOllama {
-	f := &fakeOllama{version: "0.13.0", loaded: map[string]bool{}, bodies: map[string][]map[string]any{}}
+	f := &fakeOllama{version: "0.13.0", loaded: map[string]bool{}, unloading: map[string]int{}, unloadLag: 2, bodies: map[string][]map[string]any{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -102,6 +106,12 @@ func (f *fakeOllama) handle(w http.ResponseWriter, r *http.Request) {
 				ms = append(ms, map[string]any{"name": n, "size": 1000, "size_vram": 900, "context_length": 4096, "expires_at": time.Now().Add(time.Minute)})
 			}
 		}
+		for n, left := range f.unloading {
+			if left > 0 {
+				f.unloading[n]--
+				ms = append(ms, map[string]any{"name": n, "size": 1000, "size_vram": 900, "context_length": 4096, "expires_at": time.Now().Add(-time.Second)})
+			}
+		}
 		f.mu.Unlock()
 		writeJSON(w, 200, map[string]any{"models": ms})
 	case "/api/generate", "/api/embed":
@@ -129,6 +139,9 @@ func (f *fakeOllama) handle(w http.ResponseWriter, r *http.Request) {
 		ka, _ := body["keep_alive"].(float64)
 		f.mu.Lock()
 		f.loaded[model] = ka != 0
+		if ka == 0 {
+			f.unloading[model] = f.unloadLag
+		}
 		f.mu.Unlock()
 		writeJSON(w, 200, map[string]any{"model": model, "done": true})
 	case "/api/chat":
@@ -386,6 +399,38 @@ func TestLoadAndUnloadSendExplicitSettings(t *testing.T) {
 	ls, _ := a.Loaded(context.Background())
 	if len(ls) != 1 || ls[0].Name != enginetest.EmbedModel || ls[0].ContextLength != 4096 || ls[0].VRAMBytes != 900 {
 		t.Fatalf("loaded = %+v", ls)
+	}
+}
+
+// Ollama 0.31.1 lists a model in /api/ps for a moment after an unload; Unload
+// must wait until it is gone, and must give up quietly at its bound when the
+// model stays listed (still busy), but not hide a cancelled caller.
+func TestUnloadWaitsUntilGone(t *testing.T) {
+	f := newFakeOllama(t)
+	f.unloadLag = 5
+	a := newAdapter(f, nil)
+	defer a.Close()
+	ctx := context.Background()
+	if err := a.Load(ctx, enginetest.ChatModel, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Unload(ctx, enginetest.ChatModel); err != nil {
+		t.Fatal(err)
+	}
+	if ls, _ := a.Loaded(ctx); len(ls) != 0 {
+		t.Fatalf("loaded after Unload = %+v, want none", ls)
+	}
+
+	f.unloadLag = 1 << 30 // never leaves while busy
+	b := newAdapter(f, func(c *ollama.Config) { c.RequestTimeout = 300 * time.Millisecond })
+	defer b.Close()
+	if err := b.Unload(ctx, enginetest.ChatModel); err != nil {
+		t.Fatalf("busy model at the bound: err = %v, want nil", err)
+	}
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := b.Unload(cctx, enginetest.ChatModel); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled caller: err = %v, want context.Canceled", err)
 	}
 }
 

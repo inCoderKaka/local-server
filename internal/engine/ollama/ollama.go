@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -135,11 +136,14 @@ func classify(status int, msg string) error {
 
 // overflowMarkers are lower-case fragments of Ollama's oversize errors. The
 // chat and embed texts are not in Ollama's published docs; the contract test
-// pins them against a real server (req_001 D-48). Embed can also fail near
+// pins them against a real server (req_001 D-48). Ollama 0.31.1 answers a chat
+// overflow with HTTP 400 and the text "request (N tokens) exceeds the available
+// context size (M tokens), try increasing it", type "exceed_context_size_error". Embed can also fail near
 // the limit even when truncating (Ollama issue #14186), with errors about the
 // KV cache or batch, so those count as overflow too.
 var overflowMarkers = []string{
 	"exceeds the context", "exceeds maximum context", "exceeded context", "exceeds context",
+	"exceeds the available context", "exceed_context_size",
 	"context length", "context window", "prompt too long", "input length", "input too long",
 	"too long", "kv cache", "decode batch",
 }
@@ -250,9 +254,45 @@ func (a *Adapter) Load(ctx context.Context, name string, keepAlive time.Duration
 	return a.setResident(ctx, a.cfg.LoadTimeout, name, a.keepAliveSecs(keepAlive))
 }
 
-// Unload evicts a model (keep_alive 0).
+// Unload evicts a model (keep_alive 0). Ollama unloads asynchronously: for a
+// moment after the call /api/ps still lists the model, with an expiry that has
+// already passed (seen on 0.31.1). Unload therefore polls /api/ps until the
+// model is gone, so a caller that reads Loaded next sees the eviction. The
+// wait shares the RequestTimeout bound, polling 300 times within it. When the
+// bound lapses with the model still listed, Ollama is finishing a request on
+// it and evicts it when idle; Unload then returns nil, as the request was
+// accepted. A cancelled caller context still returns its error.
 func (a *Adapter) Unload(ctx context.Context, name string) error {
-	return a.setResident(ctx, a.cfg.RequestTimeout, name, 0)
+	cctx, cancel := context.WithTimeout(ctx, a.cfg.RequestTimeout)
+	defer cancel()
+	if err := a.setResident(cctx, a.cfg.RequestTimeout, name, 0); err != nil {
+		return err
+	}
+	tick := time.NewTicker(max(a.cfg.RequestTimeout/300, time.Millisecond))
+	defer tick.Stop()
+	for {
+		ls, err := a.Loaded(cctx)
+		if err != nil {
+			if perr := ctx.Err(); perr != nil {
+				return perr
+			}
+			if cctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		if !slices.ContainsFunc(ls, func(m engine.LoadedModel) bool { return m.Name == name }) {
+			return nil
+		}
+		select {
+		case <-cctx.Done():
+			if perr := ctx.Err(); perr != nil {
+				return perr
+			}
+			return nil
+		case <-tick.C:
+		}
+	}
 }
 
 func (a *Adapter) setResident(ctx context.Context, timeout time.Duration, name string, secs int64) error {
