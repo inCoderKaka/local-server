@@ -62,9 +62,7 @@ func (g *Gateway) streamChat(ctx context.Context, c call, in chatInput, p plan, 
 		FirstToken: c.cfg.streamFirstToken, Idle: c.cfg.streamIdle, Total: c.cfg.streamTotal,
 		Release: tk.Release, Finish: finish, ErrorEvent: g.streamErrorEvent(ctx),
 	}, func(ectx context.Context) (engine.ChatStream, error) {
-		return g.cfg.Engine.Chat(ectx, engine.ChatRequest{Model: in.model, Messages: in.messages, NumCtx: p.numCtx,
-			NumPredict: p.numPredict, KeepAlive: keepAlive, OnContextOverflow: p.overflow,
-			FirstTokenTimeout: c.cfg.streamFirstToken, IdleTimeout: c.cfg.streamIdle})
+		return g.cfg.Engine.Chat(ectx, in.engineRequest(p, keepAlive, c.cfg.streamFirstToken, c.cfg.streamIdle))
 	})
 	if err != nil {
 		if ctx.Err() != nil { // the client went away before the first chunk (req_001 D-38 aborted)

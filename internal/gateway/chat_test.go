@@ -75,6 +75,76 @@ func TestEmbeddingsReceiptHeaderIsPresentAndVerifies(t *testing.T) {
 	}
 }
 
+// temperature, top_p, seed and stop reach the engine port on every path that runs a chat: a
+// non-streamed answer, a streamed one and a job (PLT-B-031, req_001 D-113). A request that sets
+// none of them, or sets them to null, leaves them unset so the engine's own defaults apply.
+func TestSamplingFieldsReachTheEnginePort(t *testing.T) {
+	e := newEnv(t)
+	last := func() engine.ChatRequest {
+		t.Helper()
+		e.eng.mu.Lock()
+		defer e.eng.mu.Unlock()
+		if len(e.eng.chats) == 0 {
+			t.Fatal("the engine was not called")
+		}
+		return e.eng.chats[len(e.eng.chats)-1]
+	}
+	check := func(t *testing.T, got engine.ChatRequest, wantStop []string) {
+		t.Helper()
+		if got.Temperature == nil || *got.Temperature != 0.25 || got.TopP == nil || *got.TopP != 0.5 ||
+			got.Seed == nil || *got.Seed != 0 || strings.Join(got.Stop, "|") != strings.Join(wantStop, "|") || len(got.Stop) != len(wantStop) {
+			t.Fatalf("engine request sampling = temperature %v, top_p %v, seed %v, stop %q", got.Temperature, got.TopP, got.Seed, got.Stop)
+		}
+	}
+	const sampling = `"temperature":0.25,"top_p":0.5,"seed":0`
+	msg := `"messages":[{"role":"user","content":"hello there"}]`
+
+	t.Run("chat with a stop array", func(t *testing.T) {
+		statusIs(t, e.chat(`{"model":"`+chatModel+`",`+msg+`,`+sampling+`,"stop":["END","STOP"]}`), http.StatusOK)
+		check(t, last(), []string{"END", "STOP"})
+	})
+	t.Run("chat with a single stop string", func(t *testing.T) {
+		statusIs(t, e.chat(`{"model":"`+chatModel+`",`+msg+`,`+sampling+`,"stop":"END"}`), http.StatusOK)
+		check(t, last(), []string{"END"})
+	})
+	t.Run("the fake engine records them too", func(t *testing.T) {
+		got, ok := e.eng.LastChatSampling()
+		if !ok || got.Temperature == nil || *got.Temperature != 0.25 || got.TopP == nil || *got.TopP != 0.5 || got.Seed == nil || *got.Seed != 0 || len(got.Stop) != 1 {
+			t.Fatalf("LastChatSampling = %+v, %v", got, ok)
+		}
+	})
+	t.Run("stream", func(t *testing.T) {
+		statusIs(t, e.chat(`{"model":"`+chatModel+`","stream":true,`+msg+`,`+sampling+`,"stop":["END"]}`), http.StatusOK)
+		check(t, last(), []string{"END"})
+	})
+	t.Run("job", func(t *testing.T) {
+		e.runJobs()
+		r := e.postJob("idem-sampling", `{"model":"`+chatModel+`",`+msg+`,`+sampling+`,"stop":["END"]}`)
+		statusIs(t, r, http.StatusAccepted)
+		e.waitJob(idOf(t, r), "succeeded")
+		check(t, last(), []string{"END"})
+	})
+	t.Run("left out or null means not set", func(t *testing.T) {
+		for _, body := range []string{okChat, `{"model":"` + chatModel + `",` + msg + `,"temperature":null,"top_p":null,"seed":null}`} {
+			statusIs(t, e.chat(body), http.StatusOK)
+			if got := last(); got.Temperature != nil || got.TopP != nil || got.Seed != nil || len(got.Stop) != 0 {
+				t.Fatalf("engine request sampling = %v %v %v %q; want none set", got.Temperature, got.TopP, got.Seed, got.Stop)
+			}
+		}
+	})
+	t.Run("an empty stop sequence is refused before the engine", func(t *testing.T) {
+		calls := e.eng.Calls(fake.OpChat)
+		r := e.chat(`{"model":"` + chatModel + `",` + msg + `,"stop":["ok",""]}`)
+		statusIs(t, r, http.StatusBadRequest)
+		if eb := r.errBody(); eb["param"] != "stop" || eb["type"] != "invalid_request_error" {
+			t.Fatalf("error = %v", eb)
+		}
+		if e.eng.Calls(fake.OpChat) != calls {
+			t.Error("the engine was called for a refused request")
+		}
+	})
+}
+
 func TestUnsupportedFieldsAreRejectedWithATypedError(t *testing.T) {
 	e := newEnv(t)
 	for _, field := range []string{`"n":2`, `"logit_bias":{}`, `"tool_choice":"auto"`, `"user":"u"`, `"logprobs":true`} {
@@ -101,15 +171,12 @@ func TestUnsupportedFieldsAreRejectedWithATypedError(t *testing.T) {
 	}
 }
 
-// Fields the spec lists but the engine port cannot carry yet are refused, never dropped (D-32).
+// Fields the spec lists but the engine port cannot carry are refused, never dropped (D-32).
+// temperature, top_p, seed and stop are not among them (D-113).
 func TestFieldsTheEngineCannotCarryAreRefusedNotIgnored(t *testing.T) {
 	e := newEnv(t)
 	pre := `{"model":"` + chatModel + `","messages":[{"role":"user","content":"hi"}],`
 	for _, tc := range []struct{ name, body string }{
-		{"temperature", pre + `"temperature":0.2}`},
-		{"top_p", pre + `"top_p":0.5}`},
-		{"seed", pre + `"seed":1}`},
-		{"stop", pre + `"stop":"x"}`},
 		{"frequency_penalty", pre + `"frequency_penalty":1}`},
 		{"presence_penalty", pre + `"presence_penalty":1}`},
 		{"tools", pre + `"tools":[{"type":"function","function":{"name":"f"}}]}`},

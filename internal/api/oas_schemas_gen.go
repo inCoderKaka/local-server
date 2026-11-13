@@ -1369,26 +1369,29 @@ type ChatCompletionRequest struct {
 	Model string `json:"model"`
 	// The conversation so far.
 	Messages []ChatMessage `json:"messages"`
-	// As in the OpenAI API.
+	// As in the OpenAI API. Not carried by the host's engine yet; a value is rejected with
+	// `unsupported_parameter`.
 	FrequencyPenalty OptNilFloat64 `json:"frequency_penalty"`
-	// As in the OpenAI API.
+	// As in the OpenAI API. Not carried by the host's engine yet; a value is rejected with
+	// `unsupported_parameter`.
 	PresencePenalty OptNilFloat64 `json:"presence_penalty"`
 	// Most tokens to generate; capped by the grant's output limit.
 	MaxTokens OptNilInt `json:"max_tokens"`
 	// OpenAI's newer name for `max_tokens`; capped the same way. Send at most one of the two.
 	MaxCompletionTokens OptNilInt         `json:"max_completion_tokens"`
 	ResponseFormat      OptResponseFormat `json:"response_format"`
-	// As in the OpenAI API.
+	// As in the OpenAI API. Passed to the engine, which aims for the same output with the same seed and
+	// settings; it is best effort.
 	Seed OptNilInt64 `json:"seed"`
-	// Up to a few sequences where generation stops.
+	// Up to a few sequences where generation stops. Passed to the engine. A sequence must not be empty.
 	Stop OptChatCompletionRequestStop `json:"stop"`
 	// Stream the response as server-sent events.
 	Stream OptNilBool `json:"stream"`
 	// Streaming options; null is the same as leaving it out.
 	StreamOptions OptNilStreamOptions `json:"stream_options"`
-	// As in the OpenAI API.
+	// As in the OpenAI API. Passed to the engine; leave it out for the model's own default.
 	Temperature OptNilFloat64 `json:"temperature"`
-	// As in the OpenAI API.
+	// As in the OpenAI API. Passed to the engine; leave it out for the model's own default.
 	TopP OptNilFloat64 `json:"top_p"`
 	// Function tools the model may call. `tool_choice` is not supported.
 	Tools []ChatTool `json:"tools"`
@@ -1534,7 +1537,7 @@ func (s *ChatCompletionRequest) SetTools(val []ChatTool) {
 	s.Tools = val
 }
 
-// Up to a few sequences where generation stops.
+// Up to a few sequences where generation stops. Passed to the engine. A sequence must not be empty.
 // ChatCompletionRequestStop represents sum type.
 type ChatCompletionRequestStop struct {
 	// Type selects the active sum variant, switch on this field.

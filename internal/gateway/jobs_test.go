@@ -198,7 +198,7 @@ func TestCreateJobValidatesLikeChat(t *testing.T) {
 		{"stream", `{"model":"` + chatModel + `","stream":true,"messages":[{"role":"user","content":"hi"}]}`, http.StatusBadRequest, "stream"},
 		{"model not granted", `{"model":"nope","messages":[{"role":"user","content":"hi"}]}`, http.StatusForbidden, "model"},
 		{"no messages", `{"model":"` + chatModel + `","messages":[]}`, http.StatusBadRequest, "messages"},
-		{"unsupported field", `{"model":"` + chatModel + `","temperature":0.5,"messages":[{"role":"user","content":"hi"}]}`, http.StatusBadRequest, "temperature"},
+		{"unsupported field", `{"model":"` + chatModel + `","frequency_penalty":0.5,"messages":[{"role":"user","content":"hi"}]}`, http.StatusBadRequest, "frequency_penalty"},
 		{"unknown field", `{"model":"` + chatModel + `","n":2,"messages":[{"role":"user","content":"hi"}]}`, http.StatusBadRequest, "n"},
 	}
 	for _, c := range cases {

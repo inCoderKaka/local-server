@@ -39,6 +39,12 @@ type jobPayload struct {
 	Messages   []jobMessage `json:"messages"`
 	MaxTokens  int64        `json:"max_tokens,omitempty"`
 	Properties []string     `json:"properties,omitempty"`
+	// The sampling controls of the request (req_001 D-113); a job stored before they were
+	// carried has none, which means not set.
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
+	Seed        *int     `json:"seed,omitempty"`
+	Stop        []string `json:"stop,omitempty"`
 }
 
 type jobMessage struct {
@@ -47,7 +53,8 @@ type jobMessage struct {
 }
 
 func newJobPayload(in chatInput, properties []string) ([]byte, error) {
-	p := jobPayload{MaxTokens: in.maxTokens, Properties: properties, Messages: make([]jobMessage, 0, len(in.messages))}
+	p := jobPayload{MaxTokens: in.maxTokens, Properties: properties, Messages: make([]jobMessage, 0, len(in.messages)),
+		Temperature: in.temperature, TopP: in.topP, Seed: in.seed, Stop: in.stop}
 	for _, m := range in.messages {
 		p.Messages = append(p.Messages, jobMessage{Role: string(m.Role), Content: m.Content})
 	}
@@ -55,7 +62,7 @@ func newJobPayload(in chatInput, properties []string) ([]byte, error) {
 }
 
 func (p jobPayload) input(model string) chatInput {
-	in := chatInput{model: model, maxTokens: p.MaxTokens}
+	in := chatInput{model: model, maxTokens: p.MaxTokens, temperature: p.Temperature, topP: p.TopP, seed: p.Seed, stop: p.Stop}
 	for _, m := range p.Messages {
 		in.messages = append(in.messages, engine.Message{Role: engine.Role(m.Role), Content: m.Content})
 		in.promptBytes += int64(len(m.Content))

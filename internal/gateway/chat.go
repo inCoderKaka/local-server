@@ -87,9 +87,7 @@ func (g *Gateway) CreateChatCompletion(ctx context.Context, req *api.ChatComplet
 func (g *Gateway) runChat(ctx context.Context, c call, keepAlive time.Duration, in chatInput, p plan) (string, engine.ChatChunk, int, error) {
 	ectx, cancel := context.WithTimeout(ctx, c.cfg.engineTimeout)
 	defer cancel()
-	s, err := g.cfg.Engine.Chat(ectx, engine.ChatRequest{Model: in.model, Messages: in.messages, NumCtx: p.numCtx,
-		NumPredict: p.numPredict, KeepAlive: keepAlive, OnContextOverflow: p.overflow,
-		FirstTokenTimeout: c.cfg.engineTimeout, IdleTimeout: c.cfg.engineTimeout})
+	s, err := g.cfg.Engine.Chat(ectx, in.engineRequest(p, keepAlive, c.cfg.engineTimeout, c.cfg.engineTimeout))
 	if err != nil {
 		return "", engine.ChatChunk{}, 0, engineDeadline(ctx, err)
 	}

@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/engine"
@@ -15,10 +16,10 @@ import (
 // carry, caps max_tokens and pre-checks the prompt size. Nothing here logs or quotes request
 // content; the answers are fixed text and field names from the spec.
 //
-// The OpenAI fields that api/openapi.yaml lists but engine.ChatRequest cannot carry yet
-// (sampling options, stop, response_format other than text, tools, images) are refused with
-// unsupported_parameter, never dropped (req_001 D-32). PLT-F-059 adds sampling options to the
-// engine port; the refusals for the fields it carries then go away.
+// The OpenAI fields that api/openapi.yaml lists but engine.ChatRequest cannot carry (the
+// penalties, response_format other than text, tools, images) are refused with
+// unsupported_parameter, never dropped (req_001 D-32). The ones it does carry, temperature,
+// top_p, seed and stop, are passed through to the engine (req_001 D-113, PLT-B-031).
 
 // chatInput is a chat request that passed validation.
 type chatInput struct {
@@ -30,6 +31,21 @@ type chatInput struct {
 	maxTokens int64
 	// promptBytes is the size of all message text, the base of the prompt-size estimate.
 	promptBytes int64
+	// The sampling controls the request set; nil (or no stop) means not set, and the engine's own
+	// default applies (req_001 D-113).
+	temperature *float64
+	topP        *float64
+	seed        *int
+	stop        []string
+}
+
+// engineRequest is the engine call for a validated request: the same for a streamed answer, a
+// non-streamed one and a job, so the sampling controls reach the engine on every path.
+func (in chatInput) engineRequest(p plan, keepAlive, firstToken, idle time.Duration) engine.ChatRequest {
+	return engine.ChatRequest{Model: in.model, Messages: in.messages, NumCtx: p.numCtx,
+		NumPredict: p.numPredict, KeepAlive: keepAlive, OnContextOverflow: p.overflow,
+		FirstTokenTimeout: firstToken, IdleTimeout: idle,
+		Temperature: in.temperature, TopP: in.topP, Seed: in.seed, Stop: in.stop}
 }
 
 // validateChat checks req against what the gateway and the engine port support.
@@ -52,14 +68,36 @@ func validateChat(req *api.ChatCompletionRequest) (chatInput, *apiError) {
 	}{
 		{"frequency_penalty", req.FrequencyPenalty.IsSet() && !req.FrequencyPenalty.Null},
 		{"presence_penalty", req.PresencePenalty.IsSet() && !req.PresencePenalty.Null},
-		{"seed", req.Seed.IsSet() && !req.Seed.Null},
-		{"temperature", req.Temperature.IsSet() && !req.Temperature.Null},
-		{"top_p", req.TopP.IsSet() && !req.TopP.Null},
-		{"stop", req.Stop.IsSet()},
 		{"tools", len(req.Tools) > 0},
 	} {
 		if f.set {
 			return in, unsupportedParam(f.name, "This field is not supported by this host's model engine yet.")
+		}
+	}
+	if v, ok := req.Temperature.Get(); ok && !req.Temperature.Null {
+		in.temperature = &v
+	}
+	if v, ok := req.TopP.Get(); ok && !req.TopP.Null {
+		in.topP = &v
+	}
+	if v, ok := req.Seed.Get(); ok && !req.Seed.Null {
+		seed := int(v)
+		if int64(seed) != v { // an int is 32 bits wide on some targets
+			return in, invalidParam("seed", "seed is out of range for this host.")
+		}
+		in.seed = &seed
+	}
+	if st, ok := req.Stop.Get(); ok {
+		switch st.Type {
+		case api.StringChatCompletionRequestStop:
+			in.stop = []string{st.String}
+		case api.StringArrayChatCompletionRequestStop:
+			in.stop = append([]string(nil), st.StringArray...)
+		}
+		for _, sq := range in.stop {
+			if sq == "" {
+				return in, invalidParam("stop", "A stop sequence must not be empty.")
+			}
 		}
 	}
 	if rf := req.ResponseFormat; rf.IsSet() && rf.Value.Type != api.ResponseFormatTextResponseFormat {

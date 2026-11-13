@@ -44,7 +44,8 @@ info:
     `logit_bias`, `tool_choice`, `user`, `logprobs`), is rejected with `400` and code
     `unsupported_parameter`, with `param` naming the field. Nothing is silently ignored (D-32).
     A field this file lists but the host's engine cannot carry yet (for example `tools`,
-    `temperature` and `response_format` other than `text`) is rejected the same way.
+    `frequency_penalty`, `presence_penalty` and `response_format` other than `text`) is
+    rejected the same way. `temperature`, `top_p`, `seed` and `stop` are passed to the engine.
 
     ## Errors
 
@@ -4255,12 +4256,12 @@ components:
             $ref: '#/components/schemas/ChatMessage'
         frequency_penalty:
           type: [number, 'null']
-          description: As in the OpenAI API.
+          description: As in the OpenAI API. Not carried by the host's engine yet; a value is rejected with `unsupported_parameter`.
           minimum: -2
           maximum: 2
         presence_penalty:
           type: [number, 'null']
-          description: As in the OpenAI API.
+          description: As in the OpenAI API. Not carried by the host's engine yet; a value is rejected with `unsupported_parameter`.
           minimum: -2
           maximum: 2
         max_tokens:
@@ -4275,10 +4276,10 @@ components:
           $ref: '#/components/schemas/ResponseFormat'
         seed:
           type: [integer, 'null']
-          description: As in the OpenAI API.
+          description: As in the OpenAI API. Passed to the engine, which aims for the same output with the same seed and settings; it is best effort.
           format: int64
         stop:
-          description: Up to a few sequences where generation stops.
+          description: Up to a few sequences where generation stops. Passed to the engine. A sequence must not be empty.
           oneOf:
             - type: string
             - type: array
@@ -4294,12 +4295,12 @@ components:
             - type: 'null'
         temperature:
           type: [number, 'null']
-          description: As in the OpenAI API.
+          description: As in the OpenAI API. Passed to the engine; leave it out for the model's own default.
           minimum: 0
           maximum: 2
         top_p:
           type: [number, 'null']
-          description: As in the OpenAI API.
+          description: As in the OpenAI API. Passed to the engine; leave it out for the model's own default.
           minimum: 0
           maximum: 1
         tools:
