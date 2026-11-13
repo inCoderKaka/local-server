@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -817,9 +818,9 @@ func TestOutsideTimeWindowKeepsTheJobQueued(t *testing.T) {
 	e := newEnv(t)
 	opens := e.clk.Now().Add(time.Hour)
 	j, _ := e.create("c1", "k1", "idem-1")
-	calls := 0
+	var calls atomic.Int32
 	exec := &fakeExec{admit: func(_ context.Context, _ Job, _ []byte) (Slot, error) {
-		calls++
+		calls.Add(1)
 		if e.clk.Now().Before(opens) {
 			return nil, &DeferError{After: opens.Sub(e.clk.Now()), Code: "outside_time_window"}
 		}
@@ -832,8 +833,8 @@ func TestOutsideTimeWindowKeepsTheJobQueued(t *testing.T) {
 		t.Fatalf("job = %+v", got)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if calls != 1 {
-		t.Fatalf("Admit called %d times before the window opened, want 1", calls)
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("Admit called %d times before the window opened, want 1", n)
 	}
 	e.clk.Advance(time.Hour)
 	e.waitStatus("c1", j.ID, Succeeded)

@@ -174,6 +174,11 @@ func (s *Service) dispatch(ctx context.Context, exec Executor) error {
 		if j.Status != Queued {
 			continue
 		}
+		// ids was read before this loop: a job it lists may since have been tried, deferred
+		// (not_before set) and released by its worker, which no longer shows in active.
+		if j.NotBefore.After(now) {
+			continue
+		}
 		jctx, cancel := context.WithCancelCause(ctx)
 		s.mu.Lock()
 		s.active[id] = cancel

@@ -274,6 +274,19 @@ func (s *Scheduler) admit(ctx context.Context, req Request) (*Ticket, error) {
 		}
 	}
 
+	// Arm both timers before the request becomes visible in the queue: the queue-wait limit then
+	// counts from the moment the request is queued, not from after the first dispatch, and anyone
+	// who sees the request queued can rely on its limit being armed.
+	var wait Timer
+	var waitC <-chan time.Time
+	if !req.Job {
+		wait = s.clock.NewTimer(cfg.queueWait)
+		defer wait.Stop()
+		waitC = wait.C()
+	}
+	recheck := s.clock.NewTimer(cfg.recheck)
+	defer func() { recheck.Stop() }()
+
 	w := &waiter{req: req, enq: s.clock.Now(), ctxBytes: ctxBytes, done: make(chan struct{})}
 	s.mu.Lock()
 	s.seq++
@@ -310,15 +323,6 @@ func (s *Scheduler) admit(ctx context.Context, req Request) (*Ticket, error) {
 	}
 	s.mu.Unlock()
 
-	var wait Timer
-	var waitC <-chan time.Time
-	if !req.Job {
-		wait = s.clock.NewTimer(cfg.queueWait)
-		defer wait.Stop()
-		waitC = wait.C()
-	}
-	recheck := s.clock.NewTimer(cfg.recheck)
-	defer func() { recheck.Stop() }()
 	var recheckErr error // the last recheck's failure; logged once per outage, not once per interval
 	for {
 		select {
