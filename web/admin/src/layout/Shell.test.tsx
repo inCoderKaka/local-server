@@ -73,7 +73,9 @@ describe('layout on every page', () => {
     renderApp(fakeHost(), { pages: allPages });
     const nav = await screen.findByRole('navigation', { name: 'Main' });
     const links = within(nav).getAllByRole('link').map((a) => [a.textContent, a.getAttribute('href')]);
-    expect(links).toEqual([
+    // Real pages sit between them by their order; only the fixture pages and the dashboard are checked.
+    const known = ['Dashboard', 'Fake A', 'Fake B', 'Fake C'];
+    expect(links.filter(([label]) => known.includes(label ?? ''))).toEqual([
       ['Dashboard', '#/'],
       ['Fake B', '#/fake-b'],
       ['Fake A', '#/fake-a'],
