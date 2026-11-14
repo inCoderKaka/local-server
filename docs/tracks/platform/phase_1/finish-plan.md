@@ -23,8 +23,8 @@ Nothing else is phase 1.
 |---|---|
 | M0 Prove the core | PLT-C-011 (real Ollama run), PLT-B-031, PLT-B-028, PLT-B-041, PLT-B-084, PLT-B-056, first push and first CI run |
 | M1 Reachable | PLT-F-038 (Tailscale transport, D-147, D-148), PLT-B-008 (remote admin login, D-86), the three calls from a second machine |
-| M2 Host UI | PLT-F-032, PLT-F-033, PLT-F-034, PLT-F-035 |
-| M3 Consumers | PLT-F-027, PLT-F-028, PLT-F-036, PLT-F-037 |
+| M2 Host UI | PLT-F-032, PLT-F-033, PLT-F-034, PLT-F-027, PLT-F-028, PLT-F-035 (F-027 and F-028 moved in from M3, D-160) |
+| M3 Consumers | PLT-F-036, PLT-F-037 |
 | M4 Ship | PLT-B-001 (pin CI actions, D-88), PLT-C-003, PLT-F-043 |
 | M5 Docs and close | PLT-C-004, HLD and LLD reconciled with the code, user guide, developer guide, `/phase-retro` |
 
