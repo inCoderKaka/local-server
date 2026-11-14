@@ -118,7 +118,7 @@ func toAccessKey(k consumers.Key) (api.AccessKey, error) {
 		return api.AccessKey{}, err
 	}
 	out := api.AccessKey{ID: id, ConsumerID: cid, Prefix: k.Prefix, Name: optNil(k.Name), Status: api.AccessKeyStatus(k.Status),
-		BoundNode: optNil(k.BoundNode), CreatedAt: k.CreatedAt, ExpiresAt: optNilTime(k.ExpiresAt), RevokedAt: optNilTime(k.RevokedAt),
+		BoundNode: optNil(k.BoundNode), BoundNodeName: optNil(k.BoundNodeName), CreatedAt: k.CreatedAt, ExpiresAt: optNilTime(k.ExpiresAt), RevokedAt: optNilTime(k.RevokedAt),
 		Warnings: k.Warnings}
 	if k.Narrowing == nil {
 		out.Narrowing.SetToNull()

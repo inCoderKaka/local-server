@@ -15,6 +15,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
+	"github.com/inCoderKaka/local-server/internal/transport"
 )
 
 // Access key states, derived from the key row and the clock (req_001 D-38).
@@ -58,16 +59,21 @@ type Key struct {
 	Name       *string
 	Status     string
 	Narrowing  *Narrowing
-	BoundNode  *string
-	CreatedAt  time.Time
-	ExpiresAt  *time.Time
-	RevokedAt  *time.Time
+	// BoundNode is the stable id of the tailnet node the key is bound to, and BoundNodeName that
+	// node's machine name when the host bound it (req_001 D-159).
+	BoundNode     *string
+	BoundNodeName *string
+	CreatedAt     time.Time
+	ExpiresAt     *time.Time
+	RevokedAt     *time.Time
 	// Warnings are set by IssueAccessKey and UpdateAccessKey only: input they accepted but did
 	// not use, for example the deprecated quota given beside quotas.
 	Warnings []string
 }
 
-// NewKey is a key to issue.
+// NewKey is a key to issue. BoundNode names the tailnet node to bind it to: an address, a node
+// id, a machine name or a MagicDNS name, which the service resolves through Tailscale (req_001
+// D-154, D-159).
 type NewKey struct {
 	Name      *string
 	ExpiresAt *time.Time
@@ -148,7 +154,7 @@ func (m *modelNames) legacyWindow() (time.Duration, error) {
 // and logged by key id: the auth service refuses such a key, so it cannot be used.
 func (m *modelNames) view(k identity.AccessKey, now time.Time) (Key, error) {
 	out := Key{ID: k.ID, ConsumerID: k.ConsumerID, Prefix: k.Prefix, Name: k.Label, Status: keyStatus(k, now),
-		BoundNode: k.BoundNode, CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, RevokedAt: k.RevokedAt}
+		BoundNode: k.BoundNode, BoundNodeName: k.BoundNodeName, CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, RevokedAt: k.RevokedAt}
 	if k.NarrowingJSON == nil {
 		return out, nil
 	}
@@ -214,6 +220,27 @@ func (s *Service) checkKeyFields(name *string, expires *time.Time, node *string)
 	return nil
 }
 
+// resolveNode turns what the host typed into the node to bind: its stable id and machine name,
+// from Tailscale. A host with no Tailscale, a node that is not in the tailnet and a name that
+// several nodes share are refused with a message that says what to do.
+func (s *Service) resolveNode(ctx context.Context, ref string) (transport.Node, error) {
+	if s.cfg.Nodes == nil {
+		return transport.Node{}, conflict("This host has no usable Tailscale, so a key cannot be bound to a node. Run `local-server doctor` for the fix.")
+	}
+	n, err := s.cfg.Nodes.Resolve(ctx, ref)
+	switch {
+	case err == nil:
+		return n, nil
+	case errors.Is(err, transport.ErrNodeNotFound):
+		return transport.Node{}, invalid("bound_node", "No node of this tailnet has that address, node ID or name.")
+	case errors.Is(err, transport.ErrAmbiguousNode):
+		return transport.Node{}, invalid("bound_node", "More than one node has that name. Give its node ID or tailnet address instead.")
+	case errors.Is(err, transport.ErrUnavailable):
+		return transport.Node{}, conflict("Tailscale did not answer, so the node cannot be looked up. Run `local-server doctor` for the fix.")
+	}
+	return transport.Node{}, err
+}
+
 // trimmed returns a pointer to a trimmed copy of *p, or nil for nil. It never writes through p:
 // the caller owns that string.
 func trimmed(p *string) *string {
@@ -242,7 +269,11 @@ func (s *Service) IssueAccessKey(ctx context.Context, actor, consumerID string, 
 	}
 	p := auth.IssueParams{ConsumerID: consumerID, ActorID: actor, Label: in.Name, Narrowing: nar, ExpiresAt: in.ExpiresAt}
 	if in.BoundNode != nil {
-		p.BoundNode = *in.BoundNode
+		n, err := s.resolveNode(ctx, *in.BoundNode)
+		if err != nil {
+			return IssuedKey{}, err
+		}
+		p.BoundNode, p.BoundNodeName = n.ID, n.Name
 	}
 	var out IssuedKey
 	err = s.write(ctx, func(tx *storage.Tx) error {
@@ -259,7 +290,7 @@ func (s *Service) IssueAccessKey(ctx context.Context, actor, consumerID string, 
 		}
 		k := is.AccessKey
 		out = IssuedKey{Secret: is.Key, Key: Key{ID: k.ID, ConsumerID: k.ConsumerID, Prefix: k.Prefix, Name: k.Label, Status: keyStatus(k, s.now()),
-			Narrowing: view, BoundNode: k.BoundNode, CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, Warnings: warnings}}
+			Narrowing: view, BoundNode: k.BoundNode, BoundNodeName: k.BoundNodeName, CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt, Warnings: warnings}}
 		return nil
 	})
 	if err != nil {
@@ -296,6 +327,16 @@ func (s *Service) UpdateAccessKey(ctx context.Context, actor, keyID string, ch K
 	if err != nil {
 		return Key{}, err
 	}
+	// The node is looked up before the unit of work: it asks Tailscale, which must not hold the
+	// database. A reference that is already the key's node id needs no lookup.
+	var bindNode *transport.Node
+	if node != nil && !(cur.BoundNode != nil && *cur.BoundNode == *node) {
+		n, err := s.resolveNode(ctx, *node)
+		if err != nil {
+			return Key{}, err
+		}
+		bindNode = &n
+	}
 	var nar auth.Narrowing
 	var warnings []string
 	if ch.Narrowing.Set && !ch.Narrowing.Null {
@@ -324,7 +365,7 @@ func (s *Service) UpdateAccessKey(ctx context.Context, actor, keyID string, ch K
 		case KeyExpired:
 			return conflict("An expired access key cannot be changed.")
 		}
-		label, narrowing, bound, exp := k.Label, k.NarrowingJSON, k.BoundNode, k.ExpiresAt
+		label, narrowing, bound, boundName, exp := k.Label, k.NarrowingJSON, k.BoundNode, k.BoundNodeName, k.ExpiresAt
 		var fields []string
 		if ch.Name.Set {
 			if v := name; !samePtr(label, v) {
@@ -351,15 +392,21 @@ func (s *Service) UpdateAccessKey(ctx context.Context, actor, keyID string, ch K
 			}
 		}
 		if ch.BoundNode.Set {
-			if !samePtr(bound, node) {
-				bound = node
+			var id, name *string // null unbinds; a node the host already bound keeps its stored name
+			if bindNode != nil {
+				id, name = &bindNode.ID, &bindNode.Name
+			} else if node != nil {
+				id, name = bound, boundName
+			}
+			if !samePtr(bound, id) || !samePtr(boundName, name) {
+				bound, boundName = id, name
 				fields = append(fields, "bound_node")
 			}
 		}
 		if len(fields) == 0 {
 			return nil
 		}
-		if err := s.cfg.Identity.AccessKeys.Update(tx, keyID, label, narrowing, bound, exp); err != nil {
+		if err := s.cfg.Identity.AccessKeys.Update(tx, keyID, label, narrowing, bound, boundName, exp); err != nil {
 			return err
 		}
 		// Field names only: the key's name is personal data and the audit trail is kept forever.

@@ -21,6 +21,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
+	"github.com/inCoderKaka/local-server/internal/transport"
 )
 
 // principalKindConsumer is the idn_principal.kind of a consumer.
@@ -49,6 +50,13 @@ type Auth interface {
 
 var _ Auth = (*auth.Service)(nil)
 
+// NodeResolver finds the tailnet node a host names when it binds an access key (req_001 D-154,
+// D-159). The transport port implements it. It returns transport.ErrNodeNotFound,
+// transport.ErrAmbiguousNode or transport.ErrUnavailable.
+type NodeResolver interface {
+	Resolve(ctx context.Context, ref string) (transport.Node, error)
+}
+
 // Config is what New needs. Everything except Clock and Logger is required.
 type Config struct {
 	DB       *storage.DB
@@ -56,6 +64,9 @@ type Config struct {
 	Identity *identity.Repos
 	Grants   *grants.Repos
 	Auth     Auth
+	// Nodes resolves the node a key is bound to into its stable id and machine name. Nil means
+	// this host has no Tailscale: binding a key is then refused.
+	Nodes NodeResolver
 	// Events runs every write, so that auth.Service.Revoke can emit its event in the same unit.
 	Events events.Notifier
 	// Clock nil means time.Now. Use the clock of the auth service, so a key's expiry means the

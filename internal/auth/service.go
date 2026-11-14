@@ -48,7 +48,8 @@ var (
 // WhoIs is the port that names the transport node a connection came from (D-39). The transport
 // module's adapters implement it; auth imports no transport.
 type WhoIs interface {
-	// NodeOf returns the id of the node behind remoteAddr, or an error if it cannot tell.
+	// NodeOf returns the stable id of the node behind remoteAddr (the one a key is bound to,
+	// req_001 D-159), or an error if it cannot tell.
 	NodeOf(ctx context.Context, remoteAddr string) (string, error)
 }
 
@@ -140,8 +141,11 @@ type IssueParams struct {
 	ActorID    string // principal who issues it; empty means the system
 	Label      *string
 	Narrowing  Narrowing
-	BoundNode  string // empty means not bound
-	ExpiresAt  *time.Time
+	// BoundNode is the stable id of the tailnet node the key is bound to, and BoundNodeName its
+	// machine name (req_001 D-159); empty means not bound. Only the id is checked on use.
+	BoundNode     string
+	BoundNodeName string
+	ExpiresAt     *time.Time
 }
 
 // Issued is a new key. Key.Reveal() is the only copy of the key and is shown once.
@@ -166,16 +170,19 @@ func (s *Service) Issue(tx *storage.Tx, p IssueParams) (Issued, error) {
 	if err != nil {
 		return Issued{}, err
 	}
-	var bound *string
+	var bound, boundName *string
 	if p.BoundNode != "" {
 		bound = &p.BoundNode
+		if p.BoundNodeName != "" {
+			boundName = &p.BoundNodeName
+		}
 	}
 	prefix, secret, err := newKey()
 	if err != nil {
 		return Issued{}, fmt.Errorf("auth: generate key: %w", err)
 	}
 	k, err := s.cfg.Identity.AccessKeys.Create(tx, identity.NewAccessKey{ConsumerID: p.ConsumerID, Prefix: prefix,
-		SecretHash: HashSecret(secret), Label: p.Label, NarrowingJSON: text, BoundNode: bound, ExpiresAt: p.ExpiresAt})
+		SecretHash: HashSecret(secret), Label: p.Label, NarrowingJSON: text, BoundNode: bound, BoundNodeName: boundName, ExpiresAt: p.ExpiresAt})
 	if err != nil {
 		return Issued{}, fmt.Errorf("auth: store key: %w", err)
 	}

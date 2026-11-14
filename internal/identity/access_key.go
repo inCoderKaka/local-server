@@ -15,7 +15,10 @@ type AccessKey struct {
 	SecretHash    string
 	Label         *string
 	NarrowingJSON *string
+	// BoundNode is the stable id of the tailnet node the key is bound to; BoundNodeName is that
+	// node's machine name when it was bound (req_001 D-159). Only the id is checked on use.
 	BoundNode     *string
+	BoundNodeName *string
 	CreatedAt     time.Time
 	ExpiresAt     *time.Time
 	RevokedAt     *time.Time
@@ -24,13 +27,13 @@ type AccessKey struct {
 // AccessKeyRepo reads and writes idn_access_key.
 type AccessKeyRepo struct{ now Clock }
 
-const keyCols = `id, consumer_id, prefix, secret_hash, label, narrowing_json, bound_node, created_at, expires_at, revoked_at`
+const keyCols = `id, consumer_id, prefix, secret_hash, label, narrowing_json, bound_node, bound_node_name, created_at, expires_at, revoked_at`
 
 func scanAccessKey(r storage.Row) (AccessKey, error) {
 	var k AccessKey
 	var cr int64
 	var ex, rv *int64
-	err := r.Scan(&k.ID, &k.ConsumerID, &k.Prefix, &k.SecretHash, &k.Label, &k.NarrowingJSON, &k.BoundNode, &cr, &ex, &rv)
+	err := r.Scan(&k.ID, &k.ConsumerID, &k.Prefix, &k.SecretHash, &k.Label, &k.NarrowingJSON, &k.BoundNode, &k.BoundNodeName, &cr, &ex, &rv)
 	k.CreatedAt, k.ExpiresAt, k.RevokedAt = tm(cr), tmp(ex), tmp(rv)
 	return k, err
 }
@@ -44,6 +47,7 @@ type NewAccessKey struct {
 	Label         *string
 	NarrowingJSON *string
 	BoundNode     *string
+	BoundNodeName *string
 	ExpiresAt     *time.Time
 }
 
@@ -54,12 +58,12 @@ func (r *AccessKeyRepo) Create(tx *storage.Tx, n NewAccessKey) (AccessKey, error
 		return AccessKey{}, err
 	}
 	now := ms(r.now())
-	if _, err := tx.Exec(`INSERT INTO idn_access_key (id, consumer_id, prefix, secret_hash, label, narrowing_json, bound_node, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, n.ConsumerID, n.Prefix, n.SecretHash, n.Label, n.NarrowingJSON, n.BoundNode, now, msp(n.ExpiresAt)); err != nil {
+	if _, err := tx.Exec(`INSERT INTO idn_access_key (id, consumer_id, prefix, secret_hash, label, narrowing_json, bound_node, bound_node_name, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, n.ConsumerID, n.Prefix, n.SecretHash, n.Label, n.NarrowingJSON, n.BoundNode, n.BoundNodeName, now, msp(n.ExpiresAt)); err != nil {
 		return AccessKey{}, err
 	}
 	return AccessKey{ID: id, ConsumerID: n.ConsumerID, Prefix: n.Prefix, SecretHash: n.SecretHash, Label: n.Label,
-		NarrowingJSON: n.NarrowingJSON, BoundNode: n.BoundNode, CreatedAt: tm(now), ExpiresAt: tmp(msp(n.ExpiresAt))}, nil
+		NarrowingJSON: n.NarrowingJSON, BoundNode: n.BoundNode, BoundNodeName: n.BoundNodeName, CreatedAt: tm(now), ExpiresAt: tmp(msp(n.ExpiresAt))}, nil
 }
 
 // Get returns one access key.
@@ -95,10 +99,11 @@ func (r *AccessKeyRepo) ListByConsumerTx(tx *storage.Tx, consumerID string) ([]A
 	return collect(rows, scanAccessKey)
 }
 
-// Update changes the label, the narrowing, the node binding and the expiry of a key.
-func (r *AccessKeyRepo) Update(tx *storage.Tx, id string, label, narrowingJSON, boundNode *string, expiresAt *time.Time) error {
-	return mustChange(tx.Exec(`UPDATE idn_access_key SET label = ?, narrowing_json = ?, bound_node = ?, expires_at = ? WHERE id = ?`,
-		label, narrowingJSON, boundNode, msp(expiresAt), id))
+// Update changes the label, the narrowing, the node binding (the node id and its machine name)
+// and the expiry of a key.
+func (r *AccessKeyRepo) Update(tx *storage.Tx, id string, label, narrowingJSON, boundNode, boundNodeName *string, expiresAt *time.Time) error {
+	return mustChange(tx.Exec(`UPDATE idn_access_key SET label = ?, narrowing_json = ?, bound_node = ?, bound_node_name = ?, expires_at = ? WHERE id = ?`,
+		label, narrowingJSON, boundNode, boundNodeName, msp(expiresAt), id))
 }
 
 // Revoke ends a key. It stays for metering history.

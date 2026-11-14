@@ -16,6 +16,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
+	"github.com/inCoderKaka/local-server/internal/transport"
 	"github.com/inCoderKaka/local-server/internal/usage"
 )
 
@@ -38,7 +39,24 @@ type env struct {
 	admin string // the principal id of a host admin, the actor of every write
 }
 
-func newEnv(t *testing.T) *env {
+// fakeNodes is a tailnet whose nodes have the id of the reference and a machine name made from
+// it. "unknown", "twins" and "tsdown" are the three refusals of the transport port. No test here
+// talks to a real Tailscale.
+type fakeNodes struct{}
+
+func (fakeNodes) Resolve(_ context.Context, ref string) (transport.Node, error) {
+	switch ref {
+	case "unknown":
+		return transport.Node{}, transport.ErrNodeNotFound
+	case "twins":
+		return transport.Node{}, transport.ErrAmbiguousNode
+	case "tsdown":
+		return transport.Node{}, transport.ErrUnavailable
+	}
+	return transport.Node{ID: ref, Name: ref + "-machine"}, nil
+}
+
+func newEnv(t *testing.T, mod ...func(*consumers.Config)) *env {
 	t.Helper()
 	db, err := storage.Open(ctx, storage.DefaultConfig(filepath.Join(t.TempDir(), "t.db"),
 		settings.Module(), identity.Module(), grants.Module(), audit.Module(), events.Module(), usage.Module()))
@@ -53,7 +71,11 @@ func newEnv(t *testing.T) *env {
 	if e.au, err = auth.New(auth.Config{DB: db, Identity: e.ir, Grants: e.gr, Events: bus, Settings: e.st, Clock: clock}); err != nil {
 		t.Fatal(err)
 	}
-	if e.svc, err = consumers.New(consumers.Config{DB: db, Settings: e.st, Identity: e.ir, Grants: e.gr, Auth: e.au, Events: bus, Clock: clock}); err != nil {
+	cc := consumers.Config{DB: db, Settings: e.st, Identity: e.ir, Grants: e.gr, Auth: e.au, Nodes: fakeNodes{}, Events: bus, Clock: clock}
+	for _, m := range mod {
+		m(&cc)
+	}
+	if e.svc, err = consumers.New(cc); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Write(ctx, func(tx *storage.Tx) error {

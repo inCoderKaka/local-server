@@ -30,6 +30,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
+	"github.com/inCoderKaka/local-server/internal/transport"
 	"github.com/inCoderKaka/local-server/internal/usage"
 )
 
@@ -160,8 +161,21 @@ type env struct {
 }
 
 type envOpts struct {
-	engine  admin.Engine
-	metrics http.Handler
+	engine       admin.Engine
+	metrics      http.Handler
+	tailnetHosts []string
+	tailnet      transport.Report
+}
+
+// fakeNodes is a tailnet with one node, "laptop"; any other reference is not in it. No test here
+// talks to a real Tailscale.
+type fakeNodes struct{}
+
+func (fakeNodes) Resolve(_ context.Context, ref string) (transport.Node, error) {
+	if ref == "laptop" || ref == "node-id-1" {
+		return transport.Node{ID: "node-id-1", Name: "laptop"}, nil
+	}
+	return transport.Node{}, transport.ErrNodeNotFound
 }
 
 func newEnv(t *testing.T, mod ...func(*envOpts)) *env {
@@ -202,7 +216,8 @@ func newEnv(t *testing.T, mod ...func(*envOpts)) *env {
 		t.Fatal(err)
 	}
 	e.admin, err = admin.New(admin.Config{DB: db, Settings: e.st, Identity: e.ir, Grants: e.gr, Auth: e.auth, Events: bus, Audit: log, Sharing: e.share, Sampler: e.sampler,
-		Keys: fakeKeys{}, Engine: o.engine, Metrics: o.metrics, Version: "1.2.3-test", Telemetry: e.tel, Clock: e.clk.now})
+		Keys: fakeKeys{}, Engine: o.engine, Metrics: o.metrics, Version: "1.2.3-test", Telemetry: e.tel, Clock: e.clk.now,
+		Nodes: fakeNodes{}, TailnetHosts: o.tailnetHosts, Tailnet: o.tailnet})
 	if err != nil {
 		t.Fatal(err)
 	}

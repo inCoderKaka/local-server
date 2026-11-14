@@ -293,9 +293,9 @@ func TestAccessKeyOverHTTP(t *testing.T) {
 	kid, _ := k["id"].(string)
 	body := list.Body.String()
 
-	r = e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"name":null,"narrowing":{"quota":{"tokens":10}},"bound_node":"example-node"}`)
+	r = e.call(token, "PATCH", "/admin/v1/access-keys/"+kid, `{"name":null,"narrowing":{"quota":{"tokens":10}},"bound_node":"laptop"}`)
 	status(t, r, http.StatusOK)
-	if got := r.json(); got["name"] != nil || got["bound_node"] != "example-node" || got["narrowing"].(map[string]any)["quota"].(map[string]any)["tokens"] != float64(10) {
+	if got := r.json(); got["name"] != nil || got["bound_node"] != "node-id-1" || got["bound_node_name"] != "laptop" || got["narrowing"].(map[string]any)["quota"].(map[string]any)["tokens"] != float64(10) {
 		t.Fatalf("patch = %s", r.Body.String())
 	}
 	// A narrowing replaces the stored one whole: parts left out are removed.

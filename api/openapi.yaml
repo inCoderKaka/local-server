@@ -104,11 +104,17 @@ servers:
         default: host-machine.tailnet.ts.net
         description: The host machine's tailnet name and the consumer port the host configured.
   - url: http://{adminAddress}
-    description: Admin listener, on localhost by default. Serves `/admin/v1` only.
+    description: Admin listener on localhost, the default. Serves `/admin/v1` only. A browser accepts the `Secure` session cookie over plain HTTP on localhost.
     variables:
       adminAddress:
         default: localhost
-        description: localhost and the admin port the host configured, or the host's tailnet address when the host enabled remote admin.
+        description: localhost and the admin port the host configured.
+  - url: https://{adminHostMachine}
+    description: Remote admin listener, only when the host switched it on (setting `serve.tailnet_admin_enabled`). It is HTTPS on the host's tailnet address with the host's `*.ts.net` certificate, behind the admin login, and the `ls_admin_session` cookie stays `Secure` (D-86). Serves `/admin/v1` only.
+    variables:
+      adminHostMachine:
+        default: host-machine.tailnet.ts.net
+        description: The host machine's tailnet name and the remote admin port the host configured.
 tags:
   - name: openai
     description: OpenAI-compatible surfaces, implemented as published.
@@ -3646,6 +3652,7 @@ components:
         status: active
         narrowing: null
         bound_node: null
+        bound_node_name: null
         created_at: '2026-01-15T10:00:00Z'
         expires_at: null
         revoked_at: null
@@ -3660,6 +3667,7 @@ components:
         status: revoked
         narrowing: null
         bound_node: null
+        bound_node_name: null
         created_at: '2026-01-15T10:00:00Z'
         expires_at: null
         revoked_at: '2026-01-15T10:05:00Z'
@@ -3675,6 +3683,7 @@ components:
             status: active
             narrowing: null
             bound_node: null
+            bound_node_name: null
             created_at: '2026-01-15T10:00:00Z'
             expires_at: null
             revoked_at: null
@@ -3709,6 +3718,7 @@ components:
           status: active
           narrowing: null
           bound_node: null
+          bound_node_name: null
           created_at: '2026-01-15T10:00:00Z'
           expires_at: null
           revoked_at: null
@@ -6484,7 +6494,11 @@ components:
           example: null
         bound_node:
           type: [string, 'null']
-          description: The tailnet node the key is bound to (checked through Tailscale WhoIs), if any.
+          description: The stable Tailscale node ID of the tailnet node the key is bound to, if any. The consumer API accepts the key only from that node (checked through Tailscale WhoIs).
+          example: null
+        bound_node_name:
+          type: [string, 'null']
+          description: The machine name of the bound node when the host bound it, for the host to recognise it. Only the node ID is checked on use, so a rename changes nothing. Null when the key is not bound.
           example: null
         created_at:
           type: string
@@ -6524,6 +6538,7 @@ components:
               status: active
               narrowing: null
               bound_node: null
+              bound_node_name: null
               created_at: '2026-01-15T10:00:00Z'
               expires_at: null
               revoked_at: null
@@ -6552,7 +6567,7 @@ components:
             max_output_tokens: 512
         bound_node:
           type: [string, 'null']
-          description: Bind the key to this tailnet node.
+          description: Bind the key to this tailnet node, named by its tailnet address, node ID, machine name or MagicDNS name. The host looks it up through Tailscale and stores the node ID and the machine name; the answer shows both. Refused (409) when the host has no usable Tailscale, and (400) when no node, or more than one, matches.
           example: example-node
     AccessKeyUpdate:
       type: object
@@ -6581,7 +6596,7 @@ components:
             max_output_tokens: 512
         bound_node:
           type: [string, 'null']
-          description: Bind the key to this tailnet node; null unbinds it.
+          description: Bind the key to this tailnet node, named by its tailnet address, node ID, machine name or MagicDNS name, as when the key is created; null unbinds it.
           example: example-node
     AccessKeyIssued:
       type: object
@@ -6598,6 +6613,7 @@ components:
             status: active
             narrowing: null
             bound_node: null
+            bound_node_name: null
             created_at: '2026-01-15T10:00:00Z'
             expires_at: null
             revoked_at: null
@@ -6873,6 +6889,62 @@ components:
           type: [string, 'null']
           description: The engine's version, when known.
           example: 0.0.0-example
+        tailnet:
+          $ref: '#/components/schemas/TailnetInfo'
+          example:
+            state: ready
+            message: null
+            fix: null
+            dns_name: host-machine.example-tailnet.ts.net
+            listeners:
+              - role: consumer_api
+                address: 100.64.0.1:8484
+              - role: consumer_page
+                address: 100.64.0.1:8485
+    TailnetInfo:
+      type: object
+      description: How this host is reachable over the tailnet, as of the last start. Anything but `ready` leaves the host serving on localhost only; `message` says why and `fix` says what to do (req_001 D-148).
+      required: [state, listeners]
+      properties:
+        state:
+          type: string
+          description: '`ready`: the tailnet listeners are up. `unavailable`: Tailscale is not installed, not running or not reachable. `stopped`: Tailscale is switched off. `logged_out`: Tailscale needs a login or approval. `starting`: Tailscale is still connecting. `no_https`: the tailnet has no HTTPS certificates.'
+          enum: [ready, unavailable, stopped, logged_out, starting, no_https]
+          example: ready
+        message:
+          type: [string, 'null']
+          description: Why the tailnet listeners are off; null when they are up.
+          example: null
+        fix:
+          type: [string, 'null']
+          description: What the host does about it; null when the tailnet listeners are up.
+          example: null
+        dns_name:
+          type: [string, 'null']
+          description: The host's `*.ts.net` name that its certificate is for, when Tailscale is running with HTTPS certificates.
+          example: host-machine.example-tailnet.ts.net
+        listeners:
+          type: array
+          description: The tailnet listeners that are up. Each binds only to the host's tailnet address.
+          items:
+            $ref: '#/components/schemas/TailnetListener'
+          example:
+            - role: consumer_api
+              address: 100.64.0.1:8484
+    TailnetListener:
+      type: object
+      description: One tailnet listener.
+      required: [role, address]
+      properties:
+        role:
+          type: string
+          description: '`consumer_api` serves `/v1` to client apps with access keys. `consumer_page` serves the consumer web page. `admin` serves the admin API and UI behind the admin login, and exists only when the host switched it on.'
+          enum: [consumer_api, consumer_page, admin]
+          example: consumer_api
+        address:
+          type: string
+          description: The tailnet address and port it listens on, `host:port`.
+          example: 100.64.0.1:8484
     MetricValue:
       type: object
       description: A measured value and how it was measured.

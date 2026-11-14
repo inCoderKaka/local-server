@@ -9,6 +9,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/host"
 	"github.com/inCoderKaka/local-server/internal/hostmetrics"
+	"github.com/inCoderKaka/local-server/internal/transport"
 )
 
 // versioner is what an engine adapter may offer on top of the engine port: its version.
@@ -42,7 +43,8 @@ func (a *Admin) hostInfo(ctx context.Context) (*api.HostInfo, error) {
 	if err != nil && !errors.Is(err, host.ErrInvalidSchedule) {
 		return nil, fmt.Errorf("admin: sharing state: %w", err)
 	}
-	out := &api.HostInfo{HostKid: a.cfg.Keys.HostID(), SharingState: api.SharingState(state), SoftwareVersion: a.cfg.Version}
+	out := &api.HostInfo{HostKid: a.cfg.Keys.HostID(), SharingState: api.SharingState(state), SoftwareVersion: a.cfg.Version,
+		Tailnet: api.NewOptTailnetInfo(tailnetInfo(a.cfg.Tailnet))}
 	if at, ok, err := a.cfg.Sharing.PausedAt(ctx); err != nil {
 		return nil, fmt.Errorf("admin: paused at: %w", err)
 	} else if ok {
@@ -225,4 +227,30 @@ func (a *Admin) AdminGetHostMetricsHistory(ctx context.Context, params api.Admin
 		out.Data = append(out.Data, sampleOfMinute(m))
 	}
 	return out, nil
+}
+
+// tailnetInfo maps the tailnet report to the API. A state other than ready carries the message
+// and the fix; the listeners are those that were brought up.
+func tailnetInfo(r transport.Report) api.TailnetInfo {
+	st := r.Status
+	if st.State == "" {
+		st.State = transport.StateUnavailable
+	}
+	out := api.TailnetInfo{State: api.TailnetInfoState(st.State), Listeners: []api.TailnetListener{}}
+	if m := st.Message(); m != "" {
+		out.Message = api.NewOptNilString(m)
+		out.Fix = api.NewOptNilString(st.Fix())
+	} else {
+		out.Message.SetToNull()
+		out.Fix.SetToNull()
+	}
+	if st.DNSName != "" {
+		out.DNSName = api.NewOptNilString(st.DNSName)
+	} else {
+		out.DNSName.SetToNull()
+	}
+	for _, l := range r.Listeners {
+		out.Listeners = append(out.Listeners, api.TailnetListener{Role: api.TailnetListenerRole(l.Role), Address: l.Addr})
+	}
+	return out
 }

@@ -32,8 +32,12 @@ type AccessKey struct {
 	Status AccessKeyStatus `json:"status"`
 	// Limits the key adds to the grant, if any.
 	Narrowing OptNilAccessKeyNarrowing `json:"narrowing"`
-	// The tailnet node the key is bound to (checked through Tailscale WhoIs), if any.
+	// The stable Tailscale node ID of the tailnet node the key is bound to, if any. The consumer API
+	// accepts the key only from that node (checked through Tailscale WhoIs).
 	BoundNode OptNilString `json:"bound_node"`
+	// The machine name of the bound node when the host bound it, for the host to recognise it. Only the
+	// node ID is checked on use, so a rename changes nothing. Null when the key is not bound.
+	BoundNodeName OptNilString `json:"bound_node_name"`
 	// When it was issued.
 	CreatedAt time.Time `json:"created_at"`
 	// When it expires, if ever.
@@ -80,6 +84,11 @@ func (s *AccessKey) GetNarrowing() OptNilAccessKeyNarrowing {
 // GetBoundNode returns the value of BoundNode.
 func (s *AccessKey) GetBoundNode() OptNilString {
 	return s.BoundNode
+}
+
+// GetBoundNodeName returns the value of BoundNodeName.
+func (s *AccessKey) GetBoundNodeName() OptNilString {
+	return s.BoundNodeName
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -137,6 +146,11 @@ func (s *AccessKey) SetBoundNode(val OptNilString) {
 	s.BoundNode = val
 }
 
+// SetBoundNodeName sets the value of BoundNodeName.
+func (s *AccessKey) SetBoundNodeName(val OptNilString) {
+	s.BoundNodeName = val
+}
+
 // SetCreatedAt sets the value of CreatedAt.
 func (s *AccessKey) SetCreatedAt(val time.Time) {
 	s.CreatedAt = val
@@ -192,7 +206,10 @@ type AccessKeyCreate struct {
 	// When it expires; null or absent means never.
 	ExpiresAt OptNilDateTime        `json:"expires_at"`
 	Narrowing OptAccessKeyNarrowing `json:"narrowing"`
-	// Bind the key to this tailnet node.
+	// Bind the key to this tailnet node, named by its tailnet address, node ID, machine name or MagicDNS
+	// name. The host looks it up through Tailscale and stores the node ID and the machine name; the answer
+	// shows both. Refused (409) when the host has no usable Tailscale, and (400) when no node, or more
+	// than one, matches.
 	BoundNode OptNilString `json:"bound_node"`
 }
 
@@ -427,7 +444,8 @@ type AccessKeyUpdate struct {
 	// The key's whole new narrowing: it replaces the stored one, so a limit left out of it is removed;
 	// null removes them all.
 	Narrowing OptNilAccessKeyNarrowing `json:"narrowing"`
-	// Bind the key to this tailnet node; null unbinds it.
+	// Bind the key to this tailnet node, named by its tailnet address, node ID, machine name or MagicDNS
+	// name, as when the key is created; null unbinds it.
 	BoundNode OptNilString `json:"bound_node"`
 }
 
@@ -3549,7 +3567,8 @@ type HostInfo struct {
 	// Whether the engine answers.
 	EngineState HostInfoEngineState `json:"engine_state"`
 	// The engine's version, when known.
-	EngineVersion OptNilString `json:"engine_version"`
+	EngineVersion OptNilString   `json:"engine_version"`
+	Tailnet       OptTailnetInfo `json:"tailnet"`
 }
 
 // GetHostKid returns the value of HostKid.
@@ -3587,6 +3606,11 @@ func (s *HostInfo) GetEngineVersion() OptNilString {
 	return s.EngineVersion
 }
 
+// GetTailnet returns the value of Tailnet.
+func (s *HostInfo) GetTailnet() OptTailnetInfo {
+	return s.Tailnet
+}
+
 // SetHostKid sets the value of HostKid.
 func (s *HostInfo) SetHostKid(val string) {
 	s.HostKid = val
@@ -3620,6 +3644,11 @@ func (s *HostInfo) SetEngineState(val HostInfoEngineState) {
 // SetEngineVersion sets the value of EngineVersion.
 func (s *HostInfo) SetEngineVersion(val OptNilString) {
 	s.EngineVersion = val
+}
+
+// SetTailnet sets the value of Tailnet.
+func (s *HostInfo) SetTailnet(val OptTailnetInfo) {
+	s.Tailnet = val
 }
 
 // Whether the engine answers.
@@ -7356,6 +7385,52 @@ func (o OptString) Or(d string) string {
 	return d
 }
 
+// NewOptTailnetInfo returns new OptTailnetInfo with value set to v.
+func NewOptTailnetInfo(v TailnetInfo) OptTailnetInfo {
+	return OptTailnetInfo{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptTailnetInfo is optional TailnetInfo.
+type OptTailnetInfo struct {
+	Value TailnetInfo
+	Set   bool
+}
+
+// IsSet returns true if OptTailnetInfo was set.
+func (o OptTailnetInfo) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptTailnetInfo) Reset() {
+	var v TailnetInfo
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptTailnetInfo) SetTo(v TailnetInfo) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptTailnetInfo) Get() (v TailnetInfo, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptTailnetInfo) Or(d TailnetInfo) TailnetInfo {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptURI returns new OptURI with value set to v.
 func NewOptURI(v url.URL) OptURI {
 	return OptURI{
@@ -9575,6 +9650,229 @@ func (s *SystemMessageRole) UnmarshalText(data []byte) error {
 	switch SystemMessageRole(data) {
 	case SystemMessageRoleSystem:
 		*s = SystemMessageRoleSystem
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// How this host is reachable over the tailnet, as of the last start. Anything but `ready` leaves the
+// host serving on localhost only; `message` says why and `fix` says what to do (req_001 D-148).
+// Ref: #/components/schemas/TailnetInfo
+type TailnetInfo struct {
+	// `ready`: the tailnet listeners are up. `unavailable`: Tailscale is not installed, not running or not
+	// reachable. `stopped`: Tailscale is switched off. `logged_out`: Tailscale needs a login or approval.
+	// `starting`: Tailscale is still connecting. `no_https`: the tailnet has no HTTPS certificates.
+	State TailnetInfoState `json:"state"`
+	// Why the tailnet listeners are off; null when they are up.
+	Message OptNilString `json:"message"`
+	// What the host does about it; null when the tailnet listeners are up.
+	Fix OptNilString `json:"fix"`
+	// The host's `*.ts.net` name that its certificate is for, when Tailscale is running with HTTPS
+	// certificates.
+	DNSName OptNilString `json:"dns_name"`
+	// The tailnet listeners that are up. Each binds only to the host's tailnet address.
+	Listeners []TailnetListener `json:"listeners"`
+}
+
+// GetState returns the value of State.
+func (s *TailnetInfo) GetState() TailnetInfoState {
+	return s.State
+}
+
+// GetMessage returns the value of Message.
+func (s *TailnetInfo) GetMessage() OptNilString {
+	return s.Message
+}
+
+// GetFix returns the value of Fix.
+func (s *TailnetInfo) GetFix() OptNilString {
+	return s.Fix
+}
+
+// GetDNSName returns the value of DNSName.
+func (s *TailnetInfo) GetDNSName() OptNilString {
+	return s.DNSName
+}
+
+// GetListeners returns the value of Listeners.
+func (s *TailnetInfo) GetListeners() []TailnetListener {
+	return s.Listeners
+}
+
+// SetState sets the value of State.
+func (s *TailnetInfo) SetState(val TailnetInfoState) {
+	s.State = val
+}
+
+// SetMessage sets the value of Message.
+func (s *TailnetInfo) SetMessage(val OptNilString) {
+	s.Message = val
+}
+
+// SetFix sets the value of Fix.
+func (s *TailnetInfo) SetFix(val OptNilString) {
+	s.Fix = val
+}
+
+// SetDNSName sets the value of DNSName.
+func (s *TailnetInfo) SetDNSName(val OptNilString) {
+	s.DNSName = val
+}
+
+// SetListeners sets the value of Listeners.
+func (s *TailnetInfo) SetListeners(val []TailnetListener) {
+	s.Listeners = val
+}
+
+// `ready`: the tailnet listeners are up. `unavailable`: Tailscale is not installed, not running or not
+// reachable. `stopped`: Tailscale is switched off. `logged_out`: Tailscale needs a login or approval.
+// `starting`: Tailscale is still connecting. `no_https`: the tailnet has no HTTPS certificates.
+type TailnetInfoState string
+
+const (
+	TailnetInfoStateReady       TailnetInfoState = "ready"
+	TailnetInfoStateUnavailable TailnetInfoState = "unavailable"
+	TailnetInfoStateStopped     TailnetInfoState = "stopped"
+	TailnetInfoStateLoggedOut   TailnetInfoState = "logged_out"
+	TailnetInfoStateStarting    TailnetInfoState = "starting"
+	TailnetInfoStateNoHTTPS     TailnetInfoState = "no_https"
+)
+
+// AllValues returns all TailnetInfoState values.
+func (TailnetInfoState) AllValues() []TailnetInfoState {
+	return []TailnetInfoState{
+		TailnetInfoStateReady,
+		TailnetInfoStateUnavailable,
+		TailnetInfoStateStopped,
+		TailnetInfoStateLoggedOut,
+		TailnetInfoStateStarting,
+		TailnetInfoStateNoHTTPS,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s TailnetInfoState) MarshalText() ([]byte, error) {
+	switch s {
+	case TailnetInfoStateReady:
+		return []byte(s), nil
+	case TailnetInfoStateUnavailable:
+		return []byte(s), nil
+	case TailnetInfoStateStopped:
+		return []byte(s), nil
+	case TailnetInfoStateLoggedOut:
+		return []byte(s), nil
+	case TailnetInfoStateStarting:
+		return []byte(s), nil
+	case TailnetInfoStateNoHTTPS:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *TailnetInfoState) UnmarshalText(data []byte) error {
+	switch TailnetInfoState(data) {
+	case TailnetInfoStateReady:
+		*s = TailnetInfoStateReady
+		return nil
+	case TailnetInfoStateUnavailable:
+		*s = TailnetInfoStateUnavailable
+		return nil
+	case TailnetInfoStateStopped:
+		*s = TailnetInfoStateStopped
+		return nil
+	case TailnetInfoStateLoggedOut:
+		*s = TailnetInfoStateLoggedOut
+		return nil
+	case TailnetInfoStateStarting:
+		*s = TailnetInfoStateStarting
+		return nil
+	case TailnetInfoStateNoHTTPS:
+		*s = TailnetInfoStateNoHTTPS
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// One tailnet listener.
+// Ref: #/components/schemas/TailnetListener
+type TailnetListener struct {
+	// `consumer_api` serves `/v1` to client apps with access keys. `consumer_page` serves the consumer web
+	// page. `admin` serves the admin API and UI behind the admin login, and exists only when the host
+	// switched it on.
+	Role TailnetListenerRole `json:"role"`
+	// The tailnet address and port it listens on, `host:port`.
+	Address string `json:"address"`
+}
+
+// GetRole returns the value of Role.
+func (s *TailnetListener) GetRole() TailnetListenerRole {
+	return s.Role
+}
+
+// GetAddress returns the value of Address.
+func (s *TailnetListener) GetAddress() string {
+	return s.Address
+}
+
+// SetRole sets the value of Role.
+func (s *TailnetListener) SetRole(val TailnetListenerRole) {
+	s.Role = val
+}
+
+// SetAddress sets the value of Address.
+func (s *TailnetListener) SetAddress(val string) {
+	s.Address = val
+}
+
+// `consumer_api` serves `/v1` to client apps with access keys. `consumer_page` serves the consumer web
+// page. `admin` serves the admin API and UI behind the admin login, and exists only when the host
+// switched it on.
+type TailnetListenerRole string
+
+const (
+	TailnetListenerRoleConsumerAPI  TailnetListenerRole = "consumer_api"
+	TailnetListenerRoleConsumerPage TailnetListenerRole = "consumer_page"
+	TailnetListenerRoleAdmin        TailnetListenerRole = "admin"
+)
+
+// AllValues returns all TailnetListenerRole values.
+func (TailnetListenerRole) AllValues() []TailnetListenerRole {
+	return []TailnetListenerRole{
+		TailnetListenerRoleConsumerAPI,
+		TailnetListenerRoleConsumerPage,
+		TailnetListenerRoleAdmin,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s TailnetListenerRole) MarshalText() ([]byte, error) {
+	switch s {
+	case TailnetListenerRoleConsumerAPI:
+		return []byte(s), nil
+	case TailnetListenerRoleConsumerPage:
+		return []byte(s), nil
+	case TailnetListenerRoleAdmin:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *TailnetListenerRole) UnmarshalText(data []byte) error {
+	switch TailnetListenerRole(data) {
+	case TailnetListenerRoleConsumerAPI:
+		*s = TailnetListenerRoleConsumerAPI
+		return nil
+	case TailnetListenerRoleConsumerPage:
+		*s = TailnetListenerRoleConsumerPage
+		return nil
+	case TailnetListenerRoleAdmin:
+		*s = TailnetListenerRoleAdmin
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

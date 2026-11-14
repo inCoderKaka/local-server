@@ -307,8 +307,8 @@ func (s *Service) DeleteConsumer(ctx context.Context, actor, id string) error {
 				}
 				revoked++
 			}
-			if k.Label != nil { // the name the consumer gave a key is personal data
-				if err := ir.AccessKeys.Update(tx, k.ID, nil, k.NarrowingJSON, k.BoundNode, k.ExpiresAt); err != nil {
+			if k.Label != nil || k.BoundNodeName != nil { // the name the consumer gave a key, and the name of its node, are personal data
+				if err := ir.AccessKeys.Update(tx, k.ID, nil, k.NarrowingJSON, k.BoundNode, nil, k.ExpiresAt); err != nil {
 					return err
 				}
 			}

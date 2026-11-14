@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
+	"github.com/inCoderKaka/local-server/internal/transport"
 )
 
 // Sharing is the part of host.SharingState the admin API uses.
@@ -85,6 +87,15 @@ type Config struct {
 	// policy.rule.max_failures failed evaluations (req_001 D-73); nil leaves that off. Pass the
 	// *gateway.Gateway.
 	RuleFailures RuleFailures
+	// Nodes resolves the tailnet node a key is bound to (req_001 D-154, D-159); nil means this
+	// host has no Tailscale, and binding a key is refused.
+	Nodes consumers.NodeResolver
+	// TailnetHosts are the host's own *.ts.net names the admin guard accepts in the Host header
+	// besides localhost and admin.tailnet_name: the remote admin listener answers to them
+	// (req_001 D-86, D-148).
+	TailnetHosts []string
+	// Tailnet is how the host is reachable over the tailnet, shown in GET /admin/v1/host.
+	Tailnet transport.Report
 	// Metrics serves GET /metrics (telemetry.MetricsHandler), behind the same guard as the API.
 	Metrics http.Handler
 	// Version is the software version shown in /admin/v1/host. Empty means "dev".
@@ -137,7 +148,7 @@ func New(cfg Config) (*Admin, error) {
 		return nil, err
 	}
 	cons, err := consumers.New(consumers.Config{DB: cfg.DB, Settings: cfg.Settings, Identity: cfg.Identity, Grants: cfg.Grants,
-		Auth: cfg.Auth, Events: cfg.Events, Clock: cfg.Clock, Logger: cfg.Telemetry.Logger()})
+		Auth: cfg.Auth, Nodes: cfg.Nodes, Events: cfg.Events, Clock: cfg.Clock, Logger: cfg.Telemetry.Logger()})
 	if err != nil {
 		return nil, err
 	}
@@ -188,17 +199,19 @@ func (a *Admin) Handler() http.Handler {
 	return telemetry.Middleware(a.recoverPanics(guard(http.HandlerFunc(a.serve))))
 }
 
-// hostNames returns the extra Host name the guard accepts: admin.tailnet_name, read per request.
+// hostNames returns the extra Host names the guard accepts: the host's own tailnet names
+// (Config.TailnetHosts) and admin.tailnet_name, which is read per request.
 func (a *Admin) hostNames(ctx context.Context) ([]string, error) {
 	n, err := a.cfg.Settings.String(ctx, KeyTailnetName, "")
 	if err != nil {
 		a.log.ErrorContext(ctx, "admin: read setting", "key", KeyTailnetName, "err", err)
 		return nil, err
 	}
-	if n == "" {
-		return nil, nil
+	names := a.cfg.TailnetHosts
+	if n != "" {
+		names = append(slices.Clone(names), n)
 	}
-	return []string{n}, nil
+	return names, nil
 }
 
 // reject answers a request the guard refused. The reason is a fixed code; the Host or Origin that

@@ -212,10 +212,11 @@ An access key of a consumer. Only a visible prefix and a hash are stored; the se
 | secret_hash | TEXT | no |  | sensitive | false | Fast hash of the key secret. |
 | label | TEXT | yes |  | personal | false | Name the consumer gave the key. |
 | narrowing_json | TEXT | yes |  | internal | false | Optional JSON that narrows the consumer's grant for this key; empty means no narrowing. |
-| bound_node | TEXT | yes |  | internal | false | Transport node the key is bound to; empty means not bound. |
+| bound_node | TEXT | yes |  | internal | false | Stable id of the tailnet node the key is bound to, taken from Tailscale when the host binds it; empty means not bound. The key works only from that node. |
 | created_at | INTEGER | no |  | internal | false | When the key was created, Unix milliseconds UTC. |
 | expires_at | INTEGER | yes |  | internal | false | When the key expires, Unix milliseconds UTC; empty means never. |
 | revoked_at | INTEGER | yes |  | internal | false | When the key was revoked, Unix milliseconds UTC; empty while active. |
+| bound_node_name | TEXT | yes |  | personal | false | Machine name of the bound node when the host bound it, for the host to recognise it; empty when not bound. Often a person's name; cleared when the consumer is deleted. Not checked on use: the node id is. |
 
 ## idn_admin_user
 

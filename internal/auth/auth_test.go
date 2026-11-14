@@ -380,7 +380,7 @@ func TestBadStoredNarrowingFailsClosed(t *testing.T) {
 	is := e.issue(t, auth.IssueParams{})
 	if err := e.db.Write(context.Background(), func(tx *storage.Tx) error {
 		bad := `{"quota_tokens_per_day":"x"}`
-		return e.ir.AccessKeys.Update(tx, is.AccessKey.ID, nil, &bad, nil, nil)
+		return e.ir.AccessKeys.Update(tx, is.AccessKey.ID, nil, &bad, nil, nil, nil)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -410,7 +410,7 @@ func TestBoundNode(t *testing.T) {
 	}
 	empty := ""
 	if err := e.db.Write(context.Background(), func(tx *storage.Tx) error {
-		return e.ir.AccessKeys.Update(tx, is.AccessKey.ID, nil, nil, &empty, nil)
+		return e.ir.AccessKeys.Update(tx, is.AccessKey.ID, nil, nil, &empty, nil, nil)
 	}); err != nil {
 		t.Fatal(err)
 	}

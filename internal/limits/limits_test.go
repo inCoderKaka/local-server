@@ -834,7 +834,7 @@ func TestInactiveSubjectsAreNotQuotaSubjects(t *testing.T) {
 	}
 	exp := e.clock().Add(time.Hour)
 	if err := e.db.Write(ctx(), func(tx *storage.Tx) error {
-		return e.ir.AccessKeys.Update(tx, expiring.id.KeyID, nil, nil, nil, &exp)
+		return e.ir.AccessKeys.Update(tx, expiring.id.KeyID, nil, nil, nil, nil, &exp)
 	}); err != nil {
 		t.Fatal(err)
 	}

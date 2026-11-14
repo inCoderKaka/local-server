@@ -354,3 +354,85 @@ func TestNarrowingAgainstCapsAndWithoutGrant(t *testing.T) {
 	}
 	e.issue(c.ID, consumers.NewKey{Narrowing: &consumers.Narrowing{ContextLimit: i64(4096), MaxOutputTokens: i64(512)}})
 }
+
+// A key is bound by a reference the host types, which Tailscale turns into the stable node id and
+// the machine name; both are stored (req_001 D-154, D-159).
+func TestBindStoresNodeIDAndMachineName(t *testing.T) {
+	e := newEnv(t)
+	c := e.newConsumer("App")
+	e.grant(c.ID, grants.NewVersion{}, "m1")
+	is := e.issue(c.ID, consumers.NewKey{BoundNode: str("laptop")})
+	if k := is.Key; k.BoundNode == nil || *k.BoundNode != "laptop" || k.BoundNodeName == nil || *k.BoundNodeName != "laptop-machine" {
+		t.Fatalf("issued = %+v", k)
+	}
+	list, err := e.svc.ListAccessKeys(ctx, c.ID)
+	if err != nil || len(list) != 1 || list[0].BoundNodeName == nil || *list[0].BoundNodeName != "laptop-machine" {
+		t.Fatalf("list = %+v, %v", list, err)
+	}
+	// Rebinding to the same node writes nothing; to another node changes both fields.
+	before := e.count(`SELECT count(*) FROM aud_event WHERE action = ?`, consumers.ActionKeyUpdated)
+	if _, err := e.svc.UpdateAccessKey(ctx, e.admin, is.Key.ID, consumers.KeyChange{BoundNode: consumers.Value("laptop")}); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.count(`SELECT count(*) FROM aud_event WHERE action = ?`, consumers.ActionKeyUpdated); n != before {
+		t.Errorf("rebinding to the same node wrote %d audit rows", n-before)
+	}
+	u, err := e.svc.UpdateAccessKey(ctx, e.admin, is.Key.ID, consumers.KeyChange{BoundNode: consumers.Value("phone")})
+	if err != nil || *u.BoundNode != "phone" || *u.BoundNodeName != "phone-machine" {
+		t.Fatalf("rebind = %+v, %v", u, err)
+	}
+	// The audit trail keeps the field names, never the machine name (it is often a person's name).
+	if strings.Contains(e.auditText(), "phone-machine") || strings.Contains(e.auditText(), "laptop-machine") {
+		t.Errorf("a machine name reached the audit trail: %s", e.auditText())
+	}
+	u, err = e.svc.UpdateAccessKey(ctx, e.admin, is.Key.ID, consumers.KeyChange{BoundNode: consumers.Null[string]()})
+	if err != nil || u.BoundNode != nil || u.BoundNodeName != nil {
+		t.Fatalf("unbind = %+v, %v", u, err)
+	}
+}
+
+// A node that is not in the tailnet, a name two nodes share and a Tailscale that does not answer
+// each refuse the binding, and no key is issued.
+func TestBindRefusals(t *testing.T) {
+	e := newEnv(t)
+	c := e.newConsumer("App")
+	e.grant(c.ID, grants.NewVersion{}, "m1")
+	for ref, kind := range map[string]consumers.ErrorKind{"unknown": consumers.KindInvalid, "twins": consumers.KindInvalid, "tsdown": consumers.KindConflict} {
+		_, err := e.svc.IssueAccessKey(ctx, e.admin, c.ID, consumers.NewKey{BoundNode: str(ref)})
+		var ce *consumers.Error
+		if !errors.As(err, &ce) || ce.Kind != kind {
+			t.Errorf("%s: err = %v, want kind %d", ref, err, kind)
+		}
+	}
+	if n := e.count(`SELECT count(*) FROM idn_access_key`); n != 0 {
+		t.Errorf("%d keys were issued by refused requests", n)
+	}
+}
+
+// A host with no Tailscale cannot bind a key, and says so; an unbound key still issues.
+func TestBindWithoutTailscaleIsRefused(t *testing.T) {
+	e := newEnv(t, func(c *consumers.Config) { c.Nodes = nil })
+	c := e.newConsumer("App")
+	e.grant(c.ID, grants.NewVersion{}, "m1")
+	_, err := e.svc.IssueAccessKey(ctx, e.admin, c.ID, consumers.NewKey{BoundNode: str("laptop")})
+	var ce *consumers.Error
+	if !errors.As(err, &ce) || ce.Kind != consumers.KindConflict || !strings.Contains(ce.Message, "doctor") {
+		t.Fatalf("err = %v", err)
+	}
+	e.issue(c.ID, consumers.NewKey{})
+}
+
+// Deleting a consumer clears the node's machine name along with the key's name: both are personal
+// data (req_001 D-136).
+func TestDeleteConsumerClearsBoundNodeName(t *testing.T) {
+	e := newEnv(t)
+	c := e.newConsumer("App")
+	e.grant(c.ID, grants.NewVersion{}, "m1")
+	e.issue(c.ID, consumers.NewKey{BoundNode: str("laptop")})
+	if err := e.svc.DeleteConsumer(ctx, e.admin, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.count(`SELECT count(*) FROM idn_access_key WHERE bound_node_name IS NOT NULL`); n != 0 {
+		t.Errorf("%d keys still hold a machine name", n)
+	}
+}
