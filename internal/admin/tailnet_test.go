@@ -45,6 +45,20 @@ func TestLoginUnderTailnetHostIssuesSecureCookie(t *testing.T) {
 	}
 }
 
+// Only a localhost caller can create the first admin: a call from the tailnet is refused, leaves
+// no admin behind, and the same call from localhost then succeeds (req_001 D-10).
+func TestFirstAdminCannotBeCreatedFromTheTailnet(t *testing.T) {
+	e := newEnv(t)
+	r := e.do(req{method: "POST", path: "/admin/v1/setup", body: creds(testUser, testPass), origin: adminOrigin, remote: "100.64.0.5:4444"})
+	status(t, r, http.StatusForbidden)
+	r = e.do(req{method: "GET", path: "/admin/v1/setup"})
+	status(t, r, http.StatusOK)
+	if r.json()["admin_exists"] != false {
+		t.Fatalf("a refused setup left an admin: %s", r.Body.String())
+	}
+	status(t, e.do(req{method: "POST", path: "/admin/v1/setup", body: creds(testUser, testPass), origin: adminOrigin}), http.StatusCreated)
+}
+
 // GET /admin/v1/host says how the host is reachable over the tailnet, and names the fix when it
 // is not (req_001 D-148).
 func TestHostInfoReportsTheTailnet(t *testing.T) {

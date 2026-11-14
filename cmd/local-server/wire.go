@@ -104,7 +104,7 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 	var nodes consumers.NodeResolver
 	if tn.Transport != nil {
 		authCfg.WhoIs = nodeOf{tr: tn.Transport, timeout: tn.WhoIsTimeout} // checks a key bound to a node (req_001 D-159)
-		nodes = tn.Transport
+		nodes = boundedResolver{tr: tn.Transport, timeout: tn.StatusTimeout}
 	}
 	au, err := auth.New(authCfg)
 	if err != nil {

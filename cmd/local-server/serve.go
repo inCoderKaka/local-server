@@ -137,7 +137,7 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 		hosts = []string{rep.Status.DNSName}
 	}
 	sv, err := wire(d, keys, eng, tel, tel.MetricsHandler(), pw,
-		tailnetWiring{Transport: tr, WhoIsTimeout: cfg.TailnetWhoIsTimeout, Hosts: hosts, Report: rep})
+		tailnetWiring{Transport: tr, WhoIsTimeout: cfg.TailnetWhoIsTimeout, StatusTimeout: cfg.TailnetStatusTimeout, Hosts: hosts, Report: rep})
 	if err != nil {
 		return fmt.Errorf("wire modules: %w", err)
 	}

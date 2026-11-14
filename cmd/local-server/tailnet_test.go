@@ -533,3 +533,32 @@ func TestNodeOfReturnsTheStableNodeID(t *testing.T) {
 		t.Error("a stranger was named")
 	}
 }
+
+// hangingResolver is a transport whose Resolve waits until its context is done.
+type hangingResolver struct{ transport.Transport }
+
+func (hangingResolver) Resolve(ctx context.Context, _ string) (transport.Node, error) {
+	<-ctx.Done()
+	return transport.Node{}, ctx.Err()
+}
+
+func TestBoundedResolverStopsAHangingLookup(t *testing.T) {
+	r := boundedResolver{tr: hangingResolver{}, timeout: 50 * time.Millisecond}
+	start := time.Now()
+	_, err := r.Resolve(context.Background(), "laptop")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Resolve error = %v, want a deadline error", err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("Resolve took %v, want it to stop at the timeout", d)
+	}
+}
+
+func TestBoundedResolverWithZeroTimeoutPassesTheContextThrough(t *testing.T) {
+	ts, _ := newReadyTailscale(t)
+	ts.refs = map[string]transport.Node{"laptop": {ID: "nLAPTOP"}}
+	n, err := boundedResolver{tr: ts}.Resolve(context.Background(), "laptop")
+	if err != nil || n.ID != "nLAPTOP" {
+		t.Errorf("Resolve = %+v, %v", n, err)
+	}
+}

@@ -330,8 +330,12 @@ func (a *Admin) AdminGetSetupStatus(ctx context.Context) (*api.AdminSetupStatus,
 // AdminCreateFirstAdmin implements POST /admin/v1/setup (req_001 D-10): it creates the one host
 // admin of a first run and starts its session. The check that no admin exists, the creation and
 // the audit row are one unit of work, and the single writer orders concurrent calls, so exactly
-// one wins and every other gets 409.
+// one wins and every other gets 409. Only a caller on this machine may do it: the tailnet listener
+// is always behind an admin login (D-10), so it cannot create the first admin.
 func (a *Admin) AdminCreateFirstAdmin(ctx context.Context, req *api.AdminCredentials) (*api.AdminUserHeaders, error) {
+	if !fromLoopback(remoteOf(ctx)) {
+		return nil, forbidden("The first admin can be created only on this machine, through the localhost admin listener.")
+	}
 	username := strings.TrimSpace(req.Username)
 	if !validUsername(username) {
 		return nil, badRequest("username", "The login name must have 1 to 128 characters and no control characters.")

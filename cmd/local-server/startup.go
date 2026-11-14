@@ -99,7 +99,7 @@ func startupDefs() []settings.Def {
 		{Key: keyTailnetAdminPort, Kind: settings.Int, Default: strconv.Itoa(defaultTailnetAdminPort), Owner: h,
 			Description: "Port of the remote admin listener, used only while serve.tailnet_admin_enabled is true. Applies on the next start (req_001 D-148)."},
 		{Key: keyTailnetStatusTimeout, Kind: settings.Duration, Default: defaultTailnetStatusTimeout.String(), Owner: h,
-			Description: "Longest local-server waits for Tailscale to answer when it checks the tailnet at start and in doctor. A Tailscale that does not answer leaves the tailnet listeners off. Applies on the next start."},
+			Description: "Longest local-server waits for Tailscale to answer when it checks the tailnet at start, in doctor, and when the host binds an access key to a node. A Tailscale that does not answer leaves the tailnet listeners off. Applies on the next start."},
 		{Key: keyTailnetWhoIsTimeout, Kind: settings.Duration, Default: defaultTailnetWhoIsTimeout.String(), Owner: h,
 			Description: "Longest local-server waits for Tailscale to name the node a tailnet request came from. A node that cannot be named fails a request that uses a key bound to a node, and is logged as unknown otherwise. Applies on the next start."},
 		{Key: keyShutdownTimeout, Kind: settings.Duration, Default: defaultShutdownTimeout.String(), Owner: h,

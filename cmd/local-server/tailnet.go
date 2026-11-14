@@ -14,13 +14,14 @@ import (
 )
 
 // tailnetWiring is what wire needs from the tailnet: the transport (nil when this build has none),
-// how long to wait for a node lookup, the host's own *.ts.net names for the admin guard, and the
-// report the admin API shows.
+// how long to wait for a node lookup, how long to wait for the host's node lookup when it binds a
+// key, the host's own *.ts.net names for the admin guard, and the report the admin API shows.
 type tailnetWiring struct {
-	Transport    transport.Transport
-	WhoIsTimeout time.Duration
-	Hosts        []string
-	Report       transport.Report
+	Transport     transport.Transport
+	WhoIsTimeout  time.Duration
+	StatusTimeout time.Duration
+	Hosts         []string
+	Report        transport.Report
 }
 
 // detectTailnet asks the transport for its state and plans the tailnet listeners. A host whose
@@ -123,6 +124,23 @@ func (n nodeOf) NodeOf(ctx context.Context, remoteAddr string) (string, error) {
 		return "", err
 	}
 	return node.ID, nil
+}
+
+// boundedResolver limits the host's node lookup when it binds a key, so a Tailscale that does not
+// answer cannot hold the admin request open. A deadline reaches the adapter as ErrUnavailable. A
+// zero timeout leaves the lookup unlimited.
+type boundedResolver struct {
+	tr      transport.Transport
+	timeout time.Duration
+}
+
+func (b boundedResolver) Resolve(ctx context.Context, ref string) (transport.Node, error) {
+	if b.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, b.timeout)
+		defer cancel()
+	}
+	return b.tr.Resolve(ctx, ref)
 }
 
 // tailnetURL is the address a consumer types for a tailnet listener: https, the host's *.ts.net
