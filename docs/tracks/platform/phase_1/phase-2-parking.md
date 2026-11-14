@@ -24,3 +24,7 @@ One line per item found during phase 1 that is outside the finish line (`finish-
 | 2026-11-14 | `tailscale.com` is marked indirect in go.mod though imported directly | `go.mod:167` | review-gate M0+M1 |
 | 2026-11-14 | `consumer-api-check` sends the key over http to any non-.ts.net host | `ops/checks/consumer-api-check:58-60` | review-gate M0+M1 |
 | 2026-11-14 | PLT-C-011: only Ollama 0.31.1 ran; the 0.12.6 minimum is unexercised | `internal/engine/ollama/config.go:13` | review-gate M0+M1 |
+| 2026-11-15 | `go ./...` does not skip `web/**/node_modules`, so a future npm package shipping a `.go` file would break `go build ./...` | `Makefile`, CI | build PLT-F-032 |
+| 2026-11-15 | vitest 5 and jsdom 31 do not list Node 25 in their engines (npm only warns) | `web/package.json` | build PLT-F-032 |
+| 2026-11-15 | `lld.md` module map does not list `webui`, which `tools/archcheck/config.go` mirrors | `docs/design_docs/lld.md` | build PLT-F-032 |
+| 2026-11-15 | `npm run dev` proxy to a running admin listener left out | `web/admin/vite.config.ts` | build PLT-F-032 |

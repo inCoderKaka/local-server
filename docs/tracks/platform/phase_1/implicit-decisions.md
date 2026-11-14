@@ -4,6 +4,9 @@ Software choices the AI made that no ticket, design doc or requirement decision 
 
 | ID | Date | Kind | Ticket | Decision | Reverse-by | Status |
 |---|---|---|---|---|---|---|
+| I-448 | 2026-11-15 | scope | PLT-F-032 | The pending-request count asks for `status=open`, follows `next_cursor`, hides the badge on a 501 (until PLT-F-028 lands), shows "Requests: n/a" on other errors and links to `#/requests`; the usage chart loads once with a Refresh button and is not polled. | Revert `1f84f97`. | unreviewed |
+| I-447 | 2026-11-15 | design | PLT-F-032 | The UI is served on the admin listeners with the strict CSP, `no-cache` plus a content-hash ETag, `nosniff`; a dotted non-file path and dot files give 404; `/metrics`, `/admin...` and `/v1...` stay on the JSON envelope; with no web build a one-page stub is served. | Revert `1f84f97`. | unreviewed |
+| I-446 | 2026-11-15 | design | PLT-F-032 | New host-owned setting `admin.ui_poll_interval`, default `30s`, must be above 0: the UI polls the resource strip, sharing state and pending count at it (D-157, D-38). The share-budget limit shown is `scheduler.memory_budget_bytes` (`0` means "no limit"); no CPU limit is shown. | Revert `1f84f97`. | unreviewed |
 | I-445 | 2026-11-08 | design | PLT-F-097 | The purge audit field is `invite_refs_cleared`, not a link count; the privacy notice states the 90-day removal (D-134, D-136). | Revert `8fea837`. | unreviewed |
 | I-444 | 2026-11-08 | design | PLT-F-044 | `backup-credentials` writes one redacted `setting.changed` audit row in the same transaction (D-07); folder targets need an absolute path; leftover temp copies are swept at the start of a backup. | Revert `8fea837`. | unreviewed |
 | I-443 | 2026-11-08 | design | PLT-F-044 | The minimize rule reads and parses the value inside the write through `Store.BoolTx`, so `1` or `True` cannot slip past a protected table (D-69). | Revert `8fea837`. | unreviewed |
