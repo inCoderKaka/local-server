@@ -74,3 +74,38 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go test -race ./...
+
+  # The web UIs (D-152): the unit check, then the browser end-to-end test of the admin UI
+  # against the Go harness with the fake engine. Linux only; the report and traces are kept
+  # only when it fails.
+  web-admin:
+    name: web-admin
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Unit and component tests, type check, build
+        run: make web-admin-test
+      - name: Chromium and its system libraries
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Browser end-to-end test (D-152)
+        run: make web-admin-e2e
+      - name: Keep the Playwright report and traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            web/e2e/playwright-report/
+            web/e2e/test-results/
+          if-no-files-found: ignore

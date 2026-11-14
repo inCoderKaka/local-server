@@ -1,11 +1,12 @@
 # Builds the web UIs, then the Go binary (req_001 D-151, D-152). A plain `go build ./...` needs
 # no npm: it embeds only web/admin/dist/.gitkeep and serves a one-page stub instead of the UI.
 # The web toolchain is Node.js 24 LTS (web/.nvmrc) with npm workspaces under web/.
+# `make web-admin-test` is the fast unit check; `make web-admin-e2e` is the browser end-to-end test.
 
 WEB := web
 ADMIN_DIST := $(WEB)/admin/dist
 
-.PHONY: build web-deps web-gen web-admin-build web-admin-test clean-web
+.PHONY: build web-deps web-gen web-admin-build web-admin-test web-admin-e2e clean-web
 
 # The binary with the built admin UI inside.
 build: web-admin-build
@@ -34,6 +35,15 @@ web-admin-test:
 	find $(ADMIN_DIST) -mindepth 1 ! -name .gitkeep -delete
 	cd $(WEB) && npm run build:admin
 	CGO_ENABLED=0 go build -o bin/local-server ./cmd/local-server
+
+# The browser end-to-end test (web/e2e, Playwright, Chromium): the built admin UI inside the Go
+# harness TestE2EServer (the real serve with the fake engine, an in-memory keychain and no
+# Tailscale), compiled as a test binary so it gets the stop signal. Installs Chromium once, into
+# Playwright's own cache (no sudo; CI installs its system libraries first).
+web-admin-e2e: web-admin-build
+	CGO_ENABLED=0 go test -c -o bin/e2e-harness ./cmd/local-server
+	cd $(WEB) && npx playwright install chromium
+	cd $(WEB) && LS_E2E_HARNESS=$(CURDIR)/bin/e2e-harness npm run e2e
 
 # Removes the built admin UI (keeping .gitkeep) and the generated API types.
 clean-web:

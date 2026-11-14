@@ -5,16 +5,18 @@
   "license": "Apache-2.0",
   "workspaces": [
     "shared",
-    "admin"
+    "admin",
+    "e2e"
   ],
   "engines": {
     "node": ">=24 <25"
   },
   "scripts": {
     "gen": "npm run gen -w @local-server/shared",
-    "typecheck": "npm run typecheck --workspaces",
-    "test": "npm run test --workspaces",
-    "build:admin": "npm run build -w @local-server/admin"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build:admin": "npm run build -w @local-server/admin",
+    "e2e": "npm run e2e -w @local-server/e2e"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.2",

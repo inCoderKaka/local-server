@@ -11,6 +11,11 @@ web/admin/dist/*
 !web/admin/dist/.gitkeep
 web/shared/src/api/schema.gen.ts
 web/*/coverage/
+# Playwright outputs of the browser end-to-end test (web/e2e).
+web/e2e/test-results/
+web/e2e/playwright-report/
+web/e2e/blob-report/
+web/e2e/.cache/
 
 # `make build` output
 /bin/

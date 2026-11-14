@@ -1,0 +1,14 @@
+{
+  "name": "@local-server/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The browser end-to-end test of the admin UI against a real serve with the fake engine (req_001 D-152). Run it with `make web-admin-e2e`.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1"
+  }
+}
