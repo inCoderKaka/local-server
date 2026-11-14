@@ -191,6 +191,13 @@ func TestMetricsServesBehindTheGuard(t *testing.T) {
 	status(t, e.do(req{path: "/metrics/"}), http.StatusNotFound)
 }
 
+// A peer that is not on loopback (a tailnet peer on the remote admin listener) gets no metrics.
+func TestMetricsRefusesANonLoopbackPeer(t *testing.T) {
+	e := newEnv(t)
+	status(t, e.do(req{path: "/metrics", remote: "100.64.0.7:4444"}), http.StatusNotFound)
+	status(t, e.do(req{path: "/metrics", remote: "[::1]:4444"}), http.StatusOK)
+}
+
 func TestNewRequiresItsDependencies(t *testing.T) {
 	if _, err := admin.New(admin.Config{}); err == nil {
 		t.Fatal("New(Config{}) succeeded")

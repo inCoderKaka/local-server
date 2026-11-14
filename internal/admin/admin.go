@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -245,6 +247,16 @@ func (a *Admin) recoverPanics(next http.Handler) http.Handler {
 	})
 }
 
+// fromLoopback reports whether a request's peer address is a loopback address.
+func fromLoopback(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return false
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.Unmap().IsLoopback()
+}
+
 func typeName(v any) string { return fmt.Sprintf("%T", v) }
 
 // onAdminPath reports whether a request path belongs to the admin API. Both the decoded and the
@@ -259,6 +271,12 @@ func onAdminPath(r *http.Request) bool {
 func (a *Admin) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/metrics" && r.URL.RawPath == "":
+		// Metrics carry host load and model names and have no login: only a local scraper may
+		// read them, never a tailnet peer on the remote admin listener (req_001 D-10, D-148).
+		if !fromLoopback(r.RemoteAddr) {
+			writeError(w, notFound())
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
 			writeError(w, newErr(http.StatusMethodNotAllowed, typeInvalidRequest, "", "", "This endpoint does not accept this method."))
