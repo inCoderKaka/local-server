@@ -12,6 +12,7 @@
 #
 # Options (flag, or the environment variable in brackets; the flag wins):
 #   --host H          consumer API host            [LS_HOST, default 127.0.0.1]
+#                     A host ending in .ts.net is called over https (the tailnet listener, D-148).
 #   --port P          consumer API port            [LS_PORT, default 8484]
 #   --chat-model M    chat model name              [LS_CHAT_MODEL, default llama3.2:3b]
 #   --embed-model M   embedding model name         [LS_EMBED_MODEL, default nomic-embed-text:latest]
@@ -54,7 +55,9 @@ if [ -z "${LS_KEY:-}" ]; then
 fi
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 2; }
 
-base="http://$host:$port"
+scheme=http
+case "$host" in *.ts.net) scheme=https ;; esac
+base="$scheme://$host:$port"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 # The key goes to curl through a config file, not the command line.
