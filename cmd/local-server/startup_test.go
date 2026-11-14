@@ -11,6 +11,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
+	"github.com/inCoderKaka/local-server/internal/transport"
 )
 
 func TestStartupDefaults(t *testing.T) {
@@ -30,6 +31,8 @@ func TestStartupDefaults(t *testing.T) {
 		OllamaEmbedTimeout: ollama.DefaultEmbedTimeout, OllamaLoadTimeout: ollama.DefaultLoadTimeout,
 		OllamaLoadNumCtx: ollama.DefaultLoadNumCtx, OllamaMaxResponseBytes: ollama.DefaultMaxResponseBytes,
 		OllamaMaxStreamLineBytes: ollama.DefaultMaxStreamLineBytes,
+		Tailnet:                  transport.Ports{ConsumerAPI: 8484, ConsumerPage: 8485, Admin: 8486},
+		TailnetStatusTimeout:     5 * time.Second, TailnetWhoIsTimeout: 2 * time.Second,
 	}
 	if cfg != want {
 		t.Errorf("defaults = %+v\nwant      %+v", cfg, want)
@@ -64,6 +67,12 @@ func TestStartupSettingsRefuseBadValues(t *testing.T) {
 		keyOllamaMaxStreamLine:      {"0"},
 		keyConsumerListen:           {"8484", "host", "127.0.0.1:99999", "127.0.0.1:x", "0.0.0.0:8484", ":8484", "192.168.1.5:8484"},
 		keyAdminListen:              {"0.0.0.0:8485", "192.168.1.5:8485", "example.com:80", "8485"},
+		keyTailnetConsumerPort:      {"0", "65536", "-1", "http", ""},
+		keyTailnetPagePort:          {"0", "65536"},
+		keyTailnetAdminPort:         {"0", "70000"},
+		keyTailnetAdminEnabled:      {"maybe"},
+		keyTailnetStatusTimeout:     {"0s"},
+		keyTailnetWhoIsTimeout:      {"0s", "-1s"},
 		keyShutdownTimeout:          {"0s", "-1s", "soon"},
 		keyReadHeaderTimeout:        {"0s"},
 		keyIdleTimeout:              {"0s"},

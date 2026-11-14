@@ -45,6 +45,8 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/hostkeys"
 	"github.com/inCoderKaka/local-server/internal/power"
+	"github.com/inCoderKaka/local-server/internal/transport"
+	"github.com/inCoderKaka/local-server/internal/transport/tailscale"
 	// IANA zone data for host.quiet_hours.time_zone and policy windows on machines without a system zoneinfo database (Windows, minimal Linux).
 	_ "time/tzdata"
 )
@@ -101,18 +103,29 @@ type app struct {
 	// power is the OS sleep lock; nil means the real one for this OS (power.New). Tests pass a
 	// fake: they must never start caffeinate or systemd-inhibit.
 	power power.Power
+	// transport is the host's Tailscale; nil means the real one (tailscale.New). Tests pass a
+	// fake: they must never reach a Tailscale on the developer's machine.
+	transport transport.Transport
+	// tailnetListen opens the tailnet listeners; nil means net.Listen. Tests redirect them to
+	// loopback and record which addresses serve asked for.
+	tailnetListen transport.ListenFunc
 	// svc holds what `local-server service` touches outside the process; its zero value is the
 	// real thing.
 	svc serviceHooks
 }
 
-// listening are the addresses serve is bound to.
-type listening struct{ Consumer, Admin string }
+// listening are the addresses serve is bound to. Tailnet holds the tailnet listeners that are up,
+// each with the address it actually bound.
+type listening struct {
+	Consumer, Admin string
+	Tailnet         []transport.Spec
+}
 
 func newApp(stdout, stderr io.Writer) *app {
 	return &app{stdout: stdout, stderr: stderr, getenv: os.Getenv,
 		userConfigDir: os.UserConfigDir, userLogDir: osUserLogDir, stderrIsTerminal: stderrIsTerminal,
-		stdinIsTerminal: stdinIsTerminal, stdin: os.Stdin, readPassword: readPasswordFromTerminal}
+		stdinIsTerminal: stdinIsTerminal, stdin: os.Stdin, readPassword: readPasswordFromTerminal,
+		transport: tailscale.New()}
 }
 
 // osUserLogDir is the folder the OS keeps a user's application logs in: ~/Library/Logs/local-server

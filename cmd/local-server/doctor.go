@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/engine/ollama"
@@ -17,6 +18,8 @@ import (
 	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
+	"github.com/inCoderKaka/local-server/internal/transport"
+	"github.com/inCoderKaka/local-server/internal/transport/tailscale"
 )
 
 // Check statuses. Doctor exits 1 if any check is "fail".
@@ -112,6 +115,11 @@ func (a *app) runDoctor(ctx context.Context, dir string) report {
 	add(a.checkKeychain(cfg, existing, filepath.Join(dir, masterKeyFileName)))
 	add(checkPort("consumer_port", cfg.ConsumerListen, keyConsumerListen))
 	add(checkPort("admin_port", cfg.AdminListen, keyAdminListen))
+	tsCheck, planned := a.checkTailscale(ctx, cfg)
+	add(tsCheck)
+	for _, sp := range planned {
+		add(checkPort("tailnet_"+string(sp.Role)+"_port", sp.Addr, tailnetPortKey(sp.Role)))
+	}
 	add(checkParallel(ctx, vals))
 
 	rep.OK = true
@@ -248,6 +256,48 @@ func checkOllama(ctx context.Context, cfg startupConfig) check {
 	}
 	c.Status, c.Detail = statusOK, fmt.Sprintf("Ollama %s at %s (minimum %s)", got, redactURL(cfg.OllamaURL), ollama.DefaultMinVersion)
 	return c
+}
+
+// checkTailscale asks the host's Tailscale for its state, as serve does at start. A Tailscale that
+// cannot carry the tailnet listeners is a warning, not a failure: serve runs on localhost only.
+// It returns the tailnet listeners serve would bind (req_001 D-147, D-148).
+func (a *app) checkTailscale(ctx context.Context, cfg startupConfig) (check, []transport.Spec) {
+	c := check{Name: "tailscale"}
+	tr := a.transport
+	if tr == nil {
+		tr = tailscale.New()
+	}
+	sctx, cancel := context.WithTimeout(ctx, cfg.TailnetStatusTimeout)
+	defer cancel()
+	st := tr.Status(sctx)
+	if !st.Ready() {
+		c.Status, c.Detail, c.Advice = statusWarn, st.Message()+"; local-server serves on this machine only, with no tailnet listeners", st.Fix()
+		if st.Detail != "" {
+			c.Detail += " (" + st.Detail + ")"
+		}
+		return c, nil
+	}
+	specs := transport.Plan(st, cfg.Tailnet)
+	var roles []string
+	for _, sp := range specs {
+		roles = append(roles, string(sp.Role)+" "+sp.Addr)
+	}
+	c.Status = statusOK
+	c.Detail = fmt.Sprintf("Tailscale %s is running as %s (%s) with HTTPS certificates; serve listens on the tailnet at %s", st.Version, st.DNSName, st.Address, strings.Join(roles, ", "))
+	if !cfg.Tailnet.AdminEnabled {
+		c.Detail += "; remote admin is off (" + keyTailnetAdminEnabled + ")"
+	}
+	return c, specs
+}
+
+func tailnetPortKey(r transport.Role) string {
+	switch r {
+	case transport.RoleConsumerPage:
+		return keyTailnetPagePort
+	case transport.RoleAdmin:
+		return keyTailnetAdminPort
+	}
+	return keyTailnetConsumerPort
 }
 
 // checkKeychain only reads the keychain, bounded by hostkeys.keychain_timeout. It never creates

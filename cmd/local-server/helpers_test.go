@@ -16,6 +16,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
+	"github.com/inCoderKaka/local-server/internal/transport"
 )
 
 // syncBuffer is a bytes.Buffer safe for a server goroutine to write while a test reads.
@@ -125,6 +126,7 @@ func newTestApp(t *testing.T, terminal bool) *testApp {
 		readPassword:     func() (string, error) { return "", io.EOF },
 		keychain:         ta.kc,
 		power:            &fakePower{},
+		transport:        &fakeTailscale{status: transport.Status{State: transport.StateUnavailable, Detail: "no Tailscale in tests"}},
 	}
 	return ta
 }

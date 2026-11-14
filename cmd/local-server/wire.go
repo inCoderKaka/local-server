@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/inCoderKaka/local-server/internal/admin"
+	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	"github.com/inCoderKaka/local-server/internal/audit"
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/engine"
@@ -34,6 +35,9 @@ import (
 type services struct {
 	// consumer is the consumer API (/v1).
 	consumer http.Handler
+	// consumerPage is the consumer page listener's handler: the page and its /v1 account routes,
+	// the same origin (req_001 D-148).
+	consumerPage http.Handler
 	// admin is the whole admin listener: /admin/v1 and /metrics, behind the credential guard
 	// (PLT-F-024).
 	admin http.Handler
@@ -56,10 +60,11 @@ type services struct {
 
 // wire builds every module on d, keys and eng, in dependency order, and returns what serve
 // runs; metrics is telemetry's /metrics handler, which the admin listener serves; pw is the OS
-// sleep lock (the real one for the build's OS, or a fake in tests). Constructors
+// sleep lock (the real one for the build's OS, or a fake in tests); tn is the tailnet's transport
+// and report. Constructors
 // register their own settings; registerSettings did the rest. To add a
 // module that serves or runs a worker, build it here and add its worker in startWorkers.
-func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Telemetry, metrics http.Handler, pw power.Power) (*services, error) {
+func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Telemetry, metrics http.Handler, pw power.Power, tn tailnetWiring) (*services, error) {
 	var err error
 	db, st, log := d.db, d.st, tel.Logger()
 	bus := events.New(events.WithLogger(log))
@@ -95,7 +100,13 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 		return nil, err
 	}
 
-	au, err := auth.New(auth.Config{DB: db, Identity: ir, Grants: gr, Events: bus, Settings: st, Logger: log})
+	authCfg := auth.Config{DB: db, Identity: ir, Grants: gr, Events: bus, Settings: st, Logger: log}
+	var nodes consumers.NodeResolver
+	if tn.Transport != nil {
+		authCfg.WhoIs = nodeOf{tr: tn.Transport, timeout: tn.WhoIsTimeout} // checks a key bound to a node (req_001 D-159)
+		nodes = tn.Transport
+	}
+	au, err := auth.New(authCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +123,8 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 	if err != nil {
 		return nil, fmt.Errorf("gateway: %w", err)
 	}
-	sv.consumer, sv.jobExec = gw.Handler(), gw.JobExecutor()
+	sv.consumer, sv.jobExec = accessKeysOnly(gw.Handler()), gw.JobExecutor()
+	sv.consumerPage = consumerPageHandler()
 
 	// The admin API shares the settings, the sharing state, the sampler, the auth service and the
 	// event bus built above; it reads the host kid from the keys and the usage rollups from the
@@ -122,7 +134,8 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 		return nil, err
 	}
 	adm, err := admin.New(admin.Config{DB: db, Settings: st, Identity: ir, Grants: gr, Auth: au, Events: bus, Audit: auditLog, Sharing: share, Sampler: sv.sampler,
-		Keys: keys, Engine: eng, RuleFailures: gw, Metrics: metrics, Version: version, Telemetry: tel})
+		Keys: keys, Engine: eng, RuleFailures: gw, Metrics: metrics, Version: version, Telemetry: tel,
+		Nodes: nodes, TailnetHosts: tn.Hosts, Tailnet: tn.Report})
 	if err != nil {
 		return nil, fmt.Errorf("admin: %w", err)
 	}

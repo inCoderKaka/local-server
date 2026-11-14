@@ -16,6 +16,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/telemetry/slogprom"
+	"github.com/inCoderKaka/local-server/internal/transport"
 )
 
 // Everything except the data directory is a host-owned setting stored in hst_setting, read after
@@ -32,6 +33,12 @@ const (
 	keyOllamaMaxStreamLine  = "engine.ollama_max_stream_line_bytes"
 	keyConsumerListen       = "serve.consumer_listen"
 	keyAdminListen          = "serve.admin_listen"
+	keyTailnetConsumerPort  = "serve.tailnet_consumer_port"
+	keyTailnetPagePort      = "serve.tailnet_page_port"
+	keyTailnetAdminPort     = "serve.tailnet_admin_port"
+	keyTailnetAdminEnabled  = "serve.tailnet_admin_enabled"
+	keyTailnetStatusTimeout = "serve.tailnet_status_timeout"
+	keyTailnetWhoIsTimeout  = "serve.tailnet_whois_timeout"
 	keyShutdownTimeout      = "serve.shutdown_timeout"
 	keyReadHeaderTimeout    = "serve.read_header_timeout"
 	keyIdleTimeout          = "serve.idle_timeout"
@@ -44,13 +51,20 @@ const (
 // Documented defaults. The consumer and admin ports are local-server's own choice: Ollama uses
 // 11434, so these sit apart from it.
 const (
-	defaultConsumerListen    = "127.0.0.1:8484"
-	defaultAdminListen       = "127.0.0.1:8485"
-	defaultShutdownTimeout   = 10 * time.Second
-	defaultReadHeaderTimeout = 10 * time.Second
-	defaultIdleTimeout       = 2 * time.Minute
-	defaultLogLevel          = "info"
-	defaultRestartBackoff    = 5 * time.Second
+	defaultConsumerListen = "127.0.0.1:8484"
+	defaultAdminListen    = "127.0.0.1:8485"
+	// The tailnet listeners bind the host's tailnet address, so these ports do not clash with the
+	// loopback ones above (req_001 D-148).
+	defaultTailnetConsumerPort  = 8484
+	defaultTailnetPagePort      = 8485
+	defaultTailnetAdminPort     = 8486
+	defaultTailnetStatusTimeout = 5 * time.Second
+	defaultTailnetWhoIsTimeout  = 2 * time.Second
+	defaultShutdownTimeout      = 10 * time.Second
+	defaultReadHeaderTimeout    = 10 * time.Second
+	defaultIdleTimeout          = 2 * time.Minute
+	defaultLogLevel             = "info"
+	defaultRestartBackoff       = 5 * time.Second
 )
 
 func startupDefs() []settings.Def {
@@ -73,9 +87,21 @@ func startupDefs() []settings.Def {
 		{Key: keyOllamaMaxStreamLine, Kind: settings.Int, Default: strconv.Itoa(ollama.DefaultMaxStreamLineBytes), Owner: h,
 			Description: "Largest single line of a streamed Ollama response, in bytes, that local-server reads; a larger one ends the stream with an error. Applies on the next start."},
 		{Key: keyConsumerListen, Kind: settings.String, Default: defaultConsumerListen, Owner: h,
-			Description: "host:port the consumer API (/v1) listens on. It must be a loopback address (127.0.0.1, ::1 or localhost): until the tailnet listener exists, the consumer API is reachable from this machine only (req_001 D-10). Applies on the next start."},
+			Description: "host:port the consumer API (/v1) listens on on this machine. It must be a loopback address (127.0.0.1, ::1 or localhost); client apps on other machines reach the consumer API through the tailnet listener (serve.tailnet_consumer_port) instead (req_001 D-10, D-148). Applies on the next start."},
 		{Key: keyAdminListen, Kind: settings.String, Default: defaultAdminListen, Owner: h,
-			Description: "host:port of the admin listener, which serves the admin API (/admin/v1) and /metrics. It must be a loopback address (127.0.0.1, ::1 or localhost); until the optional tailnet admin listener exists (req_001 D-10), the admin listener is reachable from this machine only. Applies on the next start."},
+			Description: "host:port of the admin listener, which serves the admin API (/admin/v1) and /metrics. It must be a loopback address (127.0.0.1, ::1 or localhost); the optional remote admin listener on the tailnet is serve.tailnet_admin_enabled (req_001 D-10, D-148). Applies on the next start."},
+		{Key: keyTailnetConsumerPort, Kind: settings.Int, Default: strconv.Itoa(defaultTailnetConsumerPort), Owner: h,
+			Description: "Port of the consumer API (/v1) on the host's tailnet address, over HTTPS with the host's *.ts.net certificate. It is on whenever Tailscale is running with HTTPS certificates; the three tailnet ports must differ. Applies on the next start (req_001 D-148)."},
+		{Key: keyTailnetPagePort, Kind: settings.Int, Default: strconv.Itoa(defaultTailnetPagePort), Owner: h,
+			Description: "Port of the consumer web page on the host's tailnet address, over HTTPS with the host's *.ts.net certificate. The page and its account routes are served from this one port. Applies on the next start (req_001 D-148)."},
+		{Key: keyTailnetAdminEnabled, Kind: settings.Bool, Default: "false", Owner: h,
+			Description: "Whether the admin UI and API are also served on the host's tailnet address, over HTTPS with the host's *.ts.net certificate, behind the admin login (remote admin). Off by default: the admin listener on this machine is the default. Applies on the next start (req_001 D-10, D-86, D-148)."},
+		{Key: keyTailnetAdminPort, Kind: settings.Int, Default: strconv.Itoa(defaultTailnetAdminPort), Owner: h,
+			Description: "Port of the remote admin listener, used only while serve.tailnet_admin_enabled is true. Applies on the next start (req_001 D-148)."},
+		{Key: keyTailnetStatusTimeout, Kind: settings.Duration, Default: defaultTailnetStatusTimeout.String(), Owner: h,
+			Description: "Longest local-server waits for Tailscale to answer when it checks the tailnet at start and in doctor. A Tailscale that does not answer leaves the tailnet listeners off. Applies on the next start."},
+		{Key: keyTailnetWhoIsTimeout, Kind: settings.Duration, Default: defaultTailnetWhoIsTimeout.String(), Owner: h,
+			Description: "Longest local-server waits for Tailscale to name the node a tailnet request came from. A node that cannot be named fails a request that uses a key bound to a node, and is logged as unknown otherwise. Applies on the next start."},
 		{Key: keyShutdownTimeout, Kind: settings.Duration, Default: defaultShutdownTimeout.String(), Owner: h,
 			Description: "Longest a stopping local-server waits for requests in flight to finish before it closes their connections. After it closes them, it waits up to the same time again for those requests to record their usage. Applies on the next start."},
 		{Key: keyReadHeaderTimeout, Kind: settings.Duration, Default: defaultReadHeaderTimeout.String(), Owner: h,
@@ -128,6 +154,11 @@ func registerStartupValidators(st *settings.Store) error {
 		keyOllamaMaxStreamLine:      checkPositiveInt,
 		keyConsumerListen:           checkLoopbackAddr,
 		keyAdminListen:              checkLoopbackAddr,
+		keyTailnetConsumerPort:      checkPortNumber,
+		keyTailnetPagePort:          checkPortNumber,
+		keyTailnetAdminPort:         checkPortNumber,
+		keyTailnetStatusTimeout:     checkPositiveDuration,
+		keyTailnetWhoIsTimeout:      checkPositiveDuration,
 		keyShutdownTimeout:          checkPositiveDuration,
 		keyReadHeaderTimeout:        checkPositiveDuration,
 		keyIdleTimeout:              checkPositiveDuration,
@@ -163,6 +194,18 @@ func checkPositiveInt(v string) error {
 	}
 	if n <= 0 {
 		return fmt.Errorf("must be greater than 0")
+	}
+	return nil
+}
+
+// checkPortNumber accepts a TCP port number from 1 to 65535.
+func checkPortNumber(v string) error {
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return err
+	}
+	if n < 1 || n > 65535 {
+		return fmt.Errorf("must be a port number from 1 to 65535")
 	}
 	return nil
 }
@@ -231,6 +274,7 @@ type values interface {
 	String(ctx context.Context, key, scope string) (string, error)
 	Int(ctx context.Context, key, scope string) (int64, error)
 	Duration(ctx context.Context, key, scope string) (time.Duration, error)
+	Bool(ctx context.Context, key, scope string) (bool, error)
 }
 
 // defaultValues answers every read with the registered default. doctor uses it when there is no
@@ -255,6 +299,14 @@ func (d defaultValues) Int(_ context.Context, key, _ string) (int64, error) {
 	return strconv.ParseInt(v, 10, 64)
 }
 
+func (d defaultValues) Bool(_ context.Context, key, _ string) (bool, error) {
+	v, err := d.def(key)
+	if err != nil {
+		return false, err
+	}
+	return strconv.ParseBool(v)
+}
+
 func (d defaultValues) Duration(_ context.Context, key, _ string) (time.Duration, error) {
 	v, err := d.def(key)
 	if err != nil {
@@ -275,6 +327,9 @@ type startupConfig struct {
 	OllamaMaxStreamLineBytes int
 	ConsumerListen           string
 	AdminListen              string
+	Tailnet                  transport.Ports
+	TailnetStatusTimeout     time.Duration
+	TailnetWhoIsTimeout      time.Duration
 	ShutdownTimeout          time.Duration
 	ReadHeaderTimeout        time.Duration
 	IdleTimeout              time.Duration
@@ -338,6 +393,16 @@ func loadStartup(ctx context.Context, v values) (startupConfig, error) {
 		return n
 	}
 	num := func(key string) int { return int(num64(key)) }
+	port := func(key string) int {
+		n, err := v.Int(ctx, key, "")
+		if err == nil {
+			err = checkPortNumber(strconv.FormatInt(n, 10))
+		}
+		if err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("setting %s: %w", key, err)
+		}
+		return int(n)
+	}
 	c.OllamaURL = str(keyOllamaBaseURL, checkBaseURL)
 	c.OllamaConnectTimeout = dur(keyOllamaConnectTimeout)
 	c.OllamaRequestTimeout = dur(keyOllamaRequestTimeout)
@@ -351,6 +416,19 @@ func loadStartup(ctx context.Context, v values) (startupConfig, error) {
 	c.ShutdownTimeout = dur(keyShutdownTimeout)
 	c.ReadHeaderTimeout = dur(keyReadHeaderTimeout)
 	c.IdleTimeout = dur(keyIdleTimeout)
+	c.Tailnet.ConsumerAPI = port(keyTailnetConsumerPort)
+	c.Tailnet.ConsumerPage = port(keyTailnetPagePort)
+	c.Tailnet.Admin = port(keyTailnetAdminPort)
+	if firstErr == nil && (c.Tailnet.ConsumerAPI == c.Tailnet.ConsumerPage || c.Tailnet.ConsumerAPI == c.Tailnet.Admin || c.Tailnet.ConsumerPage == c.Tailnet.Admin) {
+		firstErr = fmt.Errorf("settings %s, %s and %s: the three tailnet listeners need three different ports", keyTailnetConsumerPort, keyTailnetPagePort, keyTailnetAdminPort)
+	}
+	if on, err := v.Bool(ctx, keyTailnetAdminEnabled, ""); err != nil && firstErr == nil {
+		firstErr = fmt.Errorf("setting %s: %w", keyTailnetAdminEnabled, err)
+	} else {
+		c.Tailnet.AdminEnabled = on
+	}
+	c.TailnetStatusTimeout = dur(keyTailnetStatusTimeout)
+	c.TailnetWhoIsTimeout = dur(keyTailnetWhoIsTimeout)
 	lvl := str(keyLogLevel, func(s string) error { _, err := parseLevel(s); return err })
 	if l, err := parseLevel(lvl); err == nil {
 		c.LogLevel = l

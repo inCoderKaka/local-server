@@ -20,6 +20,8 @@ import (
 	"github.com/inCoderKaka/local-server/internal/power"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/telemetry/slogprom"
+	"github.com/inCoderKaka/local-server/internal/transport"
+	"github.com/inCoderKaka/local-server/internal/transport/tailscale"
 )
 
 // Engine kinds of serve --engine.
@@ -125,7 +127,17 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 	if pw == nil {
 		pw = power.New(log)
 	}
-	sv, err := wire(d, keys, eng, tel, tel.MetricsHandler(), pw)
+	tr := a.transport
+	if tr == nil {
+		tr = tailscale.New()
+	}
+	rep := a.detectTailnet(ctx, tr, cfg, log)
+	var hosts []string
+	if rep.Status.DNSName != "" {
+		hosts = []string{rep.Status.DNSName}
+	}
+	sv, err := wire(d, keys, eng, tel, tel.MetricsHandler(), pw,
+		tailnetWiring{Transport: tr, WhoIsTimeout: cfg.TailnetWhoIsTimeout, Hosts: hosts, Report: rep})
 	if err != nil {
 		return fmt.Errorf("wire modules: %w", err)
 	}
@@ -139,25 +151,69 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 		consumerLn.Close()
 		return fmt.Errorf("listen on %s (setting %s): %w", cfg.AdminListen, keyAdminListen, err)
 	}
-	// Only now, with both ports held: a start that cannot bind must not fail the running jobs of
-	// the instance that holds them.
-	if err := sv.failInterrupted(ctx, log); err != nil {
+	// The tailnet listeners bind only the host's tailnet address (req_001 D-148). A port that is
+	// taken stops the start, like the localhost ones.
+	tailLns, err := transport.Bind(rep.Listeners, a.tailnetListen)
+	if err != nil {
 		consumerLn.Close()
 		adminLn.Close()
+		return fmt.Errorf("%w (settings %s, %s, %s)", err, keyTailnetConsumerPort, keyTailnetPagePort, keyTailnetAdminPort)
+	}
+	closeAll := func() {
+		consumerLn.Close()
+		adminLn.Close()
+		for _, l := range tailLns {
+			l.Close()
+		}
+	}
+	// Only now, with every port held: a start that cannot bind must not fail the running jobs of
+	// the instance that holds them.
+	if err := sv.failInterrupted(ctx, log); err != nil {
+		closeAll()
 		return fmt.Errorf("mark interrupted jobs: %w", err)
 	}
 	httpLog := slog.NewLogLogger(log.Handler(), slog.LevelWarn)
 	tracker := newInflight()
-	consumer := &http.Server{Handler: tracker.wrap(sv.consumer), ReadHeaderTimeout: cfg.ReadHeaderTimeout, IdleTimeout: cfg.IdleTimeout, ErrorLog: httpLog}
-	admin := &http.Server{Handler: sv.admin, ReadHeaderTimeout: cfg.ReadHeaderTimeout, IdleTimeout: cfg.IdleTimeout, ErrorLog: httpLog}
-
-	serveErr := make(chan error, 2)
-	for _, s := range []struct {
+	newServer := func(h http.Handler) *http.Server {
+		return &http.Server{Handler: h, ReadHeaderTimeout: cfg.ReadHeaderTimeout, IdleTimeout: cfg.IdleTimeout, ErrorLog: httpLog}
+	}
+	consumer := newServer(tracker.wrap(sv.consumer))
+	admin := newServer(sv.admin)
+	type listener struct {
 		srv *http.Server
 		ln  net.Listener
-	}{{consumer, consumerLn}, {admin, adminLn}} {
+		tls bool
+	}
+	lns := []listener{{consumer, consumerLn, false}, {admin, adminLn, false}}
+	servers := []*http.Server{consumer, admin}
+	up := listening{Consumer: consumerLn.Addr().String(), Admin: adminLn.Addr().String()}
+	for _, l := range tailLns {
+		var h http.Handler
+		switch l.Role {
+		case transport.RoleConsumerAPI:
+			h = tracker.wrap(sv.consumer)
+		case transport.RoleConsumerPage:
+			h = tracker.wrap(sv.consumerPage)
+		case transport.RoleAdmin:
+			h = sv.admin
+		}
+		srv := newServer(peerLog(tr, cfg.TailnetWhoIsTimeout, l.Role, log)(h))
+		srv.TLSConfig = tr.TLSConfig()
+		lns = append(lns, listener{srv, l.Listener, true})
+		servers = append(servers, srv)
+		up.Tailnet = append(up.Tailnet, transport.Spec{Role: l.Role, Addr: l.Listener.Addr().String()})
+	}
+
+	serveErr := make(chan error, len(lns))
+	for _, s := range lns {
 		go func() {
-			if err := s.srv.Serve(s.ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			var err error
+			if s.tls {
+				err = s.srv.ServeTLS(s.ln, "", "") // the certificate comes from TLSConfig.GetCertificate
+			} else {
+				err = s.srv.Serve(s.ln)
+			}
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
 				serveErr <- err
 			}
 		}()
@@ -165,8 +221,16 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 	fmt.Fprintf(a.stderr, "local-server %s: consumer API on http://%s, admin listener on http://%s (admin API at /admin/v1, metrics at /metrics); press Ctrl-C to stop\n",
 		version, consumerLn.Addr(), adminLn.Addr())
 	log.Info("listening", "consumer", consumerLn.Addr().String(), "admin", adminLn.Addr().String(), "engine", engineKind)
+	for _, l := range tailLns {
+		u := tailnetURL(rep.Status.DNSName, l.Spec.Addr)
+		fmt.Fprintf(a.stderr, "local-server: tailnet %s on %s\n", l.Role, u)
+		log.Info("listening on the tailnet", "role", string(l.Role), "url", u)
+	}
+	if len(tailLns) > 0 {
+		go warmCertificate(ctx, tr, rep.Status.DNSName, log)
+	}
 	if a.onListening != nil {
-		a.onListening(listening{Consumer: consumerLn.Addr().String(), Admin: adminLn.Addr().String()})
+		a.onListening(up)
 	}
 
 	// Workers outlive the servers: they stop only after the requests in flight have finished, or
@@ -189,7 +253,7 @@ func (a *app) runServe(ctx context.Context, dataDir, engineKind string) (err err
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cfg.ShutdownTimeout)
 	defer cancel()
 	var wg sync.WaitGroup
-	for _, s := range []*http.Server{consumer, admin} {
+	for _, s := range servers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
