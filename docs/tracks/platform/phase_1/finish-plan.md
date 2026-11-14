@@ -107,3 +107,4 @@ Nothing else waits on the user: the legal drafts are approved (D-153), the artef
 |---|---|---|---|---|---|
 | 2026-11-12 | plan | — | 0.1 | 0.1 | this plan, D-141..D-144 |
 | 2026-11-14 | M0 live run | M0 | 0.4 | 0.5 | real Ollama run passed (3 calls, usage matches), tracker rows reconciled, PA requirement file refreshed; M0 waits on the user's push and a green CI on three runners |
+| 2026-11-14 | M1 build | M1 | 0.4 | 0.9 | PLT-F-038 and PLT-B-008 built, live self-test over the real tailnet passed 3 of 3 on this machine, PLT-B-085 fixed, M0+M1 gate run (dd607b2); M1 waits on the second-machine check (`ops/checks/m1-checklist.md`) and M0 on a green CI after the user's push |
