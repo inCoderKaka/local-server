@@ -28,3 +28,5 @@ One line per item found during phase 1 that is outside the finish line (`finish-
 | 2026-11-15 | vitest 5 and jsdom 31 do not list Node 25 in their engines (npm only warns) | `web/package.json` | build PLT-F-032 |
 | 2026-11-15 | `lld.md` module map does not list `webui`, which `tools/archcheck/config.go` mirrors | `docs/design_docs/lld.md` | build PLT-F-032 |
 | 2026-11-15 | `npm run dev` proxy to a running admin listener left out | `web/admin/vite.config.ts` | build PLT-F-032 |
+| 2026-11-15 | Consumers list has no row-click suspend; the `warnings[]` field on create, issue and update answers is never shown | `web/admin/src/consumers/`, `invites/` | build PLT-F-033 |
+| 2026-11-15 | No API maps a `grant_id` to its consumer (Rules page shows a raw grant id); `GET grant` 404 does not tell "no consumer" from "no grant yet"; a stored grant expiry with seconds is cut to minutes on re-save | `web/admin/src/policy/RulesPanel.tsx`, `internal/admin/grants/errors.go`, `grants/GrantForm.tsx` | build PLT-F-034 |

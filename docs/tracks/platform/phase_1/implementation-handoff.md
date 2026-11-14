@@ -1,21 +1,25 @@
 # platform / phase_1 — implementation handoff
 
-Only what is open. Rewritten whole at the end of each implementation session. Work order: `finish-plan.md` (req_001 D-141..D-159).
+Only what is open. Rewritten whole at the end of each implementation session. Work order: `finish-plan.md` (req_001 D-141..D-160).
 
-## Last session (2026-11-14, M1 build)
+## Last session (2026-11-15, M2 build 1)
 
-- PLT-F-038 built (Tailscale adapter over `tailscale.com/client/local`, tailnet HTTPS listeners 8484/8485, optional remote admin 8486, keys bound to a node, `doctor` check, degrade to localhost) and PLT-B-008 fixed (HTTPS admin login, Secure cookie). Binary +2.4 MB (31.3 to 33.6 MB), within D-147.
-- Live self-test on this machine over the real tailnet (`kakas-macbook-air.tailcfd67b.ts.net`): `ops/checks/consumer-api-check` 3 of 3 over https, `tailnet request` log lines carry node ID and name, usage matches, bound key works from the node and a bogus node is refused, remote admin login over https sets a `Secure` cookie, no prompt text in log or db. The run's data dir and keychain entry were removed.
-- It found PLT-B-085 (`/metrics` open to tailnet peers), fixed in `a2144f3`. The M0+M1 gate (`8de56f9..HEAD`) ran and fixed two things (`dd607b2`); its 12 other findings are parking lines.
-- Tree: unpushed commits ahead of origin (`git status -sb`).
+- Built, with `make web-admin-test` passing (admin 97 tests, shared 46): PLT-F-032 admin shell and dashboard (`1f84f97`), PLT-F-033 consumers, invites and keys pages (`79064fa`), PLT-F-034 grants, models and policy rules pages (`5e1a33e`). Pages are one file each in `web/admin/src/pages/` (order 10-19 F-033, 20-29 F-034, 30-39 for F-035; requests page path must be `/requests`).
+- D-160 (user's choice): PLT-F-027 and PLT-F-028 moved from M3 into M2, so PLT-F-035's requests page is built against a real backend. M3 is now PLT-F-036 and PLT-F-037 only.
+- Ungated: no code gate has run over these commits. One gate at the end of M2 over `05b04f2..HEAD` (D-143).
+- Close-out was done inline in one pass over all three tickets (not per ticket) to stay inside the budget. `implementation-status.md` is stale on purpose (rebuilt at the milestone end, finish plan rule 4), so `closeout-check` and `ticket-drift` still report status-mismatch for F-032..F-034.
+- Spend this chat: about 0.8 window; running total 1.7 of 16.
 
 ## Waiting on you
 
-- **Push** `main` so CI runs. M0 is done when CI is green on all three runners with no skipped test (D-158).
-- **M1 second-machine check (deferred by you):** standalone Tailscale on a second machine in the tailnet, then `ops/checks/m1-checklist.md`. PLT-F-038 stays in-progress and M1 not done until it passes, read from host-side records (D-146). MagicDNS and HTTPS certificates are already on (doctor reports them).
+- **Push** `main` so CI runs (M0 done only on green CI on three runners, D-158). Deferred by you.
+- **M1 second-machine check** (`ops/checks/m1-checklist.md`): deferred by you. PLT-F-038 stays building until it passes.
 
-## Next steps
+## Next steps (M2, in order)
 
-- M2 Host UI (PLT-F-032..F-035) is next once you accept M1 as built; one milestone per chat (finish plan rule 2).
-- Backlog dependency cells to read against the finish plan, not as blockers: PLT-F-038 lists PLT-F-036 (M3); PLT-F-032/F-035/F-037 list phase-2 tickets F-029/F-030; PLT-C-004 lists PLT-F-039.
-- Drift: 8 `stale-decision` warnings D-41..D-47, D-50 (docs-drift); `ops/bin/ai-mirror` and `sdlc-skills-install` are absent from this repo.
+1. PLT-F-027 consumer accounts (invites, password and passkey login, sessions, consent), then PLT-F-028 resource requests (backend, approve writes a new grant version). Both Opus-sized; budget about 1 window each.
+2. PLT-F-035: usage over time per consumer, audit log, settings, requests page and pending count (the F-032 badge already calls `/admin/v1/resource-requests` and hides on 501).
+3. Playwright test of finish-line statements 2 and 5 (D-152) with a CI web job running `make web-admin-test` on Node 24 (`.github/workflows/ci.yml`, shared contract); lower the usage rollup interval in the test.
+4. M2 gate over `05b04f2..HEAD`, then M3 (PLT-F-036, PLT-F-037).
+
+Drift: 8 `stale-decision` warnings D-41..D-47, D-50 (docs-drift); `ops/bin/ai-mirror` and `sdlc-skills-install` are absent. `lld.md` module map lacks `webui` (M5 reconcile).
