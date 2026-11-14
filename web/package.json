@@ -1,0 +1,29 @@
+{
+  "name": "local-server-web",
+  "private": true,
+  "description": "The web UIs built into the local-server binary (req_001 D-151, D-152).",
+  "license": "Apache-2.0",
+  "workspaces": [
+    "shared",
+    "admin"
+  ],
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "gen": "npm run gen -w @local-server/shared",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspaces",
+    "build:admin": "npm run build -w @local-server/admin"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.10",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "jsdom": "^31.0.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

@@ -72,6 +72,7 @@ func DefaultConfig() Config {
 			{Name: "service", Packages: []string{"internal/service"}, Adapters: []string{"internal/service/osadapter"}},
 			{Name: "directory", Packages: []string{"internal/directory"}},
 			{Name: "api", Packages: []string{"internal/api"}},
+			{Name: "webui", Packages: []string{"internal/webui"}},
 		},
 		TablePrefixes: []string{
 			"hst_", "idn_", "grt_", "req_", "sch_", "use_",

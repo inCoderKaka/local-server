@@ -165,6 +165,7 @@ type envOpts struct {
 	metrics      http.Handler
 	tailnetHosts []string
 	tailnet      transport.Report
+	ui           http.Handler
 }
 
 // fakeNodes is a tailnet with one node, "laptop"; any other reference is not in it. No test here
@@ -217,7 +218,7 @@ func newEnv(t *testing.T, mod ...func(*envOpts)) *env {
 	}
 	e.admin, err = admin.New(admin.Config{DB: db, Settings: e.st, Identity: e.ir, Grants: e.gr, Auth: e.auth, Events: bus, Audit: log, Sharing: e.share, Sampler: e.sampler,
 		Keys: fakeKeys{}, Engine: o.engine, Metrics: o.metrics, Version: "1.2.3-test", Telemetry: e.tel, Clock: e.clk.now,
-		Nodes: fakeNodes{}, TailnetHosts: o.tailnetHosts, Tailnet: o.tailnet})
+		Nodes: fakeNodes{}, TailnetHosts: o.tailnetHosts, Tailnet: o.tailnet, UI: o.ui})
 	if err != nil {
 		t.Fatal(err)
 	}

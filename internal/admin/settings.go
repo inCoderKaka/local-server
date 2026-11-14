@@ -19,6 +19,7 @@ const (
 	KeyMetricsHistoryRange  = "admin.metrics_history_default_range"
 	KeyMetricsHistoryPoints = "admin.metrics_history_max_points"
 	KeyTailnetName          = "admin.tailnet_name"
+	KeyUIPollInterval       = "admin.ui_poll_interval"
 	defaultMaxBodyBytes     = 1 << 20
 	maxTailnetNameLen       = 253
 	maxTailnetLabelLen      = 63
@@ -40,6 +41,8 @@ func Defs() []settings.Def {
 			Description: "Most per-minute samples one host-metrics history answer holds. A longer range returns only the newest samples."},
 		{Key: KeyTailnetName, Kind: settings.String, Default: "", Owner: h,
 			Description: "The tailnet name of this host (for example my-host.example.ts.net) that the admin listener accepts in the Host header besides localhost and loopback addresses. Empty means none. Applies to the next request."},
+		{Key: KeyUIPollInterval, Kind: settings.Duration, Default: "30s", Owner: h,
+			Description: "How often the admin UI refreshes the resource strip, the sharing state and the count of pending resource requests; the UI reads it when a session starts and again after settings are saved."},
 	}
 }
 
@@ -62,7 +65,7 @@ func registerSettings(st *settings.Store) error {
 			return err
 		}
 	}
-	for _, key := range []string{KeySessionTTL, KeyEngineProbeTimeout, KeyMetricsHistoryRange} {
+	for _, key := range []string{KeySessionTTL, KeyEngineProbeTimeout, KeyMetricsHistoryRange, KeyUIPollInterval} {
 		if err := st.SetValidator(key, func(_ context.Context, v string) error {
 			d, err := time.ParseDuration(v)
 			if err != nil {

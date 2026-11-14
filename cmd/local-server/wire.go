@@ -29,6 +29,8 @@ import (
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
 	"github.com/inCoderKaka/local-server/internal/usage"
+	"github.com/inCoderKaka/local-server/internal/webui"
+	adminui "github.com/inCoderKaka/local-server/web/admin"
 )
 
 // services are the built modules serve runs.
@@ -38,8 +40,8 @@ type services struct {
 	// consumerPage is the consumer page listener's handler: the page and its /v1 account routes,
 	// the same origin (req_001 D-148).
 	consumerPage http.Handler
-	// admin is the whole admin listener: /admin/v1 and /metrics, behind the credential guard
-	// (PLT-F-024).
+	// admin is the whole admin listener: /admin/v1, /metrics and the admin UI, behind the
+	// credential guard (PLT-F-024, PLT-F-032).
 	admin http.Handler
 
 	st         *settings.Store
@@ -135,7 +137,10 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 	}
 	adm, err := admin.New(admin.Config{DB: db, Settings: st, Identity: ir, Grants: gr, Auth: au, Events: bus, Audit: auditLog, Sharing: share, Sampler: sv.sampler,
 		Keys: keys, Engine: eng, RuleFailures: gw, Metrics: metrics, Version: version, Telemetry: tel,
-		Nodes: nodes, TailnetHosts: tn.Hosts, Tailnet: tn.Report})
+		Nodes: nodes, TailnetHosts: tn.Hosts, Tailnet: tn.Report,
+		// The built admin UI, or its stub when the binary was built without npm (req_001 D-152).
+		// The same handler serves the localhost and the tailnet admin listener.
+		UI: webui.Handler(webui.Config{Files: adminui.Files()})})
 	if err != nil {
 		return nil, fmt.Errorf("admin: %w", err)
 	}

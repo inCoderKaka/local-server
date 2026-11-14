@@ -100,6 +100,10 @@ type Config struct {
 	Tailnet transport.Report
 	// Metrics serves GET /metrics (telemetry.MetricsHandler), behind the same guard as the API.
 	Metrics http.Handler
+	// UI serves the admin UI (a webui.Handler) for GET and HEAD on every path that is not
+	// /metrics, /admin or /v1, behind the same guard as the API. Nil answers those paths with the
+	// 404 envelope, as before the UI existed.
+	UI http.Handler
 	// Version is the software version shown in /admin/v1/host. Empty means "dev".
 	Version string
 	// Telemetry nil means telemetry.Nop().
@@ -190,8 +194,9 @@ func (a *Admin) Authenticate(ctx context.Context, username, password, remoteAddr
 }
 
 // Handler returns the admin listener's handler: a request id on every response, the credential
-// guard, then GET /metrics, the /admin/v1 API, and a 404 envelope for everything else. A panic
-// in a handler is answered 500 and logged by type only.
+// guard, then GET /metrics, the /admin/v1 API, the admin UI (Config.UI) for GET and HEAD of the
+// other paths, and a 404 envelope for everything else. A panic in a handler is answered 500 and
+// logged by type only.
 func (a *Admin) Handler() http.Handler {
 	guard := credential.Guard(credential.GuardConfig{
 		Names:          a.hostNames,
@@ -297,9 +302,31 @@ func (a *Admin) serve(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, max)
 		r = r.WithContext(context.WithValue(r.Context(), remoteKey{}, r.RemoteAddr))
 		a.srv.ServeHTTP(w, r)
+	case a.cfg.UI != nil && (r.Method == http.MethodGet || r.Method == http.MethodHead) && !apiPath(r):
+		a.cfg.UI.ServeHTTP(w, r)
 	default:
 		writeError(w, notFound())
 	}
+}
+
+// apiPath reports whether a request path is reserved for an API, in its decoded or its escaped
+// form: /metrics, anything under /admin (the admin API and its later versions) and anything
+// under /v1 (the consumer API, which this listener does not serve). Such a path never gets the
+// UI's page, so an unknown API path keeps answering the error envelope, also when it is spelled
+// with escapes that onAdminPath refuses (PLT-B-005).
+func apiPath(r *http.Request) bool {
+	for _, p := range []string{r.URL.Path, r.URL.RawPath} {
+		if p == "" {
+			continue
+		}
+		lp := strings.ToLower(p)
+		for _, root := range []string{"/metrics", "/admin", "/v1"} {
+			if lp == root || strings.HasPrefix(lp, root+"/") || strings.HasPrefix(lp, root+"%2f") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // HandleAccessKeyAuth never authenticates: access keys belong to the consumer API.

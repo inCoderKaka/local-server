@@ -6,7 +6,8 @@
 //
 // Handler is the whole admin listener: a request id on every response, then the credential
 // guard (the DNS-rebinding Host check and the CSRF Origin check of internal/auth/credential,
-// req_001 D-10), then a router: GET /metrics, /admin/v1/..., and a 404 in the error envelope for
+// req_001 D-10), then a router: GET /metrics, /admin/v1/..., the admin UI (Config.UI, for GET
+// and HEAD of any path not under /metrics, /admin or /v1), and a 404 in the error envelope for
 // everything else, including every consumer route. Every error is the OpenAI-style envelope; no
 // error quotes request bytes.
 //
