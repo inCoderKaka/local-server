@@ -3,10 +3,10 @@ import 'uplot/dist/uPlot.min.css';
 import { Button, call, Card, ErrorBanner, formatBytes, formatDateTime, formatPercent, Spinner, Table, useApi, useClient } from '@local-server/shared';
 import type { HostMetricsSample } from '../lib/shell';
 
-type Series = { label: string; values: (number | null)[]; stroke: string };
+export type Series = { label: string; values: (number | null)[]; stroke: string };
 
 /** Whether this browser can draw on a canvas (jsdom cannot). */
-function canDraw(): boolean {
+export function canDraw(): boolean {
   try {
     return !!document.createElement('canvas').getContext('2d');
   } catch {
@@ -19,7 +19,7 @@ function canDraw(): boolean {
  * style attributes or <style> elements, so it runs under style-src 'self'; its stylesheet is part
  * of the app's one stylesheet. It is loaded only when a canvas exists.
  */
-function Plot({ title, xs, series, format }: { title: string; xs: number[]; series: Series[]; format: (n: number | null) => string }) {
+export function Plot({ title, xs, series, format }: { title: string; xs: number[]; series: Series[]; format: (n: number | null) => string }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
