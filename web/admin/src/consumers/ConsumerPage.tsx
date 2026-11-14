@@ -134,6 +134,11 @@ export default function ConsumerPage() {
               <Actions c={consumer} onChange={c.setData} onDeleted={c.refetch} />
             </Card>
           </div>
+          <p className="text-sm">
+            <Link to={`/consumers/${encodeURIComponent(consumer.id)}/grant`} className="text-sky-800 underline">
+              Grant and rules: models, limits, quotas and history
+            </Link>
+          </p>
           <AccessKeys consumer={consumer} />
         </>
       )}
