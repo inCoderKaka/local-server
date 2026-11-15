@@ -1,6 +1,21 @@
 # platform — phase 2 parking
 
-One line per item found during phase 1 that is outside the finish line (`finish-plan.md`, req_001 D-142). No ids, no sizing, no decisions. Phase 2 design reads this file and the phase 1 backlog and bug rows marked out of scope.
+One line per item found during phase 1 that is outside the finish line (`finish-plan.md`, req_001 D-142). No ids, no sizing, no decisions. Phase 2 design reads this file and the phase 1 backlog and bug rows marked out of scope. Each line goes in the table it belongs to: software (what a host, consumer or client app gets) in **Software**, the repo's own tooling, dev setup and ways of working in **Ways of working and tooling** (`docs/tracks/README.md`, "Software and ways of working").
+
+## Ways of working and tooling
+
+Repo tooling, dev setup and test tooling that ship nothing to a host or consumer.
+
+| Date | What | Where | Found by |
+|---|---|---|---|
+| 2026-11-14 | `consumer-api-check` sends the key over http to any non-.ts.net host | `ops/checks/consumer-api-check:58-60` | review-gate M0+M1 |
+| 2026-11-15 | `go ./...` does not skip `web/**/node_modules`, so a future npm package shipping a `.go` file would break `go build ./...` | `Makefile`, CI | build PLT-F-032 |
+| 2026-11-15 | vitest 5 and jsdom 31 do not list Node 25 in their engines (npm only warns) | `web/package.json` | build PLT-F-032 |
+| 2026-11-15 | `npm run dev` proxy to a running admin listener left out | `web/admin/vite.config.ts` | build PLT-F-032 |
+| 2026-11-15 | e2e: no `@types/node` typecheck for `web/e2e`; the shown-once access key can land in failure traces and screenshots (set snapshots and screenshots to false) | `web/e2e/` | build PLT-F-035 |
+| 2026-11-15 | The browser end-to-end test is not type-checked: `web/e2e` has no `tsconfig.json`, so `npm run typecheck` skips it, and `@types/node` is not installed for its `node:` imports; Playwright only strips the types | `web/e2e/`, `web/package.json` | build PLT-F-035 |
+
+## Software
 
 | Date | What | Where | Found by |
 |---|---|---|---|
@@ -22,17 +37,12 @@ One line per item found during phase 1 that is outside the finish line (`finish-
 | 2026-11-14 | The scheduler holds `dispatchMu` across `Engine.Unload` polling, so admissions stall up to `engine.ollama_request_timeout` while a model is still in use; mitigation: lower that setting. Settle with it whether an unconfirmed eviction is a failure and is logged | `internal/scheduler/scheduler.go:503,534`, `lifecycle.go:43,98,125,151` | review-gate M0+M1 |
 | 2026-11-14 | Module docs miss the Unload wait, OpenReadOnlyImmutable and the D-112 rule; backup and readonly comments are wrong when only -wal exists (-shm is created) | `docs/modules/engine.md`, `storage.md`, `limits.md`, `cmd/local-server/backup.go:404-406`, `internal/storage/readonly.go:73-75` | review-gate M0+M1 |
 | 2026-11-14 | `tailscale.com` is marked indirect in go.mod though imported directly | `go.mod:167` | review-gate M0+M1 |
-| 2026-11-14 | `consumer-api-check` sends the key over http to any non-.ts.net host | `ops/checks/consumer-api-check:58-60` | review-gate M0+M1 |
 | 2026-11-14 | PLT-C-011: only Ollama 0.31.1 ran; the 0.12.6 minimum is unexercised | `internal/engine/ollama/config.go:13` | review-gate M0+M1 |
-| 2026-11-15 | `go ./...` does not skip `web/**/node_modules`, so a future npm package shipping a `.go` file would break `go build ./...` | `Makefile`, CI | build PLT-F-032 |
-| 2026-11-15 | vitest 5 and jsdom 31 do not list Node 25 in their engines (npm only warns) | `web/package.json` | build PLT-F-032 |
 | 2026-11-15 | `lld.md` module map does not list `webui`, which `tools/archcheck/config.go` mirrors | `docs/design_docs/lld.md` | build PLT-F-032 |
-| 2026-11-15 | `npm run dev` proxy to a running admin listener left out | `web/admin/vite.config.ts` | build PLT-F-032 |
 | 2026-11-15 | Consumers list has no row-click suspend; the `warnings[]` field on create, issue and update answers is never shown | `web/admin/src/consumers/`, `invites/` | build PLT-F-033 |
 | 2026-11-15 | No API maps a `grant_id` to its consumer (Rules page shows a raw grant id); `GET grant` 404 does not tell "no consumer" from "no grant yet"; a stored grant expiry with seconds is cut to minutes on re-save | `web/admin/src/policy/RulesPanel.tsx`, `internal/admin/grants/errors.go`, `grants/GrantForm.tsx` | build PLT-F-034 |
 | 2026-11-15 | `settingList` returns secret-type setting values (`backup.s3.sealed_secret`, keys matching `secretKey()`) in clear to a signed-in admin; return a placeholder instead. Admin session only, no consumer or peer path | `internal/admin/settingsapi.go:31-52` | build PLT-F-035 |
 | 2026-11-15 | Dashboard shows no per-consumer usage (only `/usage` does); no "Usage" link from the consumer page; no key or model filter and no search on settings | `web/admin/src/dashboard/`, `consumers/ConsumerPage.tsx`, `usage/` | build PLT-F-035 |
-| 2026-11-15 | e2e: no `@types/node` typecheck for `web/e2e`; the shown-once access key can land in failure traces and screenshots (set snapshots and screenshots to false) | `web/e2e/` | build PLT-F-035 |
 | 2026-11-15 | The error-envelope helpers (`apiError`, `decodeError`, `safeName`, `classify`) now exist in three packages (admin, gateway, consumerauth), and the settings JSON helpers `textValue` and `jsonValue` in two (admin, consumerauth); extract one shared package | `internal/admin/errors.go`, `internal/admin/settingsapi.go`, `internal/gateway/errors.go`, `internal/consumerauth/errors.go`, `account.go` | build PLT-F-027 |
 | 2026-11-15 | `PUT /v1/me/password` for a consumer with no password credential (passkey-only) cannot create one: `PasswordChange` has no login name, so the route answers 409; the passkey step must decide where the login name comes from. `PATCH /v1/me/settings` writes scoped settings one at a time (`settings.Store.Apply` takes only unscoped ones), so a validator refusal midway keeps the earlier keys | `internal/consumerauth/account.go` (`SetPassword`, `UpdateSettings`), `api/openapi.yaml` `PasswordChange` | build PLT-F-027 |
 | 2026-11-15 | Requests page: `ResourceRequestList` has no consumer display name, so the page reads `GET /admin/v1/consumers/{id}` once per distinct consumer; there is no count endpoint or `total` field, so the pending count pages through every open request; the list is not polled (Refresh button), only the shared pending count is | `web/admin/src/requests/`, `api/openapi.yaml` `ResourceRequestList` | build PLT-F-035 |
@@ -40,4 +50,3 @@ One line per item found during phase 1 that is outside the finish line (`finish-
 | 2026-11-15 | Purging a deleted consumer (`ConsumerRepo.Purge`) leaves its `req_resource_request` and `req_comment` rows, which hold the consumer's own free text (classified `personal`); erase or blank them with the other personal rows | `internal/identity/consumer.go`, `internal/requests/migrations/0001_requests_tables.sql` | build PLT-F-028 |
 | 2026-11-15 | `TestUnknownFieldWithAnUnsafeNameIsNotEchoed` fails about 1 run in 140: it asserts the answer does not contain `bad`, which a random UUID in the same answer can contain | `internal/admin/ignored_test.go` | build PLT-F-028 |
 | 2026-11-15 | Docs still say filling `warnings` on a resource-request create or approval is planned: glossary "Warnings", the `ResourceRequest.warnings` description in `api/openapi.yaml` ("no handler fills it yet"); `docs/modules/{admin,api,consumerauth,gateway}.md` do not mention the resource-request routes or `internal/api/ignored` | `docs/glossary.md`, `api/openapi.yaml`, `docs/modules/` | build PLT-F-028 |
-| 2026-11-15 | The browser end-to-end test is not type-checked: `web/e2e` has no `tsconfig.json`, so `npm run typecheck` skips it, and `@types/node` is not installed for its `node:` imports; Playwright only strips the types | `web/e2e/`, `web/package.json` | build PLT-F-035 |

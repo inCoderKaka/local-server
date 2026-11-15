@@ -40,7 +40,7 @@ Each phase folder contains these files:
 
   Pending columns: `ID | Feature | Artifact | Pri | Impact | Effort | Depends On | Sub-tasks | Ref | Code Rev. | Sec. Rev. | Model | Notes | Source`. Done and Shipped rows drop Pri/Impact/Effort.
 
-  A flat **`## Chores`** table at the end (`ID | Type | Title | Pri | Status | Depends on | Notes | Source`) holds `C` tickets.
+  A flat **`## Chores`** table at the end (`ID | Type | Title | Pri | Status | Depends on | Notes | Source`) holds `C` tickets, followed by **`## Chores — ways of working`** with the same columns (see "Software and ways of working").
 
   Statuses: `idea → designed → building → done → shipped`, or `dropped` (with a reason, the text struck through, never deleted).
 
@@ -77,6 +77,21 @@ Requirement-driven tickets carry these fields inside existing cells. Every row a
 - **Requirement-driven rows:** a row is requirement-driven if a cell contains a `req_\d+` token.
 - **Work order:** planned tickets (Source `req_N` or `design`) come first, by Pri.
 - **Public docs:** `User-visible: yes` in Notes marks a ticket that needs a public-docs `@planned` block. The public docs (D-63) currently mark planned features with a page-level status banner; no `@planned` blocks are authored yet.
+
+## Software and ways of working
+
+Every log keeps software items apart from ways-of-working items, so the software can be read without process noise. **Software** changes what a host, consumer or client app gets: behaviour, API, data, UI, code, shipped docs and release artifacts. **Ways of working** is how the work is run: design-stage bookkeeping and doc syncs, phase and milestone scope (finish line, scope freeze, milestone order), budget, review-gate timing and runs, how checks are run, recording rulings, and the repo's own tooling (`ops/`, CI-only automation, dev and test setup). A rule that also sets software behaviour (for example a runtime setting default) stays with the software.
+
+| Kind | Software | Ways of working |
+|---|---|---|
+| Decisions (`req_N.decisions.md`) | `## Decisions` | `## Ways of working and delivery`, same columns and statuses, in the same file so the hard gate and `ops/bin/docs-drift` read it |
+| Chores (`backlog.md`) | `## Chores` | `## Chores — ways of working`, same columns; `ops/bin/ticket-drift` reads both |
+| Features (`backlog.md`), bugs (`bugs.md`) | every row | none: a process or tooling problem is a ways-of-working chore or a parking line |
+| Implicit decisions (`implicit-decisions.md`) | every row | never a row (its own rule) |
+| Parking (`phase-2-parking.md`) | `## Software` | `## Ways of working and tooling` |
+| Work queue | — | `finish-plan.md`, `next-steps.md` |
+
+IDs never change when a row is classified: a row keeps its `D-NN` or ticket id in either section.
 
 ## What stays global
 
