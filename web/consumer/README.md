@@ -10,6 +10,21 @@ React + Vite + TypeScript, served by the consumer page listener from `web/consum
 - Passkeys: `src/lib/webauthn.ts` turns the begin routes' options (base64url) into what `navigator.credentials` takes and its answer back into JSON. Every option, the timeout included, is the host's.
 - The Terms of Use and the Privacy notice shown at sign-up are `docs/legal/*.md`, built in as text; the consent sends their `**Version:**` ids, and a test checks those equal the host's `TermsVersion` and `PrivacyVersion`.
 
+## The pages
+
+| Page | Route | Reads and writes |
+|---|---|---|
+| Home | `#/` | a summary: the limits in one line, what is used now, the count of pending requests |
+| My limits | `#/limits` | `GET /v1/me/limits` (a 404 is "no access yet", req_001 D-150) |
+| My usage | `#/usage` | `GET /v1/usage`: use of each current quota window, then a range per model as a chart (uPlot) and a table |
+| My keys | `#/keys` | `GET /v1/me/access-keys`, read only |
+| Requests | `#/requests`, `#/requests/<id>` | `GET`/`POST /v1/resource-requests`, one request with its comments, comment, withdraw |
+| Settings | `#/settings` | `GET`/`PATCH /v1/me/settings`, `PUT /v1/me/password`, `/v1/me/passkeys/begin` and `/finish` |
+
+- A quota window is counted the way the host counts it: fixed windows of their length from 0001-01-01 00:00 UTC (`src/lib/usage.ts`, `quotaWindow`), summed from the usage rollups in buckets that start at the window's start.
+- The few display choices the API leaves to the page (the summary period of a grant without a quota, the chart colours) are in `src/lib/constants.ts`; the usage ranges are the shared `RANGES`. The pages do not poll: the host has no consumer-readable poll interval, so each page reads on open and has a Refresh button.
+- Lists page with the host's page size (`usePagedList`, `readAll` from `@local-server/shared`); no `limit` is sent.
+
 ## Add a page
 
 1. Create `src/pages/<name>.page.tsx` exporting `const page: PageDef` (`id`, `path`, `label`, `order`, `element`, optional `navVisible: false`). The registry (`src/registry.ts`) finds it; nothing else is edited. `/login` and `/signup` belong to the shell.
@@ -19,4 +34,4 @@ React + Vite + TypeScript, served by the consumer page listener from `web/consum
 
 ## Tests
 
-Vitest + Testing Library in jsdom. `src/test/fixtures.ts` has a logged-out and a logged-in fake host, `src/test/render.tsx` renders the app (`renderApp(fake, { pages, hash, invite })`) and `src/test/passkeys.ts` installs a fake `navigator.credentials`.
+Vitest + Testing Library in jsdom. `src/test/fixtures.ts` has a logged-out and a logged-in fake host (the logged-in one answers every page's reads: a grant, no usage, no requests, no keys, two settings) and builders of the API objects, `src/test/render.tsx` renders the app (`renderApp(fake, { pages, hash, invite })`) and `src/test/passkeys.ts` installs a fake `navigator.credentials`.

@@ -20,6 +20,12 @@ export function formatBytes(v: number | null | undefined): string {
   return i === 0 ? `${sign}${n} B` : `${sign}${n.toFixed(1)} ${byteUnits[i]}`;
 }
 
+/** Formats a count in the browser's locale (`12,345`); null is `n/a`. */
+export function formatCount(n: number | null | undefined): string {
+  if (missing(n)) return NOT_AVAILABLE;
+  return n.toLocaleString();
+}
+
 /** Formats a percentage with one decimal (`12.5%`); null is `n/a`. */
 export function formatPercent(v: number | null | undefined): string {
   if (missing(v)) return NOT_AVAILABLE;

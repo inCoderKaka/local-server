@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
-import { asApiError, Button, ErrorBanner, type ApiError } from '@local-server/shared';
+import { asApiError, type ApiError } from '../api/client';
+import { Button, ErrorBanner } from './ui';
 
 /**
  * A button for an action that cannot be undone. The first press only opens a confirmation that

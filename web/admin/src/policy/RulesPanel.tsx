@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { asApiError, Badge, Button, call, Card, ErrorBanner, formatDateTime, Spinner, Table, useApi, UserText, useClient, type ApiError, type Column } from '@local-server/shared';
-import { ConfirmAction } from '../consumers/ConfirmAction';
+import { asApiError, Badge, Button, call, Card, ConfirmAction, ErrorBanner, formatDateTime, Spinner, Table, useApi, useClient, UserText, type ApiError, type Column } from '@local-server/shared';
 import { HOST_SETTING, intSetting } from '../grants/values';
 import { useSettings } from '../lib/settings';
 import { RuleForm } from './RuleForm';

@@ -4,29 +4,31 @@ import {
   Button,
   call,
   Card,
+  ConfirmAction,
   ErrorBanner,
   formatDateTime,
   Link,
+  secondsFrom,
   Spinner,
   Table,
-  UserText,
+  TextArea,
   useApi,
   useClient,
+  usePagedList,
+  UserText,
   type ApiClient,
   type ApiError,
   type Column,
   type Schema,
 } from '@local-server/shared';
-import { ConfirmAction } from '../consumers/ConfirmAction';
 import { ConsumerName } from '../consumers/labels';
-import { usePagedList } from '../consumers/pagedList';
 import { GrantForm } from '../grants/GrantForm';
 import type { GrantLimits, GrantVersion } from '../grants/labels';
-import { HOST_SETTING, intSetting, secondsFrom, textSetting } from '../grants/values';
+import { HOST_SETTING, intSetting, textSetting } from '../grants/values';
 import { useSettings } from '../lib/settings';
 import { useShell } from '../lib/shell';
 import { limitsFromAsk, type ResourceRequest, type ResourceRequestStatus } from './ask';
-import { Author, AskSummary, RequestStatusBadge, statusText, TextArea } from './labels';
+import { Author, AskSummary, RequestStatusBadge, statusText } from './labels';
 
 type Consumer = Schema<'Consumer'>;
 type Filter = '' | ResourceRequestStatus;

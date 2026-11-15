@@ -1,4 +1,4 @@
-import { useId, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
+import { useId, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from 'react';
 import { ApiError } from '../api/client';
 
 type Variant = 'primary' | 'secondary' | 'danger';
@@ -82,6 +82,43 @@ export function Field({
         aria-describedby={[hintId, errId].filter(Boolean).join(' ') || undefined}
         className="rounded border border-slate-300 px-2 py-1 text-sm aria-invalid:border-red-600"
         {...input}
+      />
+      {hint && (
+        <p id={hintId} className="text-xs text-slate-600">
+          {hint}
+        </p>
+      )}
+      {error && (
+        <p id={errId} className="text-xs text-red-700">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** A labelled multi-line text field with an optional hint and error, wired with aria-describedby. */
+export function TextArea({
+  label,
+  hint,
+  error,
+  ...rest
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & { label: ReactNode; hint?: ReactNode; error?: ReactNode }) {
+  const id = useId();
+  const hintId = hint ? `${id}-hint` : undefined;
+  const errId = error ? `${id}-error` : undefined;
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className="text-sm font-medium text-slate-800">
+        {label}
+      </label>
+      <textarea
+        id={id}
+        rows={3}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={[hintId, errId].filter(Boolean).join(' ') || undefined}
+        className="rounded border border-slate-300 px-2 py-1 text-sm aria-invalid:border-red-600"
+        {...rest}
       />
       {hint && (
         <p id={hintId} className="text-xs text-slate-600">

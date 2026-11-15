@@ -1,11 +1,11 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { errorReply } from '@local-server/shared/test';
-import type { Schema } from '@local-server/shared';
+import { bucketStarts, type Schema } from '@local-server/shared';
 import { consumer } from '../consumers/testData';
 import { fakeHost, settingsList } from '../test/fixtures';
 import { renderApp } from '../test/render';
-import { bucketStarts, seriesValues, rowsByBucket } from './usageData';
+import { seriesValues, rowsByBucket } from './usageData';
 
 const A = '0192e5a0-0001-7000-8000-000000000001';
 const B = '0192e5a0-0001-7000-8000-0000000000b2';

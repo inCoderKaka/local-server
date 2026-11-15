@@ -1,8 +1,7 @@
 import { useId, useState } from 'react';
-import { Button, call, Card, ErrorBanner, formatDateTime, Link, Spinner, Table, UserText, useClient, type Column } from '@local-server/shared';
+import { Button, call, Card, ErrorBanner, formatDateTime, Link, Spinner, Table, useClient, usePagedList, UserText, type Column } from '@local-server/shared';
 import { CreateConsumerForm } from './CreateConsumerForm';
 import { ConsumerName, ConsumerStatusBadge, kindLabel, type Consumer } from './labels';
-import { usePagedList } from './pagedList';
 
 type StatusFilter = '' | Consumer['status'];
 

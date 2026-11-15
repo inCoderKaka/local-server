@@ -1,36 +1,32 @@
 import { useId, useMemo, useState } from 'react';
 import {
+  bucketStarts,
   Button,
   call,
+  canDraw,
   Card,
+  DEFAULT_GRANULARITY,
   ErrorBanner,
+  formatCount,
   formatDateTime,
+  granularityLabel,
   Link,
-  NOT_AVAILABLE,
   parseGoDuration,
+  Plot,
+  RANGES,
+  readAll,
   Spinner,
   Table,
   useApi,
   useClient,
   useHashLocation,
   type ApiClient,
+  type Granularity,
+  type Series,
 } from '@local-server/shared';
-import { canDraw, Plot, type Series } from '../dashboard/UsageChart';
 import { ConsumerName, type Consumer } from '../consumers/labels';
 import { settingOf, useSettings } from '../lib/settings';
-import {
-  bucketStarts,
-  DEFAULT_GRANULARITY,
-  granularityLabel,
-  RANGES,
-  rowsByBucket,
-  seriesValues,
-  totalsByConsumer,
-  type BucketRow,
-  type Granularity,
-  type Rollup,
-  type Totals,
-} from './usageData';
+import { rowsByBucket, seriesValues, totalsByConsumer, type BucketRow, type Rollup, type Totals } from './usageData';
 
 /** The host settings this page reads to explain what it shows (owned by the usage module). */
 const RETENTION_KEY: Record<Granularity, string> = {
@@ -41,22 +37,6 @@ const RETENTION_KEY: Record<Granularity, string> = {
 const ROLLUP_INTERVAL_KEY = 'usage.rollup.interval';
 
 const palette = ['#0284c7', '#d97706', '#059669', '#7c3aed', '#dc2626', '#334155', '#db2777', '#65a30d'];
-
-function formatCount(n: number | null): string {
-  return n === null || !Number.isFinite(n) ? NOT_AVAILABLE : n.toLocaleString();
-}
-
-/** Reads every page of a list that pages with next_cursor; the page size is the server's. */
-async function readAll<T>(page: (cursor: string | undefined) => Promise<{ data: T[]; next_cursor?: string | null }>): Promise<T[]> {
-  const out: T[] = [];
-  let cursor: string | undefined;
-  do {
-    const p = await page(cursor);
-    out.push(...p.data);
-    cursor = p.next_cursor ?? undefined;
-  } while (cursor);
-  return out;
-}
 
 function readUsage(client: ApiClient, granularity: Granularity, from: number, to: number, consumerId: string) {
   return readAll<Rollup>((cursor) =>

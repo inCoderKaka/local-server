@@ -1,6 +1,5 @@
 import { useId, useState, type FormEvent } from 'react';
-import { asApiError, Button, call, CheckboxField, ErrorBanner, Field, useClient, type ApiError } from '@local-server/shared';
-import { wholeFrom } from '../grants/values';
+import { asApiError, Button, call, CheckboxField, ErrorBanner, Field, useClient, wholeFrom, type ApiError } from '@local-server/shared';
 import { docOfValues, emptyRule, nextKey, valuesOfDoc, type PolicyRule, type Priority, type PropKind, type PropRow, type RuleValues, type WindowRow } from './ruleDoc';
 
 const kindText: Record<PropKind, string> = { true: 'Is set (true)', false: 'Is false', number: 'Is the number', text: 'Is the text' };

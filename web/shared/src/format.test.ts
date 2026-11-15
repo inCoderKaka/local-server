@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatBytes, formatDateTime, formatPercent, formatRelativeTime, NOT_AVAILABLE } from './format';
+import { formatBytes, formatCount, formatDateTime, formatPercent, formatRelativeTime, NOT_AVAILABLE } from './format';
 
 describe('formatters', () => {
   it('formats bytes in binary units', () => {
@@ -33,5 +33,14 @@ describe('formatters', () => {
     expect(formatRelativeTime('2026-01-15T12:00:00Z', now, 'en')).toBe('in 2 hours');
     expect(formatRelativeTime('2026-01-15T10:00:00Z', now, 'en')).toBe('now');
     expect(formatRelativeTime('2026-01-12T10:00:00Z', now, 'en')).toBe('3 days ago');
+  });
+});
+
+describe('formatCount', () => {
+  it('formats a count in the locale and never invents a value', () => {
+    expect(formatCount(12345)).toBe((12345).toLocaleString());
+    expect(formatCount(0)).toBe('0');
+    expect(formatCount(null)).toBe(NOT_AVAILABLE);
+    expect(formatCount(Number.NaN)).toBe(NOT_AVAILABLE);
   });
 });

@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
-import { formatDateTime, Table, UserText, type Column } from '@local-server/shared';
+import { formatDateTime, formatSeconds, Table, UserText, type Column } from '@local-server/shared';
 import { limitText, metricText, overflowText, RequestTypes, type GrantModelLimit, type GrantVersion, type QuotaEntry } from './labels';
-import { formatSeconds } from './values';
 
 const modelColumns: Column<GrantModelLimit>[] = [
   { key: 'model', header: 'Model', render: (m) => <UserText text={m.model} /> },

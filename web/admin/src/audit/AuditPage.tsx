@@ -1,6 +1,5 @@
 import { useId, useState, type FormEvent, type ReactNode } from 'react';
-import { Button, call, Card, ErrorBanner, formatDateTime, Spinner, Table, UserText, useClient, type Schema } from '@local-server/shared';
-import { usePagedList } from '../consumers/pagedList';
+import { Button, call, Card, ErrorBanner, formatDateTime, Spinner, Table, useClient, usePagedList, UserText, type Schema } from '@local-server/shared';
 
 type AuditEvent = Schema<'AuditEvent'>;
 type Principal = Schema<'PrincipalRef'>;

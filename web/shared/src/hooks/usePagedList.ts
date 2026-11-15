@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type DependencyList } from 'react';
-import { asApiError, type ApiError } from '@local-server/shared';
+import { asApiError, type ApiError } from '../api/client';
 
 interface Page<T> {
   data: T[];

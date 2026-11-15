@@ -1,5 +1,4 @@
-import { UserText, type Schema } from '@local-server/shared';
-import { formatSeconds } from './values';
+import { formatSeconds, UserText, type Schema } from '@local-server/shared';
 
 export type GrantVersion = Schema<'GrantVersion'>;
 export type GrantLimits = Schema<'GrantLimits'>;

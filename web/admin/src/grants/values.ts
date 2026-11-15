@@ -1,4 +1,3 @@
-import { parseGoDuration } from '@local-server/shared';
 import { settingOf, type Setting } from '../lib/settings';
 
 /**
@@ -42,48 +41,6 @@ export function textSetting(list: Setting[] | undefined, key: string): string | 
 export function boolSetting(list: Setting[] | undefined, key: string): boolean | null {
   const v = settingOf(list, key)?.value;
   return typeof v === 'boolean' ? v : null;
-}
-
-/** Whole seconds as a duration the host can read and type again: 86400 is `24h`, 5400 `1h30m`. */
-export function formatSeconds(total: number): string {
-  if (!Number.isFinite(total)) return '';
-  let s = Math.abs(Math.trunc(total));
-  if (s === 0) return '0s';
-  const h = Math.floor(s / 3600);
-  s -= h * 3600;
-  const m = Math.floor(s / 60);
-  s -= m * 60;
-  return (total < 0 ? '-' : '') + (h ? `${h}h` : '') + (m ? `${m}m` : '') + (s ? `${s}s` : '');
-}
-
-/** A duration the host typed (`30s`, `5m`, `24h`, `1h30m`) as whole seconds of 0 or more. */
-export function secondsFrom(text: string): { value?: number; error?: string } {
-  const ms = parseGoDuration(text.trim());
-  if (ms === null) return { error: 'Write a duration such as 30s, 5m, 24h or 1h30m.' };
-  if (ms < 0) return { error: 'The duration cannot be negative.' };
-  if (ms % 1000 !== 0) return { error: 'Use whole seconds.' };
-  return { value: ms / 1000 };
-}
-
-/**
- * A whole number the host typed, at least `min`. Empty is `{}` (the caller decides what empty
- * means); anything else that is not such a number is an error.
- */
-export function wholeFrom(text: string, min: number): { value?: number; error?: string } {
-  const t = text.trim();
-  if (t === '') return {};
-  if (!/^\d+$/.test(t) || !Number.isSafeInteger(Number(t))) return { error: 'Write a whole number.' };
-  const n = Number(t);
-  if (n < min) return { error: `Write ${min} or more.` };
-  return { value: n };
-}
-
-/** A comma-separated list the host typed, trimmed, without empty entries. */
-export function listFrom(text: string): string[] {
-  return text
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s) => s !== '');
 }
 
 /** An RFC 3339 time as the value of a datetime-local input, in this browser's time zone. */

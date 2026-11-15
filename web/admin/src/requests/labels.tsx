@@ -1,4 +1,4 @@
-import { useId, type ReactNode, type TextareaHTMLAttributes } from 'react';
+import type { ReactNode } from 'react';
 import { Badge, UserText, type Schema } from '@local-server/shared';
 import { quotaText } from '../grants/labels';
 import { askQuotas, type ResourceRequestAsk, type ResourceRequestStatus } from './ask';
@@ -64,24 +64,5 @@ export function AskSummary({ ask, quotaWindowSeconds, empty }: { ask: ResourceRe
         </li>
       ))}
     </ul>
-  );
-}
-
-/** A labelled multi-line text field with an optional hint. */
-export function TextArea({ label, hint, ...rest }: TextareaHTMLAttributes<HTMLTextAreaElement> & { label: ReactNode; hint?: ReactNode }) {
-  const id = useId();
-  const hintId = hint ? `${id}-hint` : undefined;
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-sm font-medium text-slate-800">
-        {label}
-      </label>
-      <textarea id={id} rows={3} aria-describedby={hintId} className="rounded border border-slate-300 px-2 py-1 text-sm" {...rest} />
-      {hint && (
-        <p id={hintId} className="text-xs text-slate-600">
-          {hint}
-        </p>
-      )}
-    </div>
   );
 }

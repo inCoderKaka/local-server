@@ -1,5 +1,4 @@
-import { Button, call, Card, ErrorBanner, formatDateTime, Spinner, Table, UserText, useClient, type Column } from '@local-server/shared';
-import { usePagedList } from '../consumers/pagedList';
+import { Button, call, Card, ErrorBanner, formatDateTime, Spinner, Table, useClient, usePagedList, UserText, type Column } from '@local-server/shared';
 import { limitText, overflowText, quotaText, RequestTypes, type GrantVersion } from './labels';
 
 function modelsText(v: GrantVersion): string {

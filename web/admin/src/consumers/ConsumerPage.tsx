@@ -4,18 +4,18 @@ import {
   Button,
   call,
   Card,
+  ConfirmAction,
   ErrorBanner,
   formatDateTime,
   Link,
   Spinner,
   useApi,
-  UserText,
   useClient,
   useParams,
+  UserText,
   type ApiError,
 } from '@local-server/shared';
 import { AccessKeys } from './AccessKeys';
-import { ConfirmAction } from './ConfirmAction';
 import { ConsumerName, ConsumerStatusBadge, kindLabel, type Consumer } from './labels';
 
 function Details({ c }: { c: Consumer }) {

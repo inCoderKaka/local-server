@@ -36,3 +36,15 @@ const unitMs: Record<string, number> = {
   m: 60_000,
   h: 3_600_000,
 };
+
+/** Whole seconds as a duration a person can read and type again: 86400 is `24h`, 5400 `1h30m`. */
+export function formatSeconds(total: number): string {
+  if (!Number.isFinite(total)) return '';
+  let s = Math.abs(Math.trunc(total));
+  if (s === 0) return '0s';
+  const h = Math.floor(s / 3600);
+  s -= h * 3600;
+  const m = Math.floor(s / 60);
+  s -= m * 60;
+  return (total < 0 ? '-' : '') + (h ? `${h}h` : '') + (m ? `${m}m` : '') + (s ? `${s}s` : '');
+}

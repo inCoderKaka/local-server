@@ -1,6 +1,4 @@
-import { Badge, Button, call, Card, ErrorBanner, formatDateTime, Link, Spinner, Table, UserText, useClient, type Column, type Schema } from '@local-server/shared';
-import { ConfirmAction } from '../consumers/ConfirmAction';
-import { usePagedList } from '../consumers/pagedList';
+import { Badge, Button, call, Card, ConfirmAction, ErrorBanner, formatDateTime, Link, Spinner, Table, useClient, usePagedList, UserText, type Column, type Schema } from '@local-server/shared';
 import { CreateInviteForm } from './CreateInviteForm';
 
 type Invite = Schema<'Invite'>;

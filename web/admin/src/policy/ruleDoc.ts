@@ -1,5 +1,4 @@
-import type { Schema } from '@local-server/shared';
-import { listFrom, wholeFrom } from '../grants/values';
+import { listFrom, wholeFrom, type Schema } from '@local-server/shared';
 
 export type PolicyRule = Schema<'PolicyRule'>;
 

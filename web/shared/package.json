@@ -15,7 +15,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "openapi-fetch": "^0.17.0"
+    "openapi-fetch": "^0.17.0",
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "openapi-typescript": "^7.13.0",
