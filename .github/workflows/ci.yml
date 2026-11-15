@@ -111,3 +111,52 @@ jobs:
             web/e2e/playwright-report/
             web/e2e/test-results/
           if-no-files-found: ignore
+
+  # The macOS and Linux install script (PLT-F-043): shellcheck, then its bats tests. The tests use a
+  # fake release folder and stubs, so they need no network and touch no real system. Linux only:
+  # the no-terminal tests need setsid, which macOS lacks.
+  install-scripts-sh:
+    name: install-scripts-sh
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+      - name: shellcheck (installed on the runner image)
+        run: shellcheck scripts/install.sh
+      - name: bats tests of install.sh
+        run: npx --yes bats@1.13.0 scripts/test/install.bats
+
+  # The Windows install script (PLT-F-043). The script has to run in Windows PowerShell 5.1 and in
+  # PowerShell 7, so it is parsed and tested in both. Pester is pinned to an exact version.
+  install-scripts-ps:
+    name: install-scripts-ps (${{ matrix.shell }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shell: [powershell, pwsh]
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Parse install.ps1
+        run: |
+          $errors = $null
+          $path = (Resolve-Path scripts/install.ps1).Path
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors)
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Host $_.ToString() }
+            exit 1
+          }
+          Write-Host "install.ps1 parses in PowerShell $($PSVersionTable.PSVersion)"
+      - name: Install Pester 5.9.1
+        run: |
+          Install-Module -Name Pester -RequiredVersion 5.9.1 -Force -SkipPublisherCheck -Scope CurrentUser
+      - name: Pester tests of install.ps1
+        run: |
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          Import-Module Pester -RequiredVersion 5.9.1
+          Invoke-Pester -Path scripts/test -CI
