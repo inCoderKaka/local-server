@@ -104,6 +104,7 @@ func (a *app) runDoctor(ctx context.Context, dir string) report {
 	st, vals, existing, dbCheck, closeDB := doctorSettings(ctx, filepath.Join(dir, dbFileName))
 	defer closeDB()
 	add(dbCheck)
+	add(checkHost(existing, dbCheck))
 	cfg, err := loadStartup(ctx, vals)
 	if err != nil {
 		add(check{Name: "settings", Status: statusFail, Detail: err.Error(),
@@ -174,6 +175,23 @@ func doctorSettings(ctx context.Context, path string) (*settings.Store, values, 
 	c.Status, c.Detail = statusOK, "schema matches this build ("+path+")"
 	done, berr := hostkeys.Bootstrapped(ctx, ro)
 	return st, st, berr == nil && done, c, func() { ro.Close() }
+}
+
+// checkHost says whether this host is set up: the host rows exist in the database. It mirrors
+// serve's first-run test (req_001 D-101, D-102), and the install scripts read this line. It is
+// never a failure: a host that is not set up yet is what serve's first run fixes.
+func checkHost(existing bool, db check) check {
+	c := check{Name: "host"}
+	switch {
+	case existing:
+		c.Status, c.Detail = statusOK, "this host is set up"
+	case db.Status == statusFail:
+		c.Status, c.Detail = statusWarn, "cannot tell whether this host is set up: the database cannot be read"
+	default:
+		c.Status, c.Detail = statusWarn, "this host is not set up yet"
+		c.Advice = "run `local-server serve` once in a terminal to set up this host"
+	}
+	return c
 }
 
 // schemaMismatchAdvice depends on the direction of the mismatch. A database that is older than

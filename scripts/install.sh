@@ -21,6 +21,8 @@
 #     installers that the user agreed to run are the exception: they use sudo themselves).
 #   - It never creates the data folder: `local-server serve` does, in the user's terminal, because
 #     the first run prints a one-time recovery code that must be seen by a person (D-101, D-149).
+#     Whether the first run is done is judged from the host rows in the database, which it reads
+#     through `local-server doctor`, never from a file test (D-101, D-102).
 #
 # Environment (all optional):
 #   LOCAL_SERVER_VERSION        release tag to install, like --version (default: the latest release)
@@ -39,6 +41,7 @@
 #   https://tailscale.com/download                   200 (download page)
 #   https://apps.apple.com/app/tailscale/id1475387142   301 -> apps.apple.com/us/app/tailscale/id1475387142 (Mac App Store)
 #   https://formulae.brew.sh/api/cask/ollama-app.json   200 (the cask "ollama-app" installs Ollama.app; the token "ollama" is 404 there)
+#   https://formulae.brew.sh/api/cask/tailscale-app.json 200 (the cask "tailscale-app" installs Tailscale.app; the token "tailscale" is 404 there)
 # Not verified: that an unsigned binary fetched by curl passes Gatekeeper (D-30 asks to test it
 # before the first release), and the Linux Ollama and Tailscale scripts themselves (never run here).
 
@@ -513,12 +516,17 @@ start_service() {
   fi
 }
 
+# host_is_set_up: 0 when doctor reports host rows in the database (D-101, D-102).
+host_is_set_up() { "$BIN" doctor --data-dir "$DATA_DIR" </dev/null 2>/dev/null | grep -q '^\[ok  \] host: '; }
+
 # The first run (D-101, D-149): only a terminal may see the one-time recovery code, so this runs
-# serve in the foreground here, and starts the service only after it created the database.
+# serve in the foreground here, and starts the service only after the host is set up. That is
+# judged from the host rows in the database, asked of `local-server doctor`: serve creates the
+# database file before it checks for a terminal, so the file alone proves nothing (D-101, D-102).
 step_first_run() {
-  if [ -f "$DATA_DIR/$DB_FILE" ]; then
+  if [ -f "$DATA_DIR/$DB_FILE" ] && host_is_set_up; then
     say ""
-    say "Found your data folder ($DATA_DIR); the first run is not needed."
+    say "Found your set-up host in $DATA_DIR; the first run is not needed."
     start_service
     return 0
   fi
@@ -537,11 +545,11 @@ step_first_run() {
     fi
     trap 'exit 130' INT
     say ""
-    if [ -f "$DATA_DIR/$DB_FILE" ]; then
+    if host_is_set_up; then
       say "Your data folder was created at $DATA_DIR."
       start_service
     else
-      warn "The first run did not create the data folder (exit code $fr_rc), so the service was not started."
+      warn "The first run did not finish setting up this host (exit code $fr_rc), so the service was not started."
       manual_steps firstrun
       FAILED=1
     fi
@@ -651,6 +659,21 @@ tailscale_installed() {
   return 1
 }
 
+# macOS: the cask "tailscale-app" installs Tailscale.app, as for Ollama. Signing in is the user's
+# step: this script never runs `tailscale up`.
+install_tailscale_darwin() {
+  if command -v brew >/dev/null 2>&1; then
+    say "Running: brew install --cask tailscale-app"
+    if ! run_interactive brew install --cask tailscale-app; then
+      warn "Homebrew could not install Tailscale."
+      manual_steps tailscale
+    fi
+  else
+    say "Homebrew was not found, so Tailscale cannot be installed from here."
+    manual_steps tailscale
+  fi
+}
+
 step_tailscale() {
   say ""
   if tailscale_installed; then
@@ -658,12 +681,11 @@ step_tailscale() {
     return 0
   fi
   say "Tailscale: not found."
-  if [ "$OS" = darwin ]; then
-    # Not automated on macOS: the app comes from the App Store or a signed package.
-    manual_steps tailscale
-    return 0
-  fi
   if ask "Install Tailscale now?"; then
+    if [ "$OS" = darwin ]; then
+      install_tailscale_darwin
+      return 0
+    fi
     say "Tailscale's own installer will run now. It uses sudo, so it may ask for your password."
     if fetch_https "$TAILSCALE_SCRIPT_URL" "$TMP_DIR/tailscale-install.sh" && run_interactive sh "$TMP_DIR/tailscale-install.sh"; then
       say "Tailscale's installer finished. Signing in is your step: run sudo tailscale up (this script never runs it)."

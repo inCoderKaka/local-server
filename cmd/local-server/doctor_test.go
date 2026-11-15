@@ -179,6 +179,54 @@ func TestDoctorKeychainTimeoutWithKeyFileWarns(t *testing.T) {
 	}
 }
 
+// The host check mirrors serve's first-run test: it is ok once a first run created the host rows
+// and a warning before, and the install scripts read its "[ok  ] host:" line (req_001 D-101, D-102).
+func TestDoctorHost(t *testing.T) {
+	t.Run("no database is not set up", func(t *testing.T) {
+		ta := newTestApp(t, false)
+		ta.dir = filepath.Join(ta.dir, "fresh") // does not exist
+		_, rep := runDoctorJSON(t, ta)
+		c := rep.byName(t, "host")
+		if c.Status != statusWarn || !strings.Contains(c.Detail, "not set up yet") || !strings.Contains(c.Advice, "local-server serve") {
+			t.Errorf("host = %+v; want a warn saying the host is not set up, with advice", c)
+		}
+	})
+	t.Run("a database with no host rows is not set up", func(t *testing.T) {
+		ta := newTestApp(t, false)
+		seed(t, ta.dir, nil)
+		_, rep := runDoctorJSON(t, ta)
+		if c := rep.byName(t, "host"); c.Status != statusWarn || !strings.Contains(c.Detail, "not set up yet") {
+			t.Errorf("host = %+v; want a warn saying the host is not set up", c)
+		}
+	})
+	t.Run("a database that cannot be read cannot tell", func(t *testing.T) {
+		ta := newTestApp(t, false)
+		if err := os.WriteFile(filepath.Join(ta.dir, dbFileName), []byte("not a database"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, rep := runDoctorJSON(t, ta)
+		if db := rep.byName(t, "database"); db.Status != statusFail {
+			t.Fatalf("database = %+v; want a fail", db)
+		}
+		if c := rep.byName(t, "host"); c.Status != statusWarn || !strings.Contains(c.Detail, "cannot tell") {
+			t.Errorf("host = %+v; want a warn that it cannot tell", c)
+		}
+	})
+	t.Run("after a first run the host is set up", func(t *testing.T) {
+		ta := newTestApp(t, true)
+		seed(t, ta.dir, merge(loopbackAny, map[string]string{keyOllamaBaseURL: ollamaStub(t, "0.12.6").URL}))
+		if code := startServe(t, ta, "--engine", "fake").stop(); code != 0 {
+			t.Fatalf("first run exit = %d; stderr:\n%s", code, ta.err.String())
+		}
+		_, rep := runDoctorJSON(t, ta)
+		if c := rep.byName(t, "host"); c.Status != statusOK {
+			t.Errorf("host = %+v; want ok", c)
+		}
+		ta.run(context.Background(), []string{"doctor", "--data-dir", ta.dir})
+		contains(t, "output", ta.out.String(), "[ok  ] host:")
+	})
+}
+
 func TestDoctorPorts(t *testing.T) {
 	busy, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

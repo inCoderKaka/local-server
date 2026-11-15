@@ -140,7 +140,9 @@ add_stub() { # NAME: a program that exists on PATH and logs that it ran
 }
 
 # The fake local-server: prints its version, records every call with the version that ran it, keeps
-# the service state in files, and creates local-server.db in the data folder on `serve`.
+# the service state in files, and creates local-server.db in the data folder on `serve`. Its
+# `doctor` prints the host line of the real one: ok when the database exists, unless
+# FAKE_HOST_NOT_SET_UP is set (a database with no host rows, which D-101 judges as not set up).
 write_fake_template() {
   cat >"$ROOT/fake-ls.template" <<'EOF'
 #!/bin/sh
@@ -162,6 +164,19 @@ case "${1:-}" in
       : > "$dir/local-server.db"
     fi
     echo "local-server: first run. This is your recovery code: FAKE-CODE" >&2
+    ;;
+  doctor)
+    shift
+    dir=${FAKE_LS_DEFAULT_DATA:-}
+    while [ $# -gt 0 ]; do
+      case $1 in --data-dir) dir=$2; shift ;; esac
+      shift
+    done
+    if [ -f "$dir/local-server.db" ] && [ -z "${FAKE_HOST_NOT_SET_UP:-}" ]; then
+      echo "[ok  ] host: this host is set up"
+    else
+      echo "[warn] host: this host is not set up yet"
+    fi
     ;;
   service)
     case "${2:-}" in
@@ -528,8 +543,33 @@ BIN() { printf '%s' "$LOCAL_SERVER_PREFIX/local-server"; }
   run_install
   [ "$status" -eq 1 ]
   log_lacks "service start"
-  out_has "did not create the data folder"
+  out_has "did not finish setting up this host"
   out_has "local-server service start"
+}
+
+@test "first run yes, serve created the database but the host is not set up: the service is not started" {
+  export FAKE_HOST_NOT_SET_UP=1
+  answers y
+  run_install
+  [ "$status" -eq 1 ]
+  [ -f "$FAKE_LS_DEFAULT_DATA/local-server.db" ]
+  log_lacks "service start"
+  out_has "did not finish setting up this host"
+  out_lacks "Your data folder was created"
+  [ ! -e "$FAKE_LS_STATE/user.running" ]
+}
+
+@test "a database with no host rows is not a first run done: the question is asked, and no is respected" {
+  export FAKE_HOST_NOT_SET_UP=1
+  mkdir -p "$FAKE_LS_DEFAULT_DATA"
+  : >"$FAKE_LS_DEFAULT_DATA/local-server.db"
+  answers n
+  run_install
+  [ "$status" -eq 0 ]
+  out_has "Run local-server once now"
+  out_lacks "the first run is not needed"
+  log_lacks " serve"
+  log_lacks "service start"
 }
 
 @test "first run no: the service is not started" {
@@ -709,6 +749,57 @@ BIN() { printf '%s' "$LOCAL_SERVER_PREFIX/local-server"; }
   stub_has "installer ran: https://tailscale.com/install.sh"
   stub_lacks "tailscale up"
   out_has "Signing in is your step"
+}
+
+@test "macOS, Tailscale missing, yes, with brew: the cask tailscale-app is installed and tailscale up is never run" {
+  export FAKE_UNAME_S=Darwin FAKE_UNAME_M=arm64
+  export FAKE_LS_DEFAULT_DATA="$HOME/Library/Application Support/local-server"
+  make_release v1.0.0 darwin arm64
+  rm "$STUBS/tailscale"
+  # A machine that really has Tailscale.app would not ask: this test is for the one that has not.
+  if [ -d /Applications/Tailscale.app ]; then
+    skip "Tailscale.app is installed on this machine"
+  fi
+  add_stub brew
+  answers y n
+  run_install
+  [ "$status" -eq 0 ]
+  out_has "Install Tailscale now?"
+  stub_has "brew install --cask tailscale-app"
+  stub_lacks "tailscale up"
+  stub_lacks "installer ran"
+}
+
+@test "macOS, Tailscale missing, answer no: the manual steps are shown and brew is not run" {
+  export FAKE_UNAME_S=Darwin FAKE_UNAME_M=arm64
+  export FAKE_LS_DEFAULT_DATA="$HOME/Library/Application Support/local-server"
+  make_release v1.0.0 darwin arm64
+  rm "$STUBS/tailscale"
+  if [ -d /Applications/Tailscale.app ]; then
+    skip "Tailscale.app is installed on this machine"
+  fi
+  answers n n
+  run_install
+  [ "$status" -eq 0 ]
+  out_has "Install Tailscale now?"
+  out_has "https://apps.apple.com/app/tailscale/id1475387142"
+  stub_lacks "brew"
+}
+
+@test "macOS, Tailscale missing, yes, without brew: the manual steps are shown" {
+  export FAKE_UNAME_S=Darwin FAKE_UNAME_M=arm64
+  export FAKE_LS_DEFAULT_DATA="$HOME/Library/Application Support/local-server"
+  make_release v1.0.0 darwin arm64
+  rm "$STUBS/tailscale" "$STUBS/brew"
+  if [ -d /Applications/Tailscale.app ]; then
+    skip "Tailscale.app is installed on this machine"
+  fi
+  answers y n
+  run_install
+  [ "$status" -eq 0 ]
+  out_has "Homebrew was not found, so Tailscale cannot be installed from here."
+  out_has "https://apps.apple.com/app/tailscale/id1475387142"
+  stub_lacks "tailscale up"
 }
 
 # --- no terminal ------------------------------------------------------------------------------
