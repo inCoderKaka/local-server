@@ -45,8 +45,8 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 
 20. S34 **PLT-F-032** Admin UI shell and dashboard (deps: PLT-F-024, PLT-F-013, PLT-F-023, PLT-F-029) **gate it**
 21. S35 **PLT-F-033** Admin UI: consumers, invites and access keys (deps: PLT-F-032, PLT-F-025)  ∥  S36 **PLT-F-034** Admin UI: grants, models and policy rules (deps: PLT-F-032, PLT-F-026)  ∥  S37 **PLT-F-035** Admin UI: requests, usage, audit, notifications and settings (deps: PLT-F-032, PLT-F-028, PLT-F-030, PLT-F-023, PLT-F-008)
-22. S38 **PLT-F-036** Consumer web page: shell, invite sign-up and login (deps: PLT-F-032, PLT-F-027)
-23. S39 **PLT-F-037** Consumer web page: limits, usage, keys, requests and notifications (deps: PLT-F-036, PLT-F-028, PLT-F-030, PLT-F-023)
+22. S38 ~~**PLT-F-036** Consumer web page: shell, invite sign-up and login~~ built 2026-11-15
+23. S39 ~~**PLT-F-037** Consumer web page: limits, usage, keys, requests and notifications~~ built 2026-11-15
 
 ### B7 — Transport
 
