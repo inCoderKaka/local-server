@@ -59,7 +59,7 @@ export function fakeHost(): FakeFetch {
   return f;
 }
 
-export function resourceRequest(id: string): Schema<'ResourceRequest'> {
+export function resourceRequest(id: string, over: Partial<Schema<'ResourceRequest'>> = {}): Schema<'ResourceRequest'> {
   return {
     id,
     consumer_id: '0192e5a0-0001-7000-8000-000000000001',
@@ -70,5 +70,6 @@ export function resourceRequest(id: string): Schema<'ResourceRequest'> {
     expires_at: '2026-01-16T10:00:00Z',
     decided_at: null,
     resulting_grant_version_id: null,
+    ...over,
   } as Schema<'ResourceRequest'>;
 }

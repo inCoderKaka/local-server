@@ -89,7 +89,7 @@ describe('layout on every page', () => {
   });
 
   it('shows the not-found page for an unknown route, inside the layout', async () => {
-    renderApp(fakeHost(), { hash: '#/requests' });
+    renderApp(fakeHost(), { hash: '#/no-such-page' });
     expect(await screen.findByText('Page not found')).toBeTruthy();
     expect(await strip()).toBeTruthy();
     await userEvent.setup().click(screen.getByRole('link', { name: 'Go to the dashboard' }));

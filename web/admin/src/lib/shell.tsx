@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { call, usePolledApi, useClient, type ApiState, type Schema } from '@local-server/shared';
+import { countOpenRequests, type PendingCount } from '../requests/pending';
 import { usePollInterval } from './settings';
 
 export type HostInfo = Schema<'HostInfo'>;
@@ -10,20 +11,24 @@ interface ShellData {
   host: ApiState<HostInfo>;
   /** GET /admin/v1/host-metrics, polled: total, share-budget slice, other apps, unattributed. */
   metrics: ApiState<HostMetricsSample>;
+  /** The count of open resource requests, polled; the requests page refetches it after a decision. */
+  pending: ApiState<PendingCount>;
 }
 
 const ShellContext = createContext<ShellData | null>(null);
 
 /**
- * Polls the host state and the current host metrics once for the whole shell, every
- * admin.ui_poll_interval; the header and any page read the same data through useShell.
+ * Polls the host state, the current host metrics and the pending resource request count once for
+ * the whole shell, every admin.ui_poll_interval; the header and any page read the same data
+ * through useShell.
  */
 export function ShellDataProvider({ children }: { children: ReactNode }) {
   const client = useClient();
   const interval = usePollInterval();
   const host = usePolledApi(() => call(client.GET('/admin/v1/host')), [client], interval);
   const metrics = usePolledApi(() => call(client.GET('/admin/v1/host-metrics')), [client], interval);
-  const value = useMemo(() => ({ host, metrics }), [host, metrics]);
+  const pending = usePolledApi(() => countOpenRequests(client), [client], interval);
+  const value = useMemo(() => ({ host, metrics, pending }), [host, metrics, pending]);
   return <ShellContext.Provider value={value}>{children}</ShellContext.Provider>;
 }
 

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { errorReply } from '@local-server/shared/test';
 import { fakeHost, resourceRequest, settingsList } from '../test/fixtures';
-import { fixturePages, renderApp, settle } from '../test/render';
+import { allPages, fixturePages, renderApp, settle } from '../test/render';
 
 describe('pending resource requests count', () => {
   it('counts open requests across every page of the list', async () => {
@@ -25,12 +25,12 @@ describe('pending resource requests count', () => {
     expect(document.body.textContent).not.toContain('Please');
   });
 
-  it('opens the requests route, which shows not found until its page exists', async () => {
+  it('opens the requests page', async () => {
     const f = fakeHost();
     f.on('GET', '/admin/v1/resource-requests', { body: { data: [resourceRequest('r1')], next_cursor: null } });
-    renderApp(f, { pages: fixturePages, hash: '#/fake-a' });
+    renderApp(f, { pages: allPages, hash: '#/fake-a' });
     await userEvent.setup().click(await screen.findByRole('link', { name: '1 pending resource request' }));
-    expect(await screen.findByText('Page not found')).toBeTruthy();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Requests' })).toBeTruthy();
   });
 
   it('tolerates 501 with no error, keeps polling and shows the count once the host has requests', async () => {

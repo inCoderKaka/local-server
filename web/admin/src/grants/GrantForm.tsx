@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { asApiError, Button, call, CheckboxField, ErrorBanner, Field, Link, UserText, useClient, type ApiError, type Schema } from '@local-server/shared';
 import { ExpiryChoice, expiryValue, noExpiry, type Expiry } from '../consumers/ExpiryChoice';
 import { useSettings } from '../lib/settings';
@@ -33,8 +33,8 @@ interface Values {
 
 let rowKey = 0;
 
-function valuesOf(current: GrantVersion | null, defaultConcurrency: number | null): Values {
-  if (!current) {
+function valuesOf(l: GrantLimits | null, defaultConcurrency: number | null): Values {
+  if (!l) {
     return {
       models: {},
       quotas: [],
@@ -46,7 +46,6 @@ function valuesOf(current: GrantVersion | null, defaultConcurrency: number | nul
       expiry: noExpiry,
     };
   }
-  const l = current.limits;
   const models: Record<string, ModelChoice> = {};
   for (const m of l.models) {
     models[m.model] = { on: true, context: m.context_limit == null ? '' : String(m.context_limit), output: m.max_output_tokens == null ? '' : String(m.max_output_tokens) };
@@ -54,7 +53,8 @@ function valuesOf(current: GrantVersion | null, defaultConcurrency: number | nul
   return {
     models,
     quotas: (l.quotas ?? []).map((q) => ({ key: ++rowKey, metric: q.metric, limit: String(q.limit), window: formatSeconds(q.window_seconds) })),
-    concurrency: String(l.concurrency),
+    // Below 1 is no concurrency yet (an approval with none to start from): the field starts empty.
+    concurrency: l.concurrency >= 1 ? String(l.concurrency) : '',
     overflow: l.on_context_overflow,
     typesMode: l.allowed_request_properties == null ? 'any' : 'only',
     types: (l.allowed_request_properties ?? []).join(', '),
@@ -72,24 +72,43 @@ function paramIs(error: ApiError | null, field: string): boolean {
  * how many calls may run at once, what a too-long prompt does, the request types it may send and
  * when it expires (req_001 D-25, D-48, D-107). Each save stores a new grant version; empty limits
  * are sent as null, which means the grant sets none and the host's own setting applies.
+ *
+ * The requests page uses the same form to approve a resource request: it passes the limits to
+ * start from and `send`, which posts the approval instead of PUT .../grant (req_001 D-39).
  */
 export function GrantForm({
   consumerId,
   current,
   hostModels,
   onSaved,
+  start,
+  send,
+  label = 'Set the grant',
+  submitLabel = 'Save grant',
+  children,
 }: {
   consumerId: string;
   current: GrantVersion | null;
   /** The host's models, or undefined while they are not read. */
   hostModels: HostModel[] | undefined;
-  onSaved: (v: GrantVersion) => void;
+  /** Called with the stored version after a PUT; not called when `send` is given. */
+  onSaved?: (v: GrantVersion) => void;
+  /** The limits the form starts from instead of the current grant's. */
+  start?: GrantLimits;
+  /** Sends the limits instead of PUT .../grant; an error it throws is shown like a refused save. */
+  send?: (limits: GrantLimits) => Promise<void>;
+  /** The form's accessible name. */
+  label?: string;
+  submitLabel?: string;
+  /** More fields, shown above the submit button. */
+  children?: ReactNode;
 }) {
+  const startLimits = start ?? current?.limits ?? null;
   const client = useClient();
   const settings = useSettings();
   const overflowName = useId();
   const typesName = useId();
-  const [form, setForm] = useState<Values>(() => valuesOf(current, intSetting(settings.list, HOST_SETTING.grantConcurrency)));
+  const [form, setForm] = useState<Values>(() => valuesOf(startLimits, intSetting(settings.list, HOST_SETTING.grantConcurrency)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [problems, setProblems] = useState<Record<string, string>>({});
@@ -100,10 +119,10 @@ export function GrantForm({
   // The settings can arrive after the form opened; a new grant then takes the default once.
   const defaultConcurrency = intSetting(settings.list, HOST_SETTING.grantConcurrency);
   useEffect(() => {
-    if (!current && defaultConcurrency !== null && !concurrencyTouched.current) {
+    if (!startLimits && defaultConcurrency !== null && !concurrencyTouched.current) {
       setForm((f) => (f.concurrency === '' ? { ...f, concurrency: String(defaultConcurrency) } : f));
     }
-  }, [current, defaultConcurrency]);
+  }, [startLimits, defaultConcurrency]);
 
   const set = (patch: Partial<Values>) => {
     if ('concurrency' in patch) concurrencyTouched.current = true;
@@ -182,7 +201,8 @@ export function GrantForm({
     setError(null);
     setSent(body.models.map((m) => m.model));
     try {
-      onSaved(await call(client.PUT('/admin/v1/consumers/{consumer_id}/grant', { params: { path: { consumer_id: consumerId } }, body })));
+      if (send) await send(body);
+      else onSaved?.(await call(client.PUT('/admin/v1/consumers/{consumer_id}/grant', { params: { path: { consumer_id: consumerId } }, body })));
     } catch (err) {
       setError(asApiError(err));
     } finally {
@@ -191,7 +211,7 @@ export function GrantForm({
   }
 
   return (
-    <form onSubmit={submit} noValidate aria-label="Set the grant" className="flex flex-col gap-4">
+    <form onSubmit={submit} noValidate aria-label={label} className="flex flex-col gap-4">
       <p className="text-sm text-slate-700">
         Saving stores a new grant version and applies it to the consumer's next call. Earlier versions stay in the history below, and usage
         records keep the version they ran under.
@@ -348,9 +368,11 @@ export function GrantForm({
 
       <ExpiryChoice value={form.expiry} onChange={(expiry) => set({ expiry })} defaultLabel="Never" error={problems.expires_at ?? serverError('expires_at')} />
 
+      {children}
+
       <div>
         <Button type="submit" variant="primary" disabled={busy}>
-          Save grant
+          {submitLabel}
         </Button>
       </div>
     </form>
