@@ -504,10 +504,11 @@ func TestDoctorChecksTailscale(t *testing.T) {
 	if c.Status != statusWarn || !strings.Contains(c.Advice, "Tailscale") || !strings.Contains(c.Detail, "this machine only") {
 		t.Errorf("without Tailscale: %+v", c)
 	}
-	if !rep.OK {
-		t.Error("a host without Tailscale must not fail doctor")
-	}
+	// rep.OK also depends on Ollama, which a CI runner does not have, so look only at Tailscale.
 	for _, c := range rep.Checks {
+		if (c.Name == "tailscale" || strings.HasPrefix(c.Name, "tailnet_")) && c.Status == statusFail {
+			t.Errorf("a host without Tailscale must not fail doctor: %+v", c)
+		}
 		if strings.HasPrefix(c.Name, "tailnet_") {
 			t.Errorf("a tailnet port check ran without a tailnet: %+v", c)
 		}

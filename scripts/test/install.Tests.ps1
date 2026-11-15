@@ -160,6 +160,8 @@ Describe 'questions' {
         Reset-LsState
         $script:savedAnswers = $env:LOCAL_SERVER_TEST_ANSWERS
         $script:answersFile = Join-Path $TestDrive 'answers.txt'
+        # TestDrive is shared by the Its of one Describe, so start each It without the last one's file.
+        Remove-Item -LiteralPath $script:answersFile -Force -ErrorAction SilentlyContinue
         $env:LOCAL_SERVER_TEST_ANSWERS = $script:answersFile
     }
     AfterEach {
@@ -311,6 +313,10 @@ Describe 'the whole script with the outside world mocked' {
         $script:prefix = Join-Path $TestDrive 'prefix'
         $script:release = Join-Path $TestDrive 'release'
         $script:data = Join-Path $TestDrive 'data'
+        # TestDrive is shared by the Its of one Describe, so start each It from empty folders.
+        foreach ($d in @($script:prefix, $script:release, $script:data, (Join-Path $TestDrive 'answers.txt'))) {
+            Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue
+        }
         New-Item -ItemType Directory -Path $script:release | Out-Null
         $env:LOCAL_SERVER_PREFIX = $script:prefix
         $env:LOCAL_SERVER_RELEASE_BASE = 'https://example.invalid/release'
