@@ -139,7 +139,7 @@ func TestExpiredRevokedAndInactiveSessionsAreRejected(t *testing.T) {
 	tok := e.signUp("example-user", goodPass)
 	status(t, e.get(tok, "/v1/me"), http.StatusOK)
 	// Expired.
-	e.clk.advance(24*time.Hour + time.Second)
+	e.clk.advance(12*time.Hour + time.Second)
 	status(t, e.get(tok, "/v1/me"), http.StatusUnauthorized)
 
 	// Revoked.

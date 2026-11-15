@@ -77,8 +77,8 @@ func TestSessionCookieFlags(t *testing.T) {
 	if c.Name != "ls_session" || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode || c.Path != "/" {
 		t.Fatalf("cookie = %+v", c)
 	}
-	if c.MaxAge != int((24 * time.Hour).Seconds()) { // consumer.session_ttl default
-		t.Fatalf("max-age = %d, want the 24h default", c.MaxAge)
+	if c.MaxAge != int((12 * time.Hour).Seconds()) { // consumer.session_ttl default
+		t.Fatalf("max-age = %d, want the 12h default", c.MaxAge)
 	}
 	// The lifetime is the runtime setting, read at the moment a session starts.
 	e.set(consumerauth.KeySessionTTL, "2h")

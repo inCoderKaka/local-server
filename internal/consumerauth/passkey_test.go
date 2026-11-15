@@ -244,7 +244,7 @@ func TestPasskeySignUpCreatesTheConsumerAndStartsASession(t *testing.T) {
 		t.Fatal("no session cookie")
 	}
 	cookie := r.Result().Cookies()[0]
-	if !cookie.HttpOnly || !cookie.Secure || cookie.MaxAge != int((24*time.Hour).Seconds()) {
+	if !cookie.HttpOnly || !cookie.Secure || cookie.MaxAge != int((12*time.Hour).Seconds()) {
 		t.Fatalf("cookie = %+v", cookie)
 	}
 	me := e.get(tok, "/v1/me")
