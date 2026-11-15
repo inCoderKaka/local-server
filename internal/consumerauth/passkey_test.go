@@ -586,6 +586,33 @@ func TestCeremonyStateIsBounded(t *testing.T) {
 	}
 }
 
+func TestOneAddressCannotPushOutCeremoniesOfOthers(t *testing.T) {
+	e := newEnv(t)
+	k := newSoftKey(t)
+	if err := e.st.Set(context.Background(), "host", consumerauth.KeyPasskeyMaxCeremoniesPerAddress, "", "0"); err == nil {
+		t.Fatal("a zero per-address ceremony limit was accepted")
+	}
+	e.set(consumerauth.KeyPasskeyMaxCeremoniesPerAddress, "2")
+	other := parseCeremony(t, e.do(req{method: "POST", path: pathLoginBegin, remote: "100.64.0.8:4000"}))
+	e.clk.advance(time.Second)
+	first := parseCeremony(t, e.post(pathLoginBegin, ""))
+	e.clk.advance(time.Second)
+	second := parseCeremony(t, e.post(pathLoginBegin, ""))
+	e.clk.advance(time.Second)
+	third := parseCeremony(t, e.post(pathLoginBegin, ""))
+	// The address that went over its limit lost its own oldest; the other address lost nothing.
+	status(t, e.post(pathLoginFinish, finishBody(t, first, k.assert(first, pageHost, pageOrigin))), http.StatusBadRequest)
+	k.handle = []byte("h")
+	for name, c := range map[string]ceremony{"second": second, "third": third} {
+		if r := e.post(pathLoginFinish, finishBody(t, c, k.assert(c, pageHost, pageOrigin))); r.Code != http.StatusUnauthorized {
+			t.Fatalf("%s = %d %s", name, r.Code, r.Body.String())
+		}
+	}
+	if r := e.do(req{method: "POST", path: pathLoginFinish, body: finishBody(t, other, k.assert(other, pageHost, pageOrigin)), remote: "100.64.0.8:4000"}); r.Code != http.StatusUnauthorized {
+		t.Fatalf("other address = %d %s", r.Code, r.Body.String())
+	}
+}
+
 func TestRelyingPartyComesFromTheRequestHost(t *testing.T) {
 	e := newEnv(t)
 	k := newSoftKey(t)

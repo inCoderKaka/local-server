@@ -161,6 +161,7 @@ type ceremony struct {
 	started    time.Time
 	expires    time.Time
 	userHandle []byte
+	addr       string            // the client host that began it, port removed; "" when unknown
 	signup     checkedRedemption // ceremonySignup
 	principal  string            // ceremonyAdd: the principal that began it
 }
@@ -171,14 +172,36 @@ type ceremonies struct {
 	m  map[string]*ceremony
 }
 
-// put stores c under id. Expired ceremonies are dropped first; when the store is still at the limit,
-// the oldest is dropped to make room.
-func (s *ceremonies) put(id string, c *ceremony, now time.Time, limit int64) {
+// put stores c under id. Expired ceremonies are dropped first; while the client address of c has
+// perAddress ceremonies stored, that address's oldest is dropped, so one address cannot push out
+// the ceremonies of others; when the store is still at the limit, the oldest is dropped to make
+// room.
+func (s *ceremonies) put(id string, c *ceremony, now time.Time, limit, perAddress int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k, v := range s.m {
 		if !now.Before(v.expires) {
 			delete(s.m, k)
+		}
+	}
+	if c.addr != "" {
+		for {
+			var n int64
+			oldest, first := "", true
+			var at time.Time
+			for k, v := range s.m {
+				if v.addr != c.addr {
+					continue
+				}
+				n++
+				if first || v.started.Before(at) {
+					oldest, at, first = k, v.started, false
+				}
+			}
+			if n < perAddress {
+				break
+			}
+			delete(s.m, oldest)
 		}
 	}
 	for int64(len(s.m)) >= limit {
@@ -192,6 +215,14 @@ func (s *ceremonies) put(id string, c *ceremony, now time.Time, limit int64) {
 		delete(s.m, oldest)
 	}
 	s.m[id] = c
+}
+
+// clientHost is addr with the port removed, or addr itself when it has none.
+func clientHost(addr string) string {
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
 }
 
 // take removes and returns the ceremony with id, if it is there and has not expired. A ceremony
@@ -283,6 +314,10 @@ func (a *PasskeyAdapter) remember(ctx context.Context, c *ceremony, ttl time.Dur
 	if err != nil {
 		return Ceremony{}, err
 	}
+	perAddress, err := a.st.Int(ctx, KeyPasskeyMaxCeremoniesPerAddress, "")
+	if err != nil {
+		return Ceremony{}, err
+	}
 	raw, err := json.Marshal(options)
 	if err != nil {
 		return Ceremony{}, err
@@ -293,7 +328,8 @@ func (a *PasskeyAdapter) remember(ctx context.Context, c *ceremony, ttl time.Dur
 	}
 	now := a.now()
 	c.started, c.expires = now, now.Add(ttl)
-	a.cer.put(id, c, now, limit)
+	c.addr = clientHost(remoteOf(ctx))
+	a.cer.put(id, c, now, limit, perAddress)
 	return Ceremony{ID: id, Options: raw}, nil
 }
 

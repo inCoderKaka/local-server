@@ -30,6 +30,12 @@ const KeyPasskeyCeremonyTTL = "consumer.passkey_ceremony_ttl"
 // is bounded; the oldest one is dropped to make room.
 const KeyPasskeyMaxCeremonies = "consumer.passkey_max_ceremonies"
 
+// KeyPasskeyMaxCeremoniesPerAddress is the host-owned setting for how many started passkey
+// ceremonies the host remembers for one client address. The begin routes need no login, so
+// without it one address could push every other address's ceremony out of the store; at the
+// limit, that address's own oldest is dropped.
+const KeyPasskeyMaxCeremoniesPerAddress = "consumer.passkey_max_ceremonies_per_address"
+
 // KeyConsentUserAgentMax is the host-owned setting for how many characters of the browser user
 // agent a sign-up stores as consent evidence; the rest is cut off (req_001 D-153, D-38).
 const KeyConsentUserAgentMax = "consumer.consent_user_agent_max"
@@ -43,6 +49,8 @@ func Defs() []settings.Def {
 			Description: "How long a started passkey sign-up, login or registration can be finished before the consumer must start it again. A ceremony already started keeps its end time."},
 		{Key: KeyPasskeyMaxCeremonies, Kind: settings.Int, Default: "1000", Owner: settings.Host,
 			Description: "Most started passkey ceremonies the host remembers at once; the oldest is dropped to make room."},
+		{Key: KeyPasskeyMaxCeremoniesPerAddress, Kind: settings.Int, Default: "10", Owner: settings.Host,
+			Description: "Most started passkey ceremonies the host remembers for one client address; that address's oldest is dropped to make room, so one address cannot push out the ceremonies of others."},
 		{Key: KeyConsentUserAgentMax, Kind: settings.Int, Default: "256", Owner: settings.Host,
 			Description: "Most characters of the browser user agent kept in the consent record of a new sign-up; the rest is cut off. A change applies to sign-ups after it."},
 	}
@@ -66,7 +74,7 @@ func registerSettings(st *settings.Store) error {
 			return err
 		}
 	}
-	for _, key := range []string{KeyPasskeyMaxCeremonies, KeyConsentUserAgentMax} {
+	for _, key := range []string{KeyPasskeyMaxCeremonies, KeyPasskeyMaxCeremoniesPerAddress, KeyConsentUserAgentMax} {
 		if err := st.SetValidator(key, func(_ context.Context, v string) error {
 			n, err := strconv.Atoi(v)
 			if err != nil {
