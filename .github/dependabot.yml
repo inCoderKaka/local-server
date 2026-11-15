@@ -1,0 +1,9 @@
+# Dependabot proposes updates to the pinned GitHub Actions (req_001 D-88).
+# Actions are pinned to full commit SHAs in .github/workflows; a proposed update
+# changes the SHA and the version comment together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
