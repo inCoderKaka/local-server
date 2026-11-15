@@ -56,7 +56,7 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 ### B8 — Packaging
 
 26. S43 ~~**PLT-F-041** Background service: per-user by default, system mode optional~~ built 2026-11-08 (`a193a07`, `17d39f2`; gated, set A, `8fea837`)  ∥  S44 ~~**PLT-F-042** Sleep lock while sharing~~ built 2026-11-06 (`a457ece`; gated `734ae20`)  ∥  S45 **PLT-C-003** Release pipeline with checksums (deps: PLT-C-001, PLT-F-032, PLT-F-036) **gate it**
-27. S46 **PLT-F-043** Install, upgrade and uninstall scripts (deps: PLT-F-041, PLT-C-003) **gate it**
+27. S46 ~~**PLT-F-043** Install, upgrade and uninstall scripts~~ built 2026-11-15 (`9211b8d`; gate owed at end of M4)
 
 ### B9 — Off-host data and sharing
 
