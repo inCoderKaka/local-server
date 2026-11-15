@@ -202,6 +202,16 @@ describe('requests page', () => {
     });
   });
 
+  it('lists a model named __proto__ as an ordinary entry and does not tick the host models the grant lacks', async () => {
+    const { f } = host([resourceRequest(R1, { ask: { models: ['__proto__'] } })]);
+    renderApp(f, { hash: '#/requests' });
+    const { card } = await openDetail();
+    const fm = await within(card).findByRole('form', { name: 'Approve the request' });
+    expect((within(fm).getByLabelText('Allow example-model') as HTMLInputElement).checked).toBe(true);
+    expect((within(fm).getByLabelText('Allow __proto__') as HTMLInputElement).checked).toBe(true);
+    expect((within(fm).getByLabelText('Allow other-model') as HTMLInputElement).checked).toBe(false);
+  });
+
   it('rejects with a comment after a confirmation', async () => {
     const { f, decide } = host();
     f.on('POST', '/admin/v1/resource-requests/{resource_request_id}/reject', () => ({ body: decide(R1, 'rejected') }));

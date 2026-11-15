@@ -33,6 +33,11 @@ interface Values {
 
 let rowKey = 0;
 
+/** The choice for a model name, read only from the object's own entries so a name like __proto__ finds nothing. */
+function modelOf(models: Record<string, ModelChoice>, name: string): ModelChoice | undefined {
+  return Object.hasOwn(models, name) ? models[name] : undefined;
+}
+
 function valuesOf(l: GrantLimits | null, defaultConcurrency: number | null): Values {
   if (!l) {
     return {
@@ -46,10 +51,10 @@ function valuesOf(l: GrantLimits | null, defaultConcurrency: number | null): Val
       expiry: noExpiry,
     };
   }
-  const models: Record<string, ModelChoice> = {};
-  for (const m of l.models) {
-    models[m.model] = { on: true, context: m.context_limit == null ? '' : String(m.context_limit), output: m.max_output_tokens == null ? '' : String(m.max_output_tokens) };
-  }
+  // Object.fromEntries makes ordinary entries: a model named __proto__ never reaches the prototype.
+  const models: Record<string, ModelChoice> = Object.fromEntries(
+    l.models.map((m) => [m.model, { on: true, context: m.context_limit == null ? '' : String(m.context_limit), output: m.max_output_tokens == null ? '' : String(m.max_output_tokens) }]),
+  );
   return {
     models,
     quotas: (l.quotas ?? []).map((q) => ({ key: ++rowKey, metric: q.metric, limit: String(q.limit), window: formatSeconds(q.window_seconds) })),
@@ -129,7 +134,7 @@ export function GrantForm({
     setForm((f) => ({ ...f, ...patch }));
   };
   const setModel = (name: string, patch: Partial<ModelChoice>) =>
-    setForm((f) => ({ ...f, models: { ...f.models, [name]: { on: false, context: '', output: '', ...f.models[name], ...patch } } }));
+    setForm((f) => ({ ...f, models: { ...f.models, [name]: { on: false, context: '', output: '', ...modelOf(f.models, name), ...patch } } }));
   const setQuota = (key: number, patch: Partial<QuotaRow>) => setForm((f) => ({ ...f, quotas: f.quotas.map((q) => (q.key === key ? { ...q, ...patch } : q)) }));
 
   // The models offered: every model the host shares, and every model this grant already has.
@@ -158,7 +163,7 @@ export function GrantForm({
     const p: Record<string, string> = {};
     const models: GrantLimits['models'] = [];
     for (const name of names) {
-      const m = form.models[name];
+      const m = modelOf(form.models, name);
       if (!m?.on) continue;
       const ctx = wholeFrom(m.context, 1);
       const out = wholeFrom(m.output, 1);
@@ -235,7 +240,7 @@ export function GrantForm({
         {hostModels === undefined && names.length === 0 && <p className="text-sm text-slate-600">Reading the host's models…</p>}
         {hostModels !== undefined && names.length === 0 && <p className="text-sm text-slate-600">The host shares no models yet.</p>}
         {names.map((name) => {
-          const m = form.models[name] ?? { on: false, context: '', output: '' };
+          const m = modelOf(form.models, name) ?? { on: false, context: '', output: '' };
           const notShared = hostModels !== undefined && !shared.has(name);
           return (
             <div key={name} className="flex flex-col gap-2 rounded border border-slate-200 p-2">
