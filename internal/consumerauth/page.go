@@ -139,6 +139,7 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ctx := context.WithValue(r.Context(), remoteKey{}, r.RemoteAddr)
+		ctx = context.WithValue(ctx, userAgentKey{}, r.UserAgent())
 		ctx = context.WithValue(ctx, pageHostKey{}, pageHost{host: r.Host, tls: r.TLS != nil})
 		r = r.WithContext(ctx)
 		s.srv.ServeHTTP(w, r)

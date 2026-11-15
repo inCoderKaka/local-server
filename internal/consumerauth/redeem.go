@@ -2,10 +2,13 @@ package consumerauth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/mail"
 	"strings"
+	"time"
 
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/identity"
@@ -18,15 +21,42 @@ import (
 // together. A sign-up that does not accept exactly the version in force is refused, so no
 // consent row ever names a version the person was not shown as current.
 const (
-	TermsVersion   = "terms-2026-10-v1"
-	PrivacyVersion = "privacy-2026-10-v1"
+	TermsVersion   = "terms-2026-11-v1"
+	PrivacyVersion = "privacy-2026-11-v1"
 	PurposeTerms   = "terms"
 	PurposePrivacy = "privacy"
 )
 
-// consentEvidence is stored with each sign-up consent row. It holds no address, no browser
-// identification and nothing personal (req_001 D-40).
-const consentEvidence = `{"via":"invite_redemption"}`
+// consentEvidence is stored, as JSON, with each sign-up consent row (req_001 D-153): the two
+// accepted version ids, the acceptance time, the invite redeemed, the source IP address and the
+// browser user agent. It is personal data, listed in the privacy notice, and the purge of a deleted
+// consumer erases it with its consent row (req_001 D-136). Never a prompt or a response.
+type consentEvidence struct {
+	Via            string `json:"via"`
+	TermsVersion   string `json:"terms_version"`
+	PrivacyVersion string `json:"privacy_version"`
+	AcceptedAt     string `json:"accepted_at"`
+	InviteID       string `json:"invite_id"`
+	IP             string `json:"ip,omitempty"`
+	UserAgent      string `json:"user_agent,omitempty"`
+}
+
+// evidenceOf builds the evidence of a sign-up at the clock's now. The IP address is the request's
+// remote address as the listener sees it, without the port; no forwarding header is read (req_001
+// D-153). The user agent is cut to maxUA characters, the host-owned KeyConsentUserAgentMax.
+func (s *Service) evidenceOf(ctx context.Context, inviteID string, maxUA int) (string, error) {
+	ip := remoteOf(ctx)
+	if h, _, err := net.SplitHostPort(ip); err == nil {
+		ip = h
+	}
+	ua := userAgentOf(ctx)
+	if r := []rune(ua); len(r) > maxUA {
+		ua = string(r[:maxUA])
+	}
+	b, err := json.Marshal(consentEvidence{Via: "invite_redemption", TermsVersion: TermsVersion, PrivacyVersion: PrivacyVersion,
+		AcceptedAt: s.now().UTC().Format(time.RFC3339), InviteID: inviteID, IP: ip, UserAgent: ua})
+	return string(b), err
+}
 
 // Redemption is a sign-up from an invite: the invite token, the profile, the login of the
 // adapter Kind and the policy versions the person accepted.
@@ -150,9 +180,13 @@ func (s *Service) checkRedemption(ctx context.Context, in Redemption) (checkedRe
 // consumer, stores the credential of enrol, redeems the invite, records consent and starts a
 // session. A password sign-up and a passkey sign-up end here, so they cannot differ.
 func (s *Service) completeRedemption(ctx context.Context, chk checkedRedemption, enrol Enrollment) (identity.ConsumerAccount, string, error) {
+	maxUA, err := s.cfg.Settings.Int(ctx, KeyConsentUserAgentMax, "")
+	if err != nil {
+		return identity.ConsumerAccount{}, "", err
+	}
 	var acct identity.ConsumerAccount
 	var cookie string
-	err := s.cfg.DB.Write(ctx, func(tx *storage.Tx) error {
+	err = s.cfg.DB.Write(ctx, func(tx *storage.Tx) error {
 		ir := s.cfg.Identity
 		cur, err := ir.Invites.GetTx(tx, chk.InviteID)
 		if err != nil {
@@ -178,7 +212,10 @@ func (s *Service) completeRedemption(ctx context.Context, chk checkedRedemption,
 			}
 			return err
 		}
-		ev := consentEvidence
+		ev, err := s.evidenceOf(ctx, chk.InviteID, int(maxUA))
+		if err != nil {
+			return err
+		}
 		for _, cs := range []struct{ purpose, version string }{{PurposeTerms, TermsVersion}, {PurposePrivacy, PrivacyVersion}} {
 			if _, err := ir.Consents.Record(tx, identity.ConsentRef{PrincipalID: p.ID, Purpose: cs.purpose, PolicyVersion: cs.version}, &ev); err != nil {
 				return err

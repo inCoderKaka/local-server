@@ -202,13 +202,58 @@ func TestConsentRowsCarryThePolicyVersions(t *testing.T) {
 		if err := rows.Scan(&purpose, &version, &granted, &withdrawn, &evidence); err != nil {
 			t.Fatal(err)
 		}
-		if withdrawn != nil || granted != t0.UnixMilli() || evidence == nil || strings.Contains(*evidence, "100.64") {
+		if withdrawn != nil || granted != t0.UnixMilli() || evidence == nil {
 			t.Fatalf("consent row = %v %v %v %v", granted, withdrawn, evidence, purpose)
 		}
 		got[purpose] = version
 	}
-	if len(got) != 2 || got[consumerauth.PurposeTerms] != "terms-2026-10-v1" || got[consumerauth.PurposePrivacy] != "privacy-2026-10-v1" {
+	if len(got) != 2 || got[consumerauth.PurposeTerms] != "terms-2026-11-v1" || got[consumerauth.PurposePrivacy] != "privacy-2026-11-v1" {
 		t.Fatalf("consent = %v", got)
+	}
+}
+
+// The evidence of a sign-up holds the two version ids, the acceptance time, the invite, the source
+// address without its port and the browser user agent cut to the host's cap, and trusts no
+// forwarding header (req_001 D-153).
+func TestConsentEvidenceHoldsVersionsTimeInviteAddressAndUserAgent(t *testing.T) {
+	e := newEnv(t)
+	inv, invID := e.invite(time.Hour)
+	ua := strings.Repeat("a", 300)
+	r := e.do(req{method: "POST", path: "/v1/invite-redemptions/password", body: redeemBody(inv, "evidence-user", goodPass),
+		header: map[string]string{"User-Agent": ua, "X-Forwarded-For": "203.0.113.9"}})
+	status(t, r, http.StatusCreated)
+	rows, err := e.db.Reader().Query(context.Background(), `SELECT evidence FROM idn_consent`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	n := 0
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var ev map[string]string
+		if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+			t.Fatalf("evidence %q: %v", raw, err)
+		}
+		want := map[string]string{"via": "invite_redemption", "terms_version": consumerauth.TermsVersion, "privacy_version": consumerauth.PrivacyVersion,
+			"accepted_at": t0.UTC().Format(time.RFC3339), "invite_id": invID, "ip": "100.64.0.7", "user_agent": strings.Repeat("a", 256)}
+		if len(ev) != len(want) {
+			t.Fatalf("evidence = %v, want %v", ev, want)
+		}
+		for k, v := range want {
+			if ev[k] != v {
+				t.Fatalf("evidence[%s] = %q, want %q", k, ev[k], v)
+			}
+		}
+		if strings.Contains(raw, "203.0.113.9") {
+			t.Fatalf("evidence trusts X-Forwarded-For: %s", raw)
+		}
+		n++
+	}
+	if n != 2 {
+		t.Fatalf("%d consent rows, want 2", n)
 	}
 }
 

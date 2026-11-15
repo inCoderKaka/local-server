@@ -1918,9 +1918,9 @@ func (s *CompletionUsage) SetTotalTokens(val int64) {
 // The policy versions the person accepted at sign-up (D-45). They must be the versions in force.
 // Ref: #/components/schemas/ConsentAcceptance
 type ConsentAcceptance struct {
-	// The accepted Terms of Use version id, for example `terms-2026-10-v1`.
+	// The accepted Terms of Use version id, for example `terms-2026-11-v1`.
 	TermsVersion string `json:"terms_version"`
-	// The accepted Privacy and consent notice version id, for example `privacy-2026-10-v1`.
+	// The accepted Privacy and consent notice version id, for example `privacy-2026-11-v1`.
 	PrivacyVersion string `json:"privacy_version"`
 }
 

@@ -11,7 +11,7 @@ import termsText from '../../../../docs/legal/terms-of-use.md?raw';
 export interface LegalText {
   /** The document's name in the page. */
   title: string;
-  /** The version id the consent names, for example `terms-2026-10-v1`. */
+  /** The version id the consent names, for example `terms-2026-11-v1`. */
   version: string;
   /** The whole text, shown as plain text. */
   text: string;

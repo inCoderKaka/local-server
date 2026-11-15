@@ -35,7 +35,7 @@ func (e *env) seed(name string, del bool) seeded {
 		e.t.Fatal(err)
 	}
 	if err := e.db.Write(ctx, func(tx *storage.Tx) error {
-		if _, err := e.ir.Consents.Record(tx, identity.ConsentRef{PrincipalID: c.PrincipalID, Purpose: "service_terms", PolicyVersion: "v1"}, str(`{"ip":"100.64.0.9"}`)); err != nil {
+		if _, err := e.ir.Consents.Record(tx, identity.ConsentRef{PrincipalID: c.PrincipalID, Purpose: "service_terms", PolicyVersion: "v1"}, str(`{"via":"invite_redemption","terms_version":"terms-2026-11-v1","privacy_version":"privacy-2026-11-v1","accepted_at":"2026-11-13T10:00:00Z","invite_id":"inv","ip":"100.64.0.9","user_agent":"ExampleBrowser/1.0"}`)); err != nil {
 			return err
 		}
 		if _, err := e.ir.Sessions.Create(tx, c.PrincipalID, "hash-"+name, e.now.Add(time.Hour)); err != nil {
@@ -130,6 +130,9 @@ func TestPurgeRemovesPersonalRowsKeepsTombstone(t *testing.T) {
 	}
 	if c, ss, k := e.personalRows(s); c != 0 || ss != 0 || k != 0 {
 		t.Errorf("left: %d consents, %d sessions, %d keys", c, ss, k)
+	}
+	if n := e.count(`SELECT count(*) FROM idn_consent WHERE evidence LIKE '%100.64.0.9%' OR evidence LIKE '%ExampleBrowser%'`); n != 0 {
+		t.Errorf("the consent evidence (address, user agent) is left in %d rows", n)
 	}
 	if n := e.count(`SELECT count(*) FROM idn_invite WHERE id = ? AND redeemed_consumer_id IS NULL AND redeemed_at IS NOT NULL`, s.inviteID); n != 1 {
 		t.Error("the invite row is gone or still names the consumer")

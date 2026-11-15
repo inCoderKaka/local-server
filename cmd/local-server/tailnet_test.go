@@ -647,7 +647,7 @@ func TestConsumerSignsUpAndSeesItsAccountOnThePageListener(t *testing.T) {
 	}
 
 	// Sign up from the invite.
-	signup := `{"invite_token":"` + token + `","display_name":"Page Consumer","username":"page-consumer","password":"a long enough password","consent":{"terms_version":"terms-2026-10-v1","privacy_version":"privacy-2026-10-v1"}}`
+	signup := `{"invite_token":"` + token + `","display_name":"Page Consumer","username":"page-consumer","password":"a long enough password","consent":{"terms_version":"terms-2026-11-v1","privacy_version":"privacy-2026-11-v1"}}`
 	resp, body := page("POST", "/v1/invite-redemptions/password", "", signup)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("sign-up = %d %s", resp.StatusCode, body)

@@ -133,4 +133,11 @@ func remoteOf(ctx context.Context) string {
 	return s
 }
 
+type userAgentKey struct{}
+
+func userAgentOf(ctx context.Context) string {
+	s, _ := ctx.Value(userAgentKey{}).(string)
+	return s
+}
+
 func isNotFound(err error) bool { return errors.Is(err, identity.ErrNotFound) }

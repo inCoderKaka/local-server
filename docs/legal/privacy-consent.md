@@ -1,25 +1,10 @@
 # Privacy and consent
 
-> **Review note for the project owner. This note is not part of the versioned text and is removed when the version is approved.**
-> This draft was written by an AI assistant from the decisions log (req_001 D-24, D-25, D-26, D-29, D-31, D-40, D-41, D-43, D-44, D-45, D-54, D-59, D-64, D-134, D-136). It is not legal advice. Have a qualified lawyer review it, especially against the data-protection law where hosts and consumers live, before approving it. It describes only what the decisions say. These points are left out because the decisions log does not settle them; each one needs your answer (and a `D-NN` row) before approval:
-> - **Controller and contact.** The text treats each host as the party holding a consumer's data and sends contact through the host. It gives no legal name, address, controller or processor roles, governing law or supervisory authority.
-> - **Consumer rights.** It is open whether consumers can see, correct or export their data, delete their account themselves, or object. The text says only that they can ask the host.
-> - **Effect of withdrawing sign-up consent.** `idn_consent.withdrawn_at` records the withdrawal. The decisions do not say what then happens to the account.
-> - **Evidence.** It is open what `idn_consent.evidence` holds. If it holds an IP address or browser details, those are personal data and should be listed here.
-> - **Consumer data under a host's sharing grant.** A host's grant can give the platform admin the consumer-directory and usage datasets. It is open whether the consumer must be notified or asked beyond this notice.
-> - **Regions.** The regions of the platform database (Supabase by default) and of the hosts' backup buckets are not set, so cross-border transfer is not addressed.
-> - **The engine's own logs.** "Never written to disk or logs" (D-40) describes local-server. Whether the engine (Ollama) logs content depends on the engine's own settings, which local-server does not control.
-> - **Which version a sharing grant names.** This draft assumes that the version `plt_sharing_grant.terms_version` refers to is this notice's version id.
-> - **Retention periods.** The decisions set none for grants or resource requests. Credentials, sessions, access-key records and consent records have no set period while the account exists, and are removed a host-set period after the account is deleted, 90 days by default (D-134, D-136). The table says 'No set period' where none is set.
-> - **Minimum age.** None is given.
-
-**Version:** privacy-2026-10-v1
-
-**Status:** Draft v1 for owner review. This notice is not in force. Nobody is asked to accept it until the project owner approves this text.
+**Version:** privacy-2026-11-v1
 
 ## How versions are named
 
-Every version of this notice has an id of the form `privacy-<YYYY-MM>-v<N>`. `YYYY-MM` is the year and month the text was written. `N` starts at 1 and goes up by one for each new text written in the same month. When you accept this notice, or a host approves a sharing grant, the consent record stores this id. Once a version is in force, its text never changes. Any change, however small, gets a new id. A draft keeps its id while it is being reviewed.
+Every version of this notice has an id of the form `privacy-<YYYY-MM>-v<N>`. `YYYY-MM` is the year and month the text was written. `N` starts at 1 and goes up by one for each new text written in the same month. When you accept this notice, or a host approves a sharing grant, the consent record stores this id. Once a version is in force, its text never changes. Any change, however small, gets a new id.
 
 ## 1. Who this notice is for
 
@@ -56,7 +41,7 @@ Retention values below are defaults. The host can change the ones it owns, and y
 | Resource requests and their comments | To handle your requests | No set period |
 | In-app notifications, your notification preferences and your webhook addresses | To notify you | Notifications 90 days. Webhook deliveries 7 days after delivery |
 | Activity log entries about you: keys issued or revoked, limits changed, requests decided | A record of admin actions | No time limit |
-| Consent records (section 5) | Proof of what you accepted | Until your account is deleted, then removed 90 days later by default (section 7) |
+| Consent records (section 5), with the IP address and browser user agent from sign-up | Proof of what you accepted | Until your account is deleted, then removed 90 days later by default (section 7) |
 | Technical logs, with sensitive values hidden and no prompts or answers | Running and fixing local-server | 14 days or 50 MB. Never sent to platform sync |
 
 ## 4. Where your data lives
@@ -78,6 +63,8 @@ A consent record stores:
 - evidence of the acceptance.
 
 At sign-up, a record is made for the Terms of Use and one for this notice. To withdraw your acceptance, contact the host. The withdrawal time is added to your record. A host withdraws a sharing grant by revoking it (section 6).
+
+At sign-up, the evidence holds the version ids of the Terms of Use and of this notice that you accepted, the time you accepted them, the invite you used, the **IP address** your request came from and your browser's **user agent** (the text a browser sends to say which browser and device it is, cut to a length the host sets, 256 characters by default). The IP address and the user agent are personal data. They are kept to show that you accepted these versions, and they are erased with the rest of your consent records when those are removed (section 7). The IP address is the one your request reaches the host machine from, so it may be a relay's address rather than your own.
 
 ## 6. Sharing grants
 

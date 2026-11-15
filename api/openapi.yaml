@@ -3459,8 +3459,8 @@ components:
         email: user@example.invalid
         password: example-password-placeholder
         consent:
-          terms_version: terms-2026-10-v1
-          privacy_version: privacy-2026-10-v1
+          terms_version: terms-2026-11-v1
+          privacy_version: privacy-2026-11-v1
     InviteRedemptionPasskeyBegin:
       summary: Invite redemption passkey begin
       description: Invite redemption passkey begin, with placeholder values only.
@@ -3469,8 +3469,8 @@ components:
         display_name: Example Consumer
         email: user@example.invalid
         consent:
-          terms_version: terms-2026-10-v1
-          privacy_version: privacy-2026-10-v1
+          terms_version: terms-2026-11-v1
+          privacy_version: privacy-2026-11-v1
     PasskeyCeremony:
       summary: Passkey ceremony
       description: Passkey ceremony, with placeholder values only.
@@ -6298,10 +6298,10 @@ components:
       properties:
         terms_version:
           type: string
-          description: The accepted Terms of Use version id, for example `terms-2026-10-v1`.
+          description: The accepted Terms of Use version id, for example `terms-2026-11-v1`.
         privacy_version:
           type: string
-          description: The accepted Privacy and consent notice version id, for example `privacy-2026-10-v1`.
+          description: The accepted Privacy and consent notice version id, for example `privacy-2026-11-v1`.
     InviteRedemptionPassword:
       type: object
       description: Redeem an invite and create a password login.
@@ -6335,8 +6335,8 @@ components:
         consent:
           $ref: '#/components/schemas/ConsentAcceptance'
           example:
-            terms_version: terms-2026-10-v1
-            privacy_version: privacy-2026-10-v1
+            terms_version: terms-2026-11-v1
+            privacy_version: privacy-2026-11-v1
     InviteRedemptionPasskeyBegin:
       type: object
       description: Redeem an invite with a passkey; the account is created when the ceremony finishes.
@@ -6360,8 +6360,8 @@ components:
         consent:
           $ref: '#/components/schemas/ConsentAcceptance'
           example:
-            terms_version: terms-2026-10-v1
-            privacy_version: privacy-2026-10-v1
+            terms_version: terms-2026-11-v1
+            privacy_version: privacy-2026-11-v1
     PasskeyCeremony:
       type: object
       description: A started WebAuthn ceremony. The ceremony expires after the host's ceremony TTL setting.

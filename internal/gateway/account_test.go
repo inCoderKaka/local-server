@@ -163,7 +163,7 @@ func TestACookieNeverWorksOnTheConsumerAPI(t *testing.T) {
 
 func TestPublicAccountRoutesAreNotServedOnTheConsumerAPI(t *testing.T) {
 	e, _ := accountEnv(t)
-	consent := `"consent":{"terms_version":"terms-2026-10-v1","privacy_version":"privacy-2026-10-v1"}`
+	consent := `"consent":{"terms_version":"terms-2026-11-v1","privacy_version":"privacy-2026-11-v1"}`
 	for _, c := range []struct{ p, body string }{
 		{"/v1/invite-redemptions/password", `{"invite_token":"x","display_name":"A","username":"a","password":"a long passphrase",` + consent + `}`},
 		{"/v1/session/password", `{"username":"a","password":"a long passphrase"}`},

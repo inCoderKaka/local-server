@@ -1,23 +1,10 @@
 # Terms of Use
 
-> **Review note for the project owner. This note is not part of the versioned text and is removed when the version is approved.**
-> This draft was written by an AI assistant from the decisions log (req_001 D-06, D-13, D-15, D-16, D-24, D-25, D-26, D-27, D-40, D-43, D-44, D-45, D-48, D-51, D-52, D-54). It is not legal advice. Have a qualified lawyer review it before approving it. It describes only what the decisions say. These points are deliberately left out because the decisions log does not settle them; each one needs your answer (and a `D-NN` row) before approval:
-> - **Who the parties are.** The text names the host as your counterparty and says contact goes through the host. It does not say whether hosts may edit or replace this text, or what the project owner's role is beyond writing it.
-> - **Legal facts.** No operator legal name, contact address, governing law, jurisdiction or minimum age is given.
-> - **Liability.** There are no warranty, liability or indemnity clauses. The Apache-2.0 licence covers only the software.
-> - **Acceptable use of content.** Beyond "inference only", there are no rules on what prompts are allowed.
-> - **Key-only consumers.** They never sign up, so no consent record is made for them (D-45 records sign-up acceptance only). How they accept these terms is open.
-> - **New versions.** It is open how a consumer is asked to accept a newer version, and what happens if they do not.
-> - **Suspension.** The decisions do not say what a suspended consumer can still do, so the text says only that the host can suspend and reactivate an account.
-> - **Self-service deletion.** It is open whether a consumer can delete their own account. The text says they can ask the host.
-
-**Version:** terms-2026-10-v1
-
-**Status:** Draft v1 for owner review. These terms are not in force. Nobody is asked to accept them until the project owner approves this text.
+**Version:** terms-2026-11-v1
 
 ## How versions are named
 
-Every version of these terms has an id of the form `terms-<YYYY-MM>-v<N>`. `YYYY-MM` is the year and month the text was written. `N` starts at 1 and goes up by one for each new text written in the same month. When you accept the terms, your consent record stores this id. Once a version is in force, its text never changes. Any change, however small, gets a new id. A draft keeps its id while it is being reviewed.
+Every version of these terms has an id of the form `terms-<YYYY-MM>-v<N>`. `YYYY-MM` is the year and month the text was written. `N` starts at 1 and goes up by one for each new text written in the same month. When you accept the terms, your consent record stores this id. Once a version is in force, its text never changes. Any change, however small, gets a new id.
 
 ## 1. Who these terms are between
 
@@ -25,7 +12,7 @@ local-server is software that a **host** runs on their own computer (the **host 
 
 These terms cover your use of the host's AI through local-server. Your arrangement is with the host who invited you, and any question about these terms or your account goes to that host. The software itself is open source under the Apache-2.0 licence. That licence covers the software, and these terms cover using a host's resources.
 
-How your data is handled is described in the [Privacy and consent notice](privacy-consent.md), version `privacy-2026-10-v1`.
+How your data is handled is described in the [Privacy and consent notice](privacy-consent.md), version `privacy-2026-11-v1`.
 
 ## 2. What the host offers, and what you may do
 

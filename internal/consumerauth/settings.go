@@ -29,6 +29,10 @@ const KeyPasskeyCeremonyTTL = "consumer.passkey_ceremony_ttl"
 // is bounded; the oldest one is dropped to make room.
 const KeyPasskeyMaxCeremonies = "consumer.passkey_max_ceremonies"
 
+// KeyConsentUserAgentMax is the host-owned setting for how many characters of the browser user
+// agent a sign-up stores as consent evidence; the rest is cut off (req_001 D-153, D-38).
+const KeyConsentUserAgentMax = "consumer.consent_user_agent_max"
+
 // Defs are the settings this module registers.
 func Defs() []settings.Def {
 	return []settings.Def{
@@ -38,6 +42,8 @@ func Defs() []settings.Def {
 			Description: "How long a started passkey sign-up, login or registration can be finished before the consumer must start it again. A ceremony already started keeps its end time."},
 		{Key: KeyPasskeyMaxCeremonies, Kind: settings.Int, Default: "1000", Owner: settings.Host,
 			Description: "Most started passkey ceremonies the host remembers at once; the oldest is dropped to make room."},
+		{Key: KeyConsentUserAgentMax, Kind: settings.Int, Default: "256", Owner: settings.Host,
+			Description: "Most characters of the browser user agent kept in the consent record of a new sign-up; the rest is cut off. A change applies to sign-ups after it."},
 	}
 }
 
@@ -59,14 +65,19 @@ func registerSettings(st *settings.Store) error {
 			return err
 		}
 	}
-	return st.SetValidator(KeyPasskeyMaxCeremonies, func(_ context.Context, v string) error {
-		n, err := strconv.Atoi(v)
-		if err != nil {
+	for _, key := range []string{KeyPasskeyMaxCeremonies, KeyConsentUserAgentMax} {
+		if err := st.SetValidator(key, func(_ context.Context, v string) error {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return err
+			}
+			if n < 1 {
+				return fmt.Errorf("must be at least 1")
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
-		if n < 1 {
-			return fmt.Errorf("must be at least 1")
-		}
-		return nil
-	})
+	}
+	return nil
 }
