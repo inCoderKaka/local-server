@@ -1,5 +1,5 @@
 // Package webui is the webui module (docs/modules/webui.md): it serves a built single-page web
-// UI (the admin UI, later the consumer web page) from an fs.FS with a strict Content Security
+// UI (the admin UI or the consumer web page) from an fs.FS with a strict Content Security
 // Policy on every answer (req_001 D-10, D-21, D-151, D-152).
 //
 // # Surface

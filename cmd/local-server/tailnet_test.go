@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"math/big"
 	"net"
 	"net/http"
@@ -24,6 +25,8 @@ import (
 	"time"
 
 	"github.com/inCoderKaka/local-server/internal/transport"
+	"github.com/inCoderKaka/local-server/internal/webui"
+	consumerui "github.com/inCoderKaka/local-server/web/consumer"
 )
 
 const (
@@ -280,13 +283,27 @@ func TestTailnetListenersServeHTTPSWithoutCORS(t *testing.T) {
 			}
 		}
 	}
-	resp, err = c.Get("https://" + pageAddr + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("consumer page listener: %d, want 404 until the page is built", resp.StatusCode)
+	// The page listener serves the consumer web page embedded in the binary (PLT-F-036): the built
+	// page after `make build`, else the stub, with the CSP, on / and on an invite link's path.
+	index, idxErr := fs.ReadFile(consumerui.Files(), "index.html")
+	for _, path := range []string{"/", "/invite"} {
+		resp, err = c.Get("https://" + pageAddr + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Security-Policy") != webui.CSP {
+			t.Fatalf("consumer page GET %s = %d, CSP %q", path, resp.StatusCode, resp.Header.Get("Content-Security-Policy"))
+		}
+		switch {
+		case idxErr == nil:
+			if string(body) != string(index) {
+				t.Errorf("consumer page GET %s is not the built index.html: %s", path, body)
+			}
+		case !strings.Contains(string(body), "make web-consumer-build"):
+			t.Errorf("consumer page GET %s without a built page is not the stub: %s", path, body)
+		}
 	}
 	r.stop()
 }

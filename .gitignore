@@ -4,11 +4,14 @@
 docs/mnp_nt.md
 
 # Web UIs (req_001 D-152): dependencies, built assets and generated code are never committed.
-# Git holds only web/admin/dist/.gitkeep, so `go build` works without npm.
+# Git holds only web/admin/dist/.gitkeep and web/consumer/dist/.gitkeep, so `go build` works
+# without npm.
 web/node_modules/
 web/*/node_modules/
 web/admin/dist/*
 !web/admin/dist/.gitkeep
+web/consumer/dist/*
+!web/consumer/dist/.gitkeep
 web/shared/src/api/schema.gen.ts
 web/*/coverage/
 # Playwright outputs of the browser end-to-end test (web/e2e).

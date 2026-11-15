@@ -6,6 +6,7 @@
   "workspaces": [
     "shared",
     "admin",
+    "consumer",
     "e2e"
   ],
   "engines": {
@@ -16,6 +17,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "build:admin": "npm run build -w @local-server/admin",
+    "build:consumer": "npm run build -w @local-server/consumer",
     "e2e": "npm run e2e -w @local-server/e2e"
   },
   "devDependencies": {

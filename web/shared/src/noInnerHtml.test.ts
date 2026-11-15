@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-// Every source file of every web workspace (web/*/src/**) and the admin page shell, as text.
+// Every source file of every web workspace (web/*/src/**) and each page shell (web/*/index.html), as text.
 // Test files are left out: they may quote the forbidden names as data, as this one does.
 const raw = import.meta.glob(
   ['../../*/src/**/*.{ts,tsx,js,jsx,mjs,html}', '../../*/index.html', '!**/node_modules/**', '!**/*.test.{ts,tsx}'],
@@ -24,10 +24,12 @@ const forbidden: [string, RegExp][] = [
 ];
 
 describe('no HTML injection sinks in web sources', () => {
-  it('scans the sources of both shared and admin', () => {
+  it('scans the sources of shared, admin and consumer', () => {
     const names = Object.keys(sources);
     expect(names.some((n) => n.includes('/shared/src/'))).toBe(true);
     expect(names.some((n) => n.includes('/admin/src/'))).toBe(true);
+    expect(names.some((n) => n.includes('/consumer/src/'))).toBe(true);
+    expect(names.some((n) => n.endsWith('/consumer/index.html'))).toBe(true);
     expect(names.some((n) => n.endsWith('.test.ts') || n.endsWith('.test.tsx'))).toBe(false);
   });
 

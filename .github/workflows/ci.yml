@@ -75,9 +75,9 @@ jobs:
           go-version-file: go.mod
       - run: go test -race ./...
 
-  # The web UIs (D-152): the unit check, then the browser end-to-end test of the admin UI
-  # against the Go harness with the fake engine. Linux only; the report and traces are kept
-  # only when it fails.
+  # The web UIs (D-152): the unit checks of the admin UI and the consumer web page, then the
+  # browser end-to-end test of the admin UI against the Go harness with the fake engine. Linux
+  # only; the report and traces are kept only when it fails.
   web-admin:
     name: web-admin
     runs-on: ubuntu-latest
@@ -95,6 +95,8 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Unit and component tests, type check, build
         run: make web-admin-test
+      - name: Consumer web page tests, type check, build (PLT-F-036)
+        run: make web-consumer-test
       - name: Chromium and its system libraries
         working-directory: web
         run: npx playwright install --with-deps chromium

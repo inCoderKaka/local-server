@@ -37,6 +37,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/usage"
 	"github.com/inCoderKaka/local-server/internal/webui"
 	adminui "github.com/inCoderKaka/local-server/web/admin"
+	consumerui "github.com/inCoderKaka/local-server/web/consumer"
 )
 
 // services are the built modules serve runs.
@@ -163,7 +164,10 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 				names = append(slices.Clone(names), n)
 			}
 			return names, nil
-		}})
+		},
+		// The built consumer web page, or its stub when the binary was built without npm
+		// (PLT-F-036, req_001 D-152), for GET and HEAD outside /v1.
+		UI: webui.Handler(webui.Config{Files: consumerui.Files()})})
 	if err != nil {
 		return nil, fmt.Errorf("consumerauth: %w", err)
 	}

@@ -1,0 +1,25 @@
+{
+  "name": "@local-server/consumer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The local-server consumer web page, served by the consumer page listener.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@local-server/shared": "*",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@vitejs/plugin-react": "^6.3.0",
+    "tailwindcss": "^4.3.5",
+    "vite": "^8.3.8"
+  }
+}
