@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inCoderKaka/local-server/internal/requests"
 	"github.com/inCoderKaka/local-server/internal/storage"
@@ -317,6 +318,19 @@ func TestRejectAndFinalRequestsAnswer409(t *testing.T) {
 	// A rejection body may be empty.
 	id2 := e.ask("Another")
 	status(t, e.call(e.token, "POST", "/admin/v1/resource-requests/"+id2+"/reject", `{}`), http.StatusOK)
+}
+
+// A request past its end time that the sweeper has not yet expired answers 409 before its
+// approval's limits are looked at.
+func TestApproveOfPastDueRequestAnswers409BeforeLimits(t *testing.T) {
+	e := newRequestEnv(t)
+	e.set("requests.ttl", "1m")
+	id := e.ask("More please")
+	e.clk.advance(2 * time.Minute)
+	before := e.rows()
+	r := e.call(e.token, "POST", "/admin/v1/resource-requests/"+id+"/approve", `{"limits":{"models":[{"model":"no-such-model"}],"concurrency":1,"on_context_overflow":"refuse","allowed_request_properties":null}}`)
+	status(t, r, http.StatusConflict)
+	sameRows(t, "after a past-due approval", e.rows(), before)
 }
 
 // An unknown field of the approval's limits is ignored, named in warnings by its path, and never

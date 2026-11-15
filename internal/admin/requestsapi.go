@@ -100,7 +100,7 @@ func (a *Admin) AdminApproveResourceRequest(ctx context.Context, req *api.Resour
 	if err != nil {
 		return nil, err
 	}
-	if cur.Status != requests.StatusOpen {
+	if cur.Status != requests.StatusOpen || (cur.ExpiresAt != nil && !cur.ExpiresAt.After(a.cfg.Clock())) {
 		return nil, requests.ErrNotOpen
 	}
 	prep, err := a.grs.Prepare(ctx, grantLimitsIn(&req.Limits))
