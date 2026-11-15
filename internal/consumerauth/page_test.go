@@ -135,6 +135,23 @@ func TestBodyCapAndErrorEnvelope(t *testing.T) {
 	status(t, e.do(req{method: "POST", path: "/v1/session/password", body: loginBody("a", "b"), header: map[string]string{"Content-Type": "text/plain"}}), http.StatusUnsupportedMediaType)
 }
 
+// A personal /v1 answer on the page listener, a success or a refusal, is not storable by a cache
+// and is not sniffed into another type.
+func TestAPIAnswersAreNotStorable(t *testing.T) {
+	e := newEnv(t)
+	tok := e.signUp("example-user", goodPass)
+	for path, code := range map[string]int{"/v1/me": http.StatusOK, "/v1/nothing-here": http.StatusNotFound} {
+		r := e.get(tok, path)
+		status(t, r, code)
+		if got := r.Header().Get("Cache-Control"); got != "no-store" {
+			t.Errorf("%s: Cache-Control = %q, want no-store", path, got)
+		}
+		if got := r.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+			t.Errorf("%s: X-Content-Type-Options = %q, want nosniff", path, got)
+		}
+	}
+}
+
 func TestMeLimitsAndKeys(t *testing.T) {
 	e := newEnv(t)
 	tok := e.signUp("example-user", goodPass)

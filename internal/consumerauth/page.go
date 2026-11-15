@@ -130,6 +130,9 @@ func reservedPath(r *http.Request) bool {
 func (s *Service) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case onAPIPath(r):
+		h := w.Header()
+		h.Set("Cache-Control", "no-store")
+		h.Set("X-Content-Type-Options", "nosniff")
 		if err := s.cfg.LimitBody(r.Context(), r); err != nil {
 			e, internal := classify(err)
 			if internal {

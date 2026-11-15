@@ -196,6 +196,42 @@ func TestFinalRequestsRefuseFurtherChanges(t *testing.T) {
 	}
 }
 
+// A request past its TTL refuses every action even before the sweeper has moved it to expired.
+func TestRequestPastItsTTLRefusesActionsBeforeTheSweep(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	c, adm := e.consumer("A"), e.admin("Admin")
+	e.set(requests.KeyTTL, "1h")
+	q := e.create(c, "ask")
+	e.clk.advance(2 * time.Hour)
+
+	before := e.count(`SELECT count(*) FROM req_comment`)
+	versions := e.count(`SELECT count(*) FROM grt_version`)
+	calls := map[string]error{}
+	_, calls["comment by consumer"] = e.svc.Comment(ctx, c.consumerID, c.principalID, q.ID, "more")
+	_, calls["comment by host"] = e.svc.Comment(ctx, "", adm.principalID, q.ID, "more")
+	_, calls["withdraw"] = e.svc.Withdraw(ctx, c.consumerID, c.principalID, q.ID)
+	_, calls["reject"] = e.svc.Reject(ctx, adm.principalID, q.ID, "")
+	_, calls["approve"] = e.svc.Approve(ctx, adm.principalID, q.ID, "", e.applyGrant)
+	for name, err := range calls {
+		if !errors.Is(err, requests.ErrNotOpen) || kindOf(err) != requests.KindConflict {
+			t.Errorf("%s past the TTL: %v, want the not-open conflict", name, err)
+		}
+	}
+	if e.count(`SELECT count(*) FROM req_comment`) != before || e.count(`SELECT count(*) FROM grt_version`) != versions {
+		t.Error("a refused call past the TTL left a row behind")
+	}
+	if got, err := e.svc.Get(ctx, "", q.ID); err != nil || got.Status != requests.StatusOpen {
+		t.Errorf("before the sweep: %+v, %v, want still open", got, err)
+	}
+	if n, err := e.svc.ExpireDue(ctx); err != nil || n != 1 {
+		t.Fatalf("expired %d, %v, want 1", n, err)
+	}
+	if got, err := e.svc.Get(ctx, "", q.ID); err != nil || got.Status != requests.StatusExpired {
+		t.Errorf("after the sweep: %+v, %v, want expired", got, err)
+	}
+}
+
 func TestOpenRequestCapPerConsumer(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

@@ -263,8 +263,9 @@ func (s *Service) author(ctx context.Context, principalID string) (Author, error
 }
 
 // loadOpenTx reads a request inside the unit of work and refuses one that is another consumer's
-// (when consumerID is not empty) or not open.
-func loadOpenTx(tx *storage.Tx, id, consumerID string) (Request, error) {
+// (when consumerID is not empty) or not open. It also refuses an open request whose end time has
+// passed at now: the sweeper still moves it to expired, but until it runs nothing acts on it.
+func loadOpenTx(tx *storage.Tx, id, consumerID string, now time.Time) (Request, error) {
 	q, err := getTx(tx, id)
 	if err != nil {
 		return Request{}, err
@@ -273,6 +274,9 @@ func loadOpenTx(tx *storage.Tx, id, consumerID string) (Request, error) {
 		return Request{}, errNotFound
 	}
 	if q.Status != StatusOpen {
+		return Request{}, ErrNotOpen
+	}
+	if q.ExpiresAt != nil && !q.ExpiresAt.After(now) {
 		return Request{}, ErrNotOpen
 	}
 	return q, nil
@@ -285,7 +289,7 @@ func (s *Service) Comment(ctx context.Context, consumerID, authorPrincipalID, id
 		return Request{}, err
 	}
 	err := s.write(ctx, func(tx *storage.Tx) error {
-		if _, err := loadOpenTx(tx, id, consumerID); err != nil {
+		if _, err := loadOpenTx(tx, id, consumerID, s.now()); err != nil {
 			return err
 		}
 		return insertCommentTx(tx, id, authorPrincipalID, body, s.now())
@@ -299,11 +303,11 @@ func (s *Service) Comment(ctx context.Context, consumerID, authorPrincipalID, id
 // Withdraw moves the consumer's open request to withdrawn.
 func (s *Service) Withdraw(ctx context.Context, consumerID, principalID, id string) (Request, error) {
 	err := s.write(ctx, func(tx *storage.Tx) error {
-		q, err := loadOpenTx(tx, id, consumerID)
+		now := s.now()
+		q, err := loadOpenTx(tx, id, consumerID, now)
 		if err != nil {
 			return err
 		}
-		now := s.now()
 		v, err := finishTx(tx, id, StatusWithdrawn, now, principalID, nil)
 		if err != nil {
 			return err
@@ -335,7 +339,7 @@ func (s *Service) Approve(ctx context.Context, adminPrincipalID, id, comment str
 		}
 	}
 	err := s.write(ctx, func(tx *storage.Tx) error {
-		q, err := loadOpenTx(tx, id, "")
+		q, err := loadOpenTx(tx, id, "", s.now())
 		if err != nil {
 			return err
 		}
@@ -359,7 +363,7 @@ func (s *Service) Reject(ctx context.Context, adminPrincipalID, id, comment stri
 		}
 	}
 	err := s.write(ctx, func(tx *storage.Tx) error {
-		q, err := loadOpenTx(tx, id, "")
+		q, err := loadOpenTx(tx, id, "", s.now())
 		if err != nil {
 			return err
 		}
