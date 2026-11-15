@@ -7,6 +7,9 @@ import { expect, test } from './harness';
  * sets up the host, sees its resources on every page, sets the share, creates a consumer, a grant
  * with model and context limits and an access key, all in the admin UI; then sees that
  * consumer's usage now and over time once the consumer has called the host with the key.
+ * Then the resource requests flow (req_001 D-39, D-160): the consumer asks for more with its key,
+ * the host sees the request and the pending count, approves it with limits (a new grant version),
+ * and rejects a second one with a comment.
  */
 
 /** Longest the usage page may take to show the calls: a few rollup passes of the harness
@@ -31,6 +34,26 @@ const CALLS = 2;
 const PROMPT = 'say hi';
 
 const CONSUMER_NAME = 'E2E client app';
+const ADMIN_LOGIN = 'host-admin';
+
+/** The context limit the first resource request asks for (the fake chat model's whole context). */
+const ASKED_CONTEXT_LIMIT = '8192';
+/** The concurrency the host sets when it approves the first request. */
+const APPROVED_CONCURRENCY = '2';
+/** The concurrency the second resource request asks for. */
+const REJECTED_CONCURRENCY = 4;
+/** The consumer's messages and the host's reason; plain request text, not prompts. */
+const APPROVE_MESSAGE = 'E2E request: a longer context, please.';
+const REJECT_MESSAGE = 'E2E request: a second one, to be rejected.';
+const REJECT_REASON = 'E2E reason: not this time.';
+
+// The tests share one host (one worker, see playwright.config.ts) and run in order: the second
+// starts from the consumer, grant and key the first set up, so it is skipped when the first fails.
+test.describe.configure({ mode: 'serial' });
+
+/** Set by the first test, read by the next. Kept in memory only: the admin password and the
+ * access key (shown once) are never written anywhere. */
+const shared = { password: '', accessKey: '', consumerPath: '' };
 
 /** The resource strip in the header of every page (req_001 D-31). */
 async function expectResourceStrip(page: Page) {
@@ -47,17 +70,13 @@ async function openPage(page: Page, nav: string, heading: string) {
 }
 
 test('the host sets up sharing in the browser and sees usage per consumer', async ({ page, server }) => {
-  // Kept in memory only: the key is shown once and never written anywhere.
-  let accessKey = '';
-  let consumerPath = '';
-
   await test.step('first-run setup creates the admin and logs in', async () => {
     await page.goto('/');
     const form = page.getByRole('form', { name: 'Create the first admin' });
-    const password = randomBytes(18).toString('base64url');
-    await form.getByLabel('Login name').fill('host-admin');
-    await form.getByLabel('Password', { exact: true }).fill(password);
-    await form.getByLabel('Repeat the password').fill(password);
+    shared.password = randomBytes(18).toString('base64url');
+    await form.getByLabel('Login name').fill(ADMIN_LOGIN);
+    await form.getByLabel('Password', { exact: true }).fill(shared.password);
+    await form.getByLabel('Repeat the password').fill(shared.password);
     await form.getByRole('button', { name: 'Create admin' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
     await expectResourceStrip(page);
@@ -110,8 +129,8 @@ test('the host sets up sharing in the browser and sees usage per consumer', asyn
     await form.getByRole('button', { name: 'Create consumer' }).click();
     await expect(page.getByRole('heading', { level: 1, name: CONSUMER_NAME })).toBeVisible();
     await expectResourceStrip(page);
-    consumerPath = new URL(page.url()).hash;
-    expect(consumerPath).toMatch(/^#\/consumers\/[^/]+$/);
+    shared.consumerPath = new URL(page.url()).hash;
+    expect(shared.consumerPath).toMatch(/^#\/consumers\/[^/]+$/);
   });
 
   await test.step('creating a grant with model and context limits', async () => {
@@ -129,14 +148,14 @@ test('the host sets up sharing in the browser and sees usage per consumer', asyn
   });
 
   await test.step('issuing an access key, shown once', async () => {
-    await page.goto(`/${consumerPath}`);
+    await page.goto(`/${shared.consumerPath}`);
     await expect(page.getByRole('heading', { level: 1, name: CONSUMER_NAME })).toBeVisible();
     const form = page.getByRole('form', { name: 'Issue an access key' });
     await form.getByLabel('Key name (optional)').fill('e2e key');
     await form.getByRole('button', { name: 'Issue key' }).click();
     const panel = page.getByRole('region', { name: 'New access key' });
-    accessKey = await panel.getByLabel('Access key secret').inputValue();
-    expect(accessKey.length).toBeGreaterThan(0);
+    shared.accessKey = await panel.getByLabel('Access key secret').inputValue();
+    expect(shared.accessKey.length).toBeGreaterThan(0);
     await panel.getByRole('button', { name: 'I have copied it' }).click();
     await expect(panel).toBeHidden();
     await expect(page.getByRole('region', { name: 'Access keys' }).getByText('e2e key')).toBeVisible();
@@ -147,7 +166,7 @@ test('the host sets up sharing in the browser and sees usage per consumer', asyn
     for (let i = 0; i < CALLS; i++) {
       const res = await fetch(`${server.consumer}/v1/chat/completions`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${accessKey}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${shared.accessKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: MODEL, messages: [{ role: 'user', content: PROMPT }] }),
         signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
       });
@@ -184,5 +203,107 @@ test('the host sets up sharing in the browser and sees usage per consumer', asyn
     await openPage(page, 'Dashboard', 'Dashboard');
     // The dashboard shows host use only (Host use now, Host use over time), not usage per consumer.
     await expect(page.getByRole('region', { name: 'Host use now' })).toBeVisible();
+  });
+});
+
+/** The consumer opens a resource request with its access key, on the consumer API. Node's fetch,
+ * not Playwright's request API, so the key is not in a trace. */
+async function openRequest(server: { consumer: string }, message: string, ask: Record<string, unknown>) {
+  const res = await fetch(`${server.consumer}/v1/resource-requests`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${shared.accessKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, ask }),
+    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+  });
+  const body = (await res.json()) as { status?: string };
+  expect(res.status, 'create resource request').toBe(201);
+  expect(body.status).toBe('open');
+}
+
+/** Opens the request of the consumer from the list on the requests page. */
+async function showRequest(page: Page) {
+  await page
+    .getByRole('table', { name: 'Resource requests' })
+    .getByRole('button', { name: new RegExp(`^Show the request from ${CONSUMER_NAME}`) })
+    .click();
+  return page.getByRole('region', { name: 'Request', exact: true });
+}
+
+test('the host approves one resource request with limits and rejects another with a comment', async ({ page, server }) => {
+  expect(shared.accessKey, 'the first test issued the key').not.toBe('');
+  const pendingBadge = (n: number) =>
+    page.getByRole('banner').getByRole('link', { name: `${n} pending resource ${n === 1 ? 'request' : 'requests'}` });
+
+  await test.step('the consumer asks for more with its key (consumer API)', async () => {
+    await openRequest(server, APPROVE_MESSAGE, { models: [MODEL], context_limit: Number(ASKED_CONTEXT_LIMIT) });
+  });
+
+  await test.step('the host logs in and sees the request and the pending count', async () => {
+    await page.goto('/');
+    const form = page.getByRole('form', { name: 'Log in' });
+    await form.getByLabel('Login name').fill(ADMIN_LOGIN);
+    await form.getByLabel('Password', { exact: true }).fill(shared.password);
+    await form.getByRole('button', { name: 'Log in' }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeVisible();
+    await expect(pendingBadge(1)).toBeVisible();
+    await openPage(page, 'Requests', 'Requests');
+    await expect(page.getByText('1 pending', { exact: true })).toBeVisible();
+    const rows = page.getByRole('table', { name: 'Resource requests' }).getByRole('row');
+    await expect(rows).toHaveCount(2); // the header and the request
+    await expect(rows.nth(1).getByRole('link', { name: CONSUMER_NAME })).toBeVisible();
+    await expect(rows.nth(1).getByText('Pending', { exact: true })).toBeVisible();
+    await expect(rows.nth(1).getByText(`Context limit: ${ASKED_CONTEXT_LIMIT} tokens`)).toBeVisible();
+  });
+
+  await test.step('the host approves it with limits: a new grant version', async () => {
+    const card = await showRequest(page);
+    await expect(card.getByText(APPROVE_MESSAGE)).toBeVisible();
+    const form = card.getByRole('form', { name: 'Approve the request' });
+    // The form starts from the current grant with the ask applied; the host changes a limit too.
+    await expect(form.getByLabel(`Context limit for ${MODEL} (tokens)`)).toHaveValue(ASKED_CONTEXT_LIMIT);
+    await form.getByLabel('Requests at once').fill(APPROVED_CONCURRENCY);
+    await form.getByRole('button', { name: 'Approve', exact: true }).click();
+    await expect(card.getByRole('status').filter({ hasText: 'Approved: the consumer has a new grant version.' })).toBeVisible();
+    await expect(card.getByText('Approved', { exact: true })).toBeVisible();
+    await expect(page.getByText('0 pending', { exact: true })).toBeVisible();
+    await expect(pendingBadge(0)).toBeVisible();
+    // The request names the grant version its approval made.
+    await expect(card.getByRole('term').filter({ hasText: /^Grant version$/ })).toBeVisible();
+
+    await card.getByRole('link', { name: 'Grant', exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1, name: `Grant of ${CONSUMER_NAME}` })).toBeVisible();
+    const history = page.getByRole('table', { name: 'Grant versions, newest first' });
+    await expect(history.getByRole('row')).toHaveCount(3); // the header, version 2 and version 1
+    // Version 2 carries the approved limits. Its "Made by" cell is not asserted: a read leaves
+    // resource_request_id null, so it shows "The host" (phase-2-parking.md, build PLT-F-028).
+    const newest = history.getByRole('row').nth(1);
+    await expect(newest.getByRole('cell').nth(0)).toHaveText('2');
+    await expect(newest.getByRole('cell').nth(3)).toContainText(`context ${ASKED_CONTEXT_LIMIT}`);
+    await expect(newest.getByRole('cell').nth(5)).toHaveText(APPROVED_CONCURRENCY);
+  });
+
+  await test.step('a second request is rejected with a comment', async () => {
+    await openRequest(server, REJECT_MESSAGE, { concurrency: REJECTED_CONCURRENCY });
+    await openPage(page, 'Requests', 'Requests');
+    // The shell polls the count; Refresh reads the list and the count now.
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(page.getByText('1 pending', { exact: true })).toBeVisible();
+    await expect(pendingBadge(1)).toBeVisible();
+
+    const card = await showRequest(page);
+    await expect(card.getByText(REJECT_MESSAGE)).toBeVisible();
+    await card.getByLabel('Reason for the consumer (optional)').fill(REJECT_REASON);
+    await card.getByRole('button', { name: 'Reject', exact: true }).click();
+    await card.getByRole('group', { name: 'Reject this request?' }).getByRole('button', { name: 'Reject the request' }).click();
+    await expect(card.getByRole('status').filter({ hasText: 'The request is now rejected.' })).toBeVisible();
+    await expect(card.getByText('Rejected', { exact: true })).toBeVisible();
+    await expect(card.getByRole('list', { name: 'Comments, oldest first' }).getByText(REJECT_REASON)).toBeVisible();
+    await expect(pendingBadge(0)).toBeVisible();
+
+    // The rejected filter lists it.
+    await page.getByLabel('Show', { exact: true }).selectOption({ label: 'Rejected' });
+    const rows = page.getByRole('table', { name: 'Resource requests' }).getByRole('row');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(1).getByText('Rejected', { exact: true })).toBeVisible();
   });
 });
