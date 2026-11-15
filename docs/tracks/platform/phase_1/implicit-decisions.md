@@ -4,6 +4,8 @@ Software choices the AI made that no ticket, design doc or requirement decision 
 
 | ID | Date | Kind | Ticket | Decision | Reverse-by | Status |
 |---|---|---|---|---|---|---|
+| I-469 | 2026-11-15 | design | PLT-B-001 | Dependabot runs weekly for the github-actions ecosystem only, directory `/` (no cadence is set in D-88). | Edit the interval or ecosystems in `.github/dependabot.yml`. | unreviewed |
+| I-468 | 2026-11-15 | design | PLT-B-001 | CI actions keep major version v7 and are pinned to the commit that tag points to today, with the exact semver in a trailing comment. | Revert `4c6aca5`. | unreviewed |
 | I-467 | 2026-11-15 | design | PLT-F-027 | New host setting `consumer.passkey_max_ceremonies_per_address` (10): a started passkey ceremony remembers the client host that began it (port removed), and at the limit that address's own oldest is dropped before the global limit applies, so one tailnet address cannot push out the ceremonies of others; the finish is not bound to the address. | Remove the setting, `ceremony.addr` and the per-address loop in `ceremonies.put` in `internal/consumerauth/`. | unreviewed |
 | I-466 | 2026-11-15 | scope | PLT-F-027 | No list or delete passkey routes (the spec has none); the spec has six passkey operations, all built. | Add routes with a spec change. | unreviewed |
 | I-465 | 2026-11-15 | design | PLT-F-027 | User verification and resident key are `required`, attestation `none`; the stored secret is JSON `{user_handle, credential}` with attestation dropped; a signature counter that did not advance is a failed login; passkey lockout is shared with the password lockout, keyed by address, and a success does not clear it. | Revert `8d10dea`. | unreviewed |
