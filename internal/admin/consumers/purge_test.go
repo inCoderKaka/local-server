@@ -3,6 +3,7 @@ package consumers_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -288,5 +289,70 @@ func TestRunPurgeStopsOnCancel(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("RunPurge did not stop after the context ended")
+	}
+}
+
+// The requests hook runs in the purge's unit of work and its count lands in the audit detail
+// (req_001 D-136).
+func TestPurgeRunsTheRequestsHookInItsUnit(t *testing.T) {
+	var gotID string
+	e := newEnv(t, func(c *consumers.Config) {
+		c.PurgeRequests = func(tx *storage.Tx, consumerID string) (int64, error) {
+			gotID = consumerID
+			// The unit already holds the purge: the consumer's access keys are gone in this tx.
+			rows, err := tx.Query(`SELECT count(*) FROM idn_access_key WHERE consumer_id = ?`, consumerID)
+			if err != nil {
+				return 0, err
+			}
+			defer rows.Close()
+			var keys int
+			if rows.Next() {
+				if err := rows.Scan(&keys); err != nil {
+					return 0, err
+				}
+			}
+			if keys != 0 {
+				t.Errorf("the hook ran before the purge: %d keys", keys)
+			}
+			return 3, nil
+		}
+	})
+	s := e.seed("Ada", true)
+	e.now = e.now.Add(91 * aDay)
+	if n := e.purge(); n != 1 {
+		t.Fatalf("purged %d, want 1", n)
+	}
+	if gotID != s.ID {
+		t.Errorf("hook ran for %q, want %q", gotID, s.ID)
+	}
+	var detail string
+	if err := e.db.Reader().QueryRow(ctx, `SELECT detail FROM aud_event WHERE action = ?`, consumers.ActionConsumerPurged).Scan(&detail); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(detail), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["resource_requests"] != 3.0 || got["consumer_id"] != s.ID {
+		t.Errorf("detail = %v, want resource_requests 3", got)
+	}
+}
+
+// A failing hook rolls the whole purge back: the consumer keeps its rows and gets no audit row.
+func TestPurgeRollsBackWhenTheRequestsHookFails(t *testing.T) {
+	e := newEnv(t, func(c *consumers.Config) {
+		c.PurgeRequests = func(*storage.Tx, string) (int64, error) { return 0, errors.New("boom") }
+	})
+	s := e.seed("Ada", true)
+	e.now = e.now.Add(91 * aDay)
+	n, err := e.svc.PurgeDeleted(ctx)
+	if n != 0 || err == nil || !strings.Contains(err.Error(), s.ID) {
+		t.Fatalf("purged %d, err %v; want 0 and an error naming the consumer", n, err)
+	}
+	if c, ss, k := e.personalRows(s); c != 1 || ss != 1 || k != 2 {
+		t.Errorf("the purge was not rolled back: %d/%d/%d", c, ss, k)
+	}
+	if n := e.purgedAudits(); n != 0 {
+		t.Errorf("%d purge audit rows, want 0", n)
 	}
 }

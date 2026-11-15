@@ -67,6 +67,9 @@ type Config struct {
 	// Nodes resolves the node a key is bound to into its stable id and machine name. Nil means
 	// this host has no Tailscale: binding a key is then refused.
 	Nodes NodeResolver
+	// PurgeRequests removes a consumer's resource requests and their comments in the purge's unit of
+	// work and returns how many requests it removed. Nil means this host has no requests module.
+	PurgeRequests func(tx *storage.Tx, consumerID string) (int64, error)
 	// Events runs every write, so that auth.Service.Revoke can emit its event in the same unit.
 	Events events.Notifier
 	// Clock nil means time.Now. Use the clock of the auth service, so a key's expiry means the

@@ -17,7 +17,8 @@ const defaultPurgeInterval = time.Hour
 
 // PurgeDeleted purges every consumer that was deleted longer ago than consumers.deleted_retention
 // and returns how many it purged (req_001 D-106, D-134, D-136). The purge removes the consumer's
-// consent records with their evidence, credentials, sessions and access keys, and clears the
+// consent records with their evidence, credentials, sessions and access keys, and, when
+// Config.PurgeRequests is set, its resource requests with their comments, and clears the
 // reference to it on the invites it redeemed (redeemed_consumer_id); the consumer and principal rows
 // stay as a tombstone for the audit trail and the grants. Each consumer is purged in its own unit of work with its audit row
 // (consumer.purged, no actor, the counts only). The retention is read now; zero or less keeps
@@ -73,9 +74,17 @@ func (s *Service) purgeOne(ctx context.Context, c identity.Consumer) error {
 			return err
 		}
 		// Ids and counts only: the audit trail is kept forever and holds nothing personal.
-		return s.record(tx, audit.Event{Action: ActionConsumerPurged, TargetID: c.PrincipalID, Detail: map[string]any{
+		detail := map[string]any{
 			"consumer_id": c.ID, "consents": n.Consents, "credentials": n.Credentials, "sessions": n.Sessions,
-			"access_keys": n.AccessKeys, "invite_refs_cleared": n.InviteRefsCleared}})
+			"access_keys": n.AccessKeys, "invite_refs_cleared": n.InviteRefsCleared}
+		if s.cfg.PurgeRequests != nil {
+			reqs, err := s.cfg.PurgeRequests(tx, c.ID)
+			if err != nil {
+				return err
+			}
+			detail["resource_requests"] = reqs
+		}
+		return s.record(tx, audit.Event{Action: ActionConsumerPurged, TargetID: c.PrincipalID, Detail: detail})
 	})
 }
 

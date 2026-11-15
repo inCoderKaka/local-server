@@ -158,8 +158,12 @@ func New(cfg Config) (*Admin, error) {
 	if err != nil {
 		return nil, err
 	}
-	cons, err := consumers.New(consumers.Config{DB: cfg.DB, Settings: cfg.Settings, Identity: cfg.Identity, Grants: cfg.Grants,
-		Auth: cfg.Auth, Nodes: cfg.Nodes, Events: cfg.Events, Clock: cfg.Clock, Logger: cfg.Telemetry.Logger()})
+	consCfg := consumers.Config{DB: cfg.DB, Settings: cfg.Settings, Identity: cfg.Identity, Grants: cfg.Grants,
+		Auth: cfg.Auth, Nodes: cfg.Nodes, Events: cfg.Events, Clock: cfg.Clock, Logger: cfg.Telemetry.Logger()}
+	if cfg.Requests != nil { // a method value of a nil service would panic
+		consCfg.PurgeRequests = cfg.Requests.PurgeConsumerTx
+	}
+	cons, err := consumers.New(consCfg)
 	if err != nil {
 		return nil, err
 	}
