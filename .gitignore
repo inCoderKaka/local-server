@@ -22,4 +22,6 @@ web/e2e/.cache/
 
 # `make build` output
 /bin/
+# `make release-build` and `make release-dry` output (PLT-C-003)
+/dist/
 __pycache__/

@@ -4,12 +4,18 @@
 # The web toolchain is Node.js 24 LTS (web/.nvmrc) with npm workspaces under web/.
 # `make web-admin-test` and `make web-consumer-test` are the fast unit checks; `make web-e2e` (also
 # `make web-admin-e2e`) is the browser end-to-end test.
+# `make release-build` builds the six release binaries and dist/SHA256SUMS; `make release-dry` is
+# the local run of it (PLT-C-003, req_001 D-30, D-62, D-156).
 
 WEB := web
 ADMIN_DIST := $(WEB)/admin/dist
 CONSUMER_DIST := $(WEB)/consumer/dist
 
-.PHONY: build web-deps web-gen web-admin-build web-admin-test web-e2e web-admin-e2e web-consumer-build web-consumer-test clean-web
+# The version string compiled into the binary (`local-server --version`): the tag when built from a
+# tag, else the nearest tag with the commit, else "dev". The release workflow passes the tag.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
+.PHONY: build web-deps web-gen web-admin-build web-admin-test web-e2e web-admin-e2e web-consumer-build web-consumer-test clean-web release-build release-dry
 
 # The binary with the built admin UI and consumer web page inside.
 build: web-admin-build web-consumer-build
@@ -76,3 +82,29 @@ clean-web:
 	find $(ADMIN_DIST) -mindepth 1 ! -name .gitkeep -delete
 	find $(CONSUMER_DIST) -mindepth 1 ! -name .gitkeep -delete
 	rm -f $(WEB)/shared/src/api/schema.gen.ts
+
+# The release build (PLT-C-003): the two web UIs, then one CGO_ENABLED=0 binary per OS and CPU in
+# dist/ (darwin, linux, windows, each amd64 and arm64), named local-server_<os>_<arch>[.exe], and
+# dist/SHA256SUMS with one "<hash>  <name>" line per binary, bare names, so that
+# `cd dist && shasum -a 256 -c SHA256SUMS` (Linux: `sha256sum -c`) checks them. The release
+# workflow runs this same recipe with VERSION set to the tag. The binaries are never stripped,
+# re-signed or packed after the build (F-07, D-62): the attestation is a separate artifact.
+release-build: web-admin-build web-consumer-build
+	rm -rf dist
+	mkdir -p dist
+	for pair in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do \
+		os=$${pair%/*}; arch=$${pair#*/}; ext=""; \
+		if [ "$$os" = windows ]; then ext=".exe"; fi; \
+		echo "building $$os/$$arch ($(VERSION))"; \
+		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-X main.version=$(VERSION)" \
+			-o "dist/local-server_$${os}_$${arch}$$ext" ./cmd/local-server || exit 1; \
+	done
+	cd dist && { \
+		if command -v sha256sum >/dev/null 2>&1; then sum="sha256sum"; else sum="shasum -a 256"; fi; \
+		for f in local-server_*; do $$sum "$$f" || exit 1; done > SHA256SUMS; \
+	}
+
+# The local run of the release build: no upload and no attestation, only the files in dist/. Use
+# `make release-dry VERSION=v0.0.0-dry` to give the binaries a version string of your choice.
+release-dry: release-build
+	@echo "release-dry: built the binaries and dist/SHA256SUMS locally in dist/; nothing was uploaded or attested"

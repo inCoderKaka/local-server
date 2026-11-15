@@ -1,0 +1,156 @@
+name: release
+
+# Builds and publishes a release when a tag that starts with "v" is pushed (PLT-C-003, req_001
+# D-30, D-62, D-156). The maintainer pushes the tag by hand; nothing else starts this workflow.
+#
+# build job:   both web UIs, then six CGO_ENABLED=0 binaries and SHA256SUMS (make release-build,
+#              the same recipe as `make release-dry`), then GitHub artifact attestations (SLSA
+#              build provenance) for every binary and for SHA256SUMS.
+# publish job: creates the GitHub release with `gh release create` and attaches the assets.
+#
+# Assets of a release (the install scripts read these names):
+#   local-server_darwin_arm64   local-server_darwin_amd64
+#   local-server_linux_amd64    local-server_linux_arm64
+#   local-server_windows_amd64.exe   local-server_windows_arm64.exe
+#   SHA256SUMS                  one "<hash>  <name>" line per binary, bare names
+#   install.sh, install.ps1     attached when scripts/install.sh and scripts/install.ps1 exist
+#
+# F-07, D-62: nothing modifies a binary after `make release-build`. The attest and upload steps
+# only read dist/, and the attestation is a separate artifact, so no binary is stripped, re-signed
+# or packed after the build. Every action is pinned to a full commit SHA (D-88).
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build the web UIs, six binaries and SHA256SUMS
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          make release-build VERSION="$TAG"
+      # Reads dist/ only. No step after the build above may change a file in dist/ (F-07).
+      - name: Check the checksums and the number of binaries
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum -c SHA256SUMS)
+          count="$(find dist -maxdepth 1 -type f -name 'local-server_*' | wc -l)"
+          if [ "$count" -ne 6 ]; then
+            echo "expected 6 binaries in dist/, found $count" >&2
+            exit 1
+          fi
+      # Reads dist/ only (F-07). One attestation covers all seven files; subject-path takes a
+      # newline-separated list of paths and globs.
+      - name: Attest build provenance (D-62)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/local-server_*
+            dist/SHA256SUMS
+      # Reads dist/ only (F-07).
+      - name: Keep dist/ for the publish job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Needed only to read scripts/ at the tagged commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-dist
+          path: dist
+      - name: Check the downloaded files and list the assets
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum -c SHA256SUMS)
+          count="$(find dist -maxdepth 1 -type f -name 'local-server_*' | wc -l)"
+          if [ "$count" -ne 6 ]; then
+            echo "expected 6 binaries in dist/, found $count" >&2
+            exit 1
+          fi
+          { find dist -maxdepth 1 -type f -name 'local-server_*' | sort; echo dist/SHA256SUMS; } > "$RUNNER_TEMP/assets.txt"
+      - name: Attach install scripts when present (PLT-F-043)
+        run: |
+          set -euo pipefail
+          for script in scripts/install.sh scripts/install.ps1; do
+            if [ -f "$script" ]; then
+              echo "$script" >> "$RUNNER_TEMP/assets.txt"
+            else
+              echo "::notice::$script does not exist yet, so the release has no $(basename "$script") asset"
+            fi
+          done
+      - name: Write the release notes
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          This build is unsigned. Only the macOS arm64 build has run on a real machine. The other
+          five builds (macOS amd64, Linux amd64 and arm64, Windows amd64 and arm64) are built but
+          untested.
+
+          Files are named local-server_<os>_<arch>, with .exe on Windows. SHA256SUMS lists the
+          SHA-256 of every binary.
+
+          Check a download: in the folder that has the files, run
+
+              shasum -a 256 -c SHA256SUMS      (Linux: sha256sum -c SHA256SUMS)
+
+          Check where a file was built: run
+
+              gh attestation verify <file> --repo ${GITHUB_REPOSITORY}
+          EOF
+          case "$TAG" in
+            *-*)
+              printf '\nThis is a release candidate (a pre-release).\n' >> "$RUNNER_TEMP/notes.md"
+              ;;
+          esac
+        env:
+          TAG: ${{ github.ref_name }}
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          flags=""
+          case "$TAG" in
+            *-*) flags="--prerelease" ;;
+          esac
+          # The asset paths have no spaces, so word splitting of the list is safe.
+          # shellcheck disable=SC2046,SC2086
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md" $flags $(cat "$RUNNER_TEMP/assets.txt")
