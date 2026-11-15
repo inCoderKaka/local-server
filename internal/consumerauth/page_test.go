@@ -73,28 +73,15 @@ func TestGuardChecksTheOriginOfStateChangingRequestsWithACookie(t *testing.T) {
 	}
 }
 
-func TestPageListenerServes404ForTheRestAndKeepsPasskeysUnimplemented(t *testing.T) {
+func TestPageListenerServes404ForTheRest(t *testing.T) {
 	e := newEnv(t)
 	for _, p := range []string{"/", "/index.html", "/assets/app.js", "/admin/v1/session", "/metrics"} {
 		status(t, e.do(req{method: "GET", path: p}), http.StatusNotFound)
 	}
 	status(t, e.do(req{method: "GET", path: "/v1/nothing-here"}), http.StatusNotFound)
 	status(t, e.do(req{method: "POST", path: "/v1/me", body: "{}", origin: "-"}), http.StatusMethodNotAllowed)
-	// The five passkey routes are not built: 501.
-	for _, c := range []struct{ m, p string }{
-		{"POST", "/v1/invite-redemptions/passkey/begin"}, {"POST", "/v1/invite-redemptions/passkey/finish"},
-		{"POST", "/v1/session/passkey/begin"}, {"POST", "/v1/session/passkey/finish"},
-	} {
-		body := `{}`
-		r := e.do(req{method: c.m, path: c.p, body: body, origin: "-"})
-		if r.Code != http.StatusNotImplemented && r.Code != http.StatusBadRequest {
-			t.Fatalf("%s %s = %d, want 501 (or 400 for an empty body)", c.m, c.p, r.Code)
-		}
-	}
-	status(t, e.do(req{method: "POST", path: "/v1/session/passkey/begin", origin: "-"}), http.StatusNotImplemented)
+	// The passkey routes are built (passkey_test.go). A session does not open the key routes.
 	tok := e.signUp("example-user", goodPass)
-	status(t, e.send(tok, "POST", "/v1/me/passkeys/begin", ""), http.StatusNotImplemented)
-	// A session does not open the key routes either.
 	status(t, e.send(tok, "POST", "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":"x"}]}`), http.StatusUnauthorized)
 }
 

@@ -20,9 +20,8 @@ import (
 )
 
 // pageAPI is the ogen server's handler on the consumer page listener: the account routes the
-// consumer page uses, with the session cookie. Every other operation stays what
-// api.UnimplementedHandler makes it (501), among them the five passkey routes, which a later
-// step builds behind the same Adapter port.
+// consumer page uses, with the session cookie, passkey routes included. Every other operation
+// stays what api.UnimplementedHandler makes it (501).
 type pageAPI struct {
 	api.UnimplementedHandler
 	s *Service
@@ -139,7 +138,9 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request) {
 			writeError(w, e)
 			return
 		}
-		r = r.WithContext(context.WithValue(r.Context(), remoteKey{}, r.RemoteAddr))
+		ctx := context.WithValue(r.Context(), remoteKey{}, r.RemoteAddr)
+		ctx = context.WithValue(ctx, pageHostKey{}, pageHost{host: r.Host, tls: r.TLS != nil})
+		r = r.WithContext(ctx)
 		s.srv.ServeHTTP(w, r)
 	case s.cfg.UI != nil && (r.Method == http.MethodGet || r.Method == http.MethodHead) && !reservedPath(r):
 		s.cfg.UI.ServeHTTP(w, r)

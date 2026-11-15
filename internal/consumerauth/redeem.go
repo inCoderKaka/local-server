@@ -81,9 +81,32 @@ func (s *Service) RedeemInvite(ctx context.Context, kind string, in Redemption) 
 	if !ok {
 		return identity.ConsumerAccount{}, "", errors.New("consumerauth: no adapter for this credential kind")
 	}
+	chk, err := s.checkRedemption(ctx, in)
+	if err != nil {
+		return identity.ConsumerAccount{}, "", err
+	}
+	enrol, err := ad.Prepare(ctx, in.Login, in.Secret)
+	if err != nil {
+		return identity.ConsumerAccount{}, "", err
+	}
+	return s.completeRedemption(ctx, chk, enrol)
+}
+
+// checkedRedemption is a sign-up that passed every check that needs no credential: the invite it
+// redeems and the profile and consent it carries.
+type checkedRedemption struct {
+	InviteID string
+	Name     string
+	Email    *string
+}
+
+// checkRedemption checks the token, the invite, the profile and the policy versions of in, in
+// that order, and spends nothing. A passkey sign-up runs it when the ceremony begins, and the
+// invite is checked again in the unit of work that finishes it.
+func (s *Service) checkRedemption(ctx context.Context, in Redemption) (checkedRedemption, error) {
 	parsed, err := auth.ParseInviteToken(in.Token)
 	if err != nil {
-		return identity.ConsumerAccount{}, "", errInviteInvalid()
+		return checkedRedemption{}, errInviteInvalid()
 	}
 	inv, err := s.cfg.Identity.Invites.GetByPrefix(ctx, s.cfg.DB.Reader(), parsed.Prefix)
 	known, stored := true, dummyInviteHash
@@ -91,45 +114,47 @@ func (s *Service) RedeemInvite(ctx context.Context, kind string, in Redemption) 
 	case isNotFound(err):
 		known = false
 	case err != nil:
-		return identity.ConsumerAccount{}, "", err
+		return checkedRedemption{}, err
 	default:
 		stored = inv.TokenHash
 	}
 	if !auth.InviteSecretMatches(parsed.Secret.Reveal(), stored) || !known {
-		return identity.ConsumerAccount{}, "", errInviteInvalid()
+		return checkedRedemption{}, errInviteInvalid()
 	}
 	if !s.inviteLive(inv) {
-		return identity.ConsumerAccount{}, "", errInviteGone()
+		return checkedRedemption{}, errInviteGone()
 	}
 
 	name := strings.TrimSpace(in.DisplayName)
 	if name == "" {
-		return identity.ConsumerAccount{}, "", badRequest("display_name", "The name must not be empty.")
+		return checkedRedemption{}, badRequest("display_name", "The name must not be empty.")
 	}
 	var email *string
 	if in.Email != nil {
 		e, err := cleanEmail(*in.Email)
 		if err != nil {
-			return identity.ConsumerAccount{}, "", err
+			return checkedRedemption{}, err
 		}
 		email = &e
 	}
 	if in.Terms != TermsVersion {
-		return identity.ConsumerAccount{}, "", badRequest("consent.terms_version", "Accept the current Terms of Use ("+TermsVersion+") to sign up.")
+		return checkedRedemption{}, badRequest("consent.terms_version", "Accept the current Terms of Use ("+TermsVersion+") to sign up.")
 	}
 	if in.Privacy != PrivacyVersion {
-		return identity.ConsumerAccount{}, "", badRequest("consent.privacy_version", "Accept the current Privacy and consent notice ("+PrivacyVersion+") to sign up.")
+		return checkedRedemption{}, badRequest("consent.privacy_version", "Accept the current Privacy and consent notice ("+PrivacyVersion+") to sign up.")
 	}
-	enrol, err := ad.Prepare(ctx, in.Login, in.Secret)
-	if err != nil {
-		return identity.ConsumerAccount{}, "", err
-	}
+	return checkedRedemption{InviteID: inv.ID, Name: name, Email: email}, nil
+}
 
+// completeRedemption is the unit of work of a sign-up: it checks the invite again, creates the
+// consumer, stores the credential of enrol, redeems the invite, records consent and starts a
+// session. A password sign-up and a passkey sign-up end here, so they cannot differ.
+func (s *Service) completeRedemption(ctx context.Context, chk checkedRedemption, enrol Enrollment) (identity.ConsumerAccount, string, error) {
 	var acct identity.ConsumerAccount
 	var cookie string
-	err = s.cfg.DB.Write(ctx, func(tx *storage.Tx) error {
+	err := s.cfg.DB.Write(ctx, func(tx *storage.Tx) error {
 		ir := s.cfg.Identity
-		cur, err := ir.Invites.GetTx(tx, inv.ID)
+		cur, err := ir.Invites.GetTx(tx, chk.InviteID)
 		if err != nil {
 			return err
 		}
@@ -140,14 +165,14 @@ func (s *Service) RedeemInvite(ctx context.Context, kind string, in Redemption) 
 		if err != nil {
 			return err
 		}
-		c, err := ir.Consumers.CreateWithBilling(tx, p.ID, identity.ConsumerIndividual, identity.BillingNone, &name, email)
+		c, err := ir.Consumers.CreateWithBilling(tx, p.ID, identity.ConsumerIndividual, identity.BillingNone, &chk.Name, chk.Email)
 		if err != nil {
 			return err
 		}
 		if err := enrol.Store(tx, p.ID); err != nil {
 			return err
 		}
-		if err := ir.Invites.Redeem(tx, inv.ID, c.ID); err != nil {
+		if err := ir.Invites.Redeem(tx, chk.InviteID, c.ID); err != nil {
 			if isNotFound(err) {
 				return errInviteGone()
 			}

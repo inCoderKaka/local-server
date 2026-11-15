@@ -3,6 +3,7 @@ package consumerauth_test
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"io"
 	"log/slog"
 	"net/http"
@@ -189,6 +190,7 @@ type req struct {
 	host, origin       string // host "" means pageHost; origin "" means none, "-" means pageOrigin
 	cookie             string // the session token
 	remote             string // "" means 100.64.0.7:4000
+	tls                bool   // the request arrived over TLS
 	header             map[string]string
 }
 
@@ -205,6 +207,9 @@ func (e *env) do(r req) resp {
 		hr.Host = r.host
 	}
 	hr.RemoteAddr = "100.64.0.7:4000"
+	if r.tls {
+		hr.TLS = &tls.ConnectionState{}
+	}
 	if r.remote != "" {
 		hr.RemoteAddr = r.remote
 	}

@@ -84,6 +84,13 @@ func (s *Service) Login(ctx context.Context, kind, login, secret, remoteAddr str
 	if err != nil {
 		return identity.ConsumerAccount{}, "", err
 	}
+	return s.startLogin(ctx, v)
+}
+
+// startLogin starts the session of a login an adapter verified: it marks the credential used,
+// runs the adapter's Persist, drops expired sessions and returns the account and the Set-Cookie
+// value. Every adapter's login ends here, so the session is the same whatever proved it.
+func (s *Service) startLogin(ctx context.Context, v Verified) (identity.ConsumerAccount, string, error) {
 	rd := s.cfg.DB.Reader()
 	cons, err := s.cfg.Identity.Consumers.GetByPrincipal(ctx, rd, v.PrincipalID)
 	if err != nil {
@@ -98,6 +105,11 @@ func (s *Service) Login(ctx context.Context, kind, login, secret, remoteAddr str
 		ir := s.cfg.Identity
 		if err := ir.Credentials.MarkUsed(tx, v.CredentialID); err != nil {
 			return err
+		}
+		if v.Persist != nil {
+			if err := v.Persist(tx); err != nil {
+				return err
+			}
 		}
 		if _, err := ir.Sessions.DeleteExpired(tx, s.now()); err != nil {
 			return err

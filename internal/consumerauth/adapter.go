@@ -7,10 +7,13 @@ import (
 )
 
 // Adapter is the auth adapter port (req_001 D-13): one way a person proves who they are. The
-// password adapter is the only one built; the passkey, email (magic link) and Google or Apple
-// sign-in adapters are added behind the same port, and the Service, the sessions and the invite
+// password and passkey adapters are built; the email (magic link) and Google or Apple sign-in
+// adapters are added behind the same port, and the Service, the sessions and the invite
 // redemption do not change for them. An adapter owns its credential rows and what it needs to
-// check them; it never creates a session, which is the Service's.
+// check them; it never creates a session, which is the Service's. The passkey adapter keeps the
+// port's Kind and its two string methods only to say it has no string login: a passkey is two
+// round trips with state the host holds between them, so its routes call the ceremony methods of
+// PasskeyAdapter and join the Service at Enrollment (sign-up) and Verified (login).
 type Adapter interface {
 	// Kind is the idn_credential.kind the adapter stores and checks.
 	Kind() string
@@ -37,4 +40,7 @@ type Enrollment interface {
 type Verified struct {
 	PrincipalID  string
 	CredentialID string
+	// Persist, when set, runs in the unit of work that starts the session, for what a login
+	// changes in the credential's own row (a passkey's signature counter). Nil for a password.
+	Persist func(tx *storage.Tx) error
 }

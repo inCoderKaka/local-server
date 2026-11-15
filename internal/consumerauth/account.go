@@ -257,9 +257,8 @@ func kindWord(k settings.Kind) string {
 // failed login (req_001 D-54). Session authentication only: a call made with an access key is
 // refused. On success the consumer's other sessions end and the caller's own stays.
 //
-// A consumer with no password yet cannot set one here: the request carries no login name, and
-// the only consumers with a session today signed up with a password. The passkey adapter decides
-// how a passkey-only consumer gets a login name (see docs/tracks/platform/phase_1/phase-2-parking.md).
+// A consumer with no password cannot set one here: the request carries no login name, so a
+// passkey-only consumer gets the 409 below (see docs/tracks/platform/phase_1/phase-2-parking.md).
 func (s *Service) SetPassword(ctx context.Context, c Caller, current *string, newPassword string) error {
 	if c.SessionID == "" {
 		return unauthenticated()

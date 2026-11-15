@@ -59,13 +59,14 @@ type Service struct {
 	now       func() time.Time
 	log       *slog.Logger
 	password  *PasswordAdapter
+	passkey   *PasskeyAdapter
 	adapters  map[string]Adapter
 	srv       http.Handler // the page listener's ogen server
 	pageGuard func(http.Handler) http.Handler
 }
 
-// New registers the settings of this module, builds the password adapter and the page
-// listener's server.
+// New registers the settings of this module, builds the password and passkey adapters and the
+// page listener's server.
 func New(cfg Config) (*Service, error) {
 	if cfg.DB == nil || cfg.Settings == nil || cfg.Identity == nil || cfg.Grants == nil || cfg.Keys == nil ||
 		cfg.Limits == nil || cfg.LimitBody == nil || cfg.HostNames == nil {
@@ -84,8 +85,14 @@ func New(cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Service{cfg: cfg, now: cfg.Clock, log: cfg.Telemetry.Logger(), password: pw,
-		adapters: map[string]Adapter{pw.Kind(): pw}}
+	// One lockout tracker for both ways to log in: failed passkey assertions count against the
+	// same address as failed passwords.
+	pk, err := NewPasskeyAdapter(cfg.DB, cfg.Settings, cfg.Identity, pw.lock, cfg.Clock, cfg.Telemetry.Logger())
+	if err != nil {
+		return nil, err
+	}
+	s := &Service{cfg: cfg, now: cfg.Clock, log: cfg.Telemetry.Logger(), password: pw, passkey: pk,
+		adapters: map[string]Adapter{pw.Kind(): pw, pk.Kind(): pk}}
 	if err := s.buildPage(); err != nil {
 		return nil, err
 	}
