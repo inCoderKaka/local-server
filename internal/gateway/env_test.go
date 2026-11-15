@@ -289,6 +289,8 @@ type envOpts struct {
 	noJobs  bool          // build the gateway without a jobs service
 	// limiter wraps the real limiter before the gateway gets it.
 	limiter func(real gateway.Limiter) gateway.Limiter
+	// account serves the /v1/me routes with a key; nil leaves them answering 501.
+	account func(e *env) gateway.Account
 }
 
 func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
@@ -360,7 +362,11 @@ func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
 	if o.limiter != nil {
 		lim = o.limiter(e.lim)
 	}
-	e.gw, err = gateway.New(gateway.Config{DB: db, Settings: e.st, Events: e.bus, Grants: e.gr, Auth: e.au, Limits: lim, Policy: pol,
+	var acct gateway.Account
+	if o.account != nil {
+		acct = o.account(e)
+	}
+	e.gw, err = gateway.New(gateway.Config{DB: db, Settings: e.st, Events: e.bus, Grants: e.gr, Auth: e.au, Limits: lim, Policy: pol, Account: acct,
 		Scheduler: e.timed, Sharing: e.share, Engine: e.eng, Ledger: e.meter, Checkpoints: e.cps, Jobs: jobsSvc, Telemetry: e.tel})
 	if err != nil {
 		t.Fatal(err)

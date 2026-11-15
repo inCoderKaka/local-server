@@ -70,16 +70,6 @@ func accessKeysOnly(next http.Handler) http.Handler {
 	})
 }
 
-// consumerPageHandler is the consumer page listener's handler. The page and the /v1 account routes
-// it uses (sign-up, login, me, limits, usage, access keys, resource requests: PLT-F-027, F-036)
-// are mounted on this mux when they are built; until then it answers 404 and nothing else
-// (req_001 D-148).
-func consumerPageHandler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", http.NotFound)
-	return mux
-}
-
 // peerLog names the tailnet node behind each request in the log, from Tailscale's WhoIs: the node
 // id and machine name, the method and the path, never a body or a header. It is the host-side
 // record of who called (req_001 D-146). A node that cannot be named is logged as unknown; the

@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
+
+	"github.com/google/uuid"
 
 	"github.com/inCoderKaka/local-server/internal/admin"
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
+	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/audit"
 	"github.com/inCoderKaka/local-server/internal/auth"
+	"github.com/inCoderKaka/local-server/internal/consumerauth"
 	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/gateway"
 	"github.com/inCoderKaka/local-server/internal/grants"
@@ -120,13 +125,43 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 	if err != nil {
 		return nil, err
 	}
-	gw, err := gateway.New(gateway.Config{DB: db, Settings: st, Events: bus, Grants: gr, Auth: au, Limits: lim, Policy: pol,
+
+	// Consumer accounts (PLT-F-027): sign-up, login, sessions and the /v1/me routes. The page
+	// listener serves them with the session cookie; the consumer API serves the /v1/me routes that
+	// take a key through the same service (req_001 D-39, D-148). Keys and limits reuse the admin
+	// API's mapping, which is built below, so they are looked up when a request needs them.
+	var adm *admin.Admin
+	acct, err := consumerauth.New(consumerauth.Config{DB: db, Settings: st, Identity: ir, Grants: gr, Telemetry: tel,
+		Keys: func(ctx context.Context, id uuid.UUID) (*api.AccessKeyList, error) {
+			return adm.AdminListAccessKeys(ctx, api.AdminListAccessKeysParams{ConsumerID: id})
+		},
+		Limits: func(ctx context.Context, id uuid.UUID) (*api.GrantVersion, error) {
+			return adm.AdminGetGrant(ctx, api.AdminGetGrantParams{ConsumerID: id})
+		},
+		LimitBody: lim.LimitBody,
+		// The page listener answers to the host's own tailnet names, like the remote admin listener
+		// (admin.tailnet_name names the same host).
+		HostNames: func(ctx context.Context) ([]string, error) {
+			n, err := st.String(ctx, admin.KeyTailnetName, "")
+			if err != nil {
+				return nil, err
+			}
+			names := tn.Hosts
+			if n != "" {
+				names = append(slices.Clone(names), n)
+			}
+			return names, nil
+		}})
+	if err != nil {
+		return nil, fmt.Errorf("consumerauth: %w", err)
+	}
+	gw, err := gateway.New(gateway.Config{DB: db, Settings: st, Events: bus, Grants: gr, Auth: au, Limits: lim, Policy: pol, Account: acct,
 		Scheduler: sv.sched, Sharing: share, Engine: eng, Ledger: ledger.New(db, keys), Checkpoints: cps, Jobs: sv.jobs, Telemetry: tel})
 	if err != nil {
 		return nil, fmt.Errorf("gateway: %w", err)
 	}
 	sv.consumer, sv.jobExec = accessKeysOnly(gw.Handler()), gw.JobExecutor()
-	sv.consumerPage = consumerPageHandler()
+	sv.consumerPage = acct.Handler()
 
 	// The admin API shares the settings, the sharing state, the sampler, the auth service and the
 	// event bus built above; it reads the host kid from the keys and the usage rollups from the
@@ -135,7 +170,7 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 	if err != nil {
 		return nil, err
 	}
-	adm, err := admin.New(admin.Config{DB: db, Settings: st, Identity: ir, Grants: gr, Auth: au, Events: bus, Audit: auditLog, Sharing: share, Sampler: sv.sampler,
+	adm, err = admin.New(admin.Config{DB: db, Settings: st, Identity: ir, Grants: gr, Auth: au, Events: bus, Audit: auditLog, Sharing: share, Sampler: sv.sampler,
 		Keys: keys, Engine: eng, RuleFailures: gw, Metrics: metrics, Version: version, Telemetry: tel,
 		Nodes: nodes, TailnetHosts: tn.Hosts, Tailnet: tn.Report,
 		// The built admin UI, or its stub when the binary was built without npm (req_001 D-152).

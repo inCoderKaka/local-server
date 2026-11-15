@@ -14,6 +14,7 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/auth"
+	"github.com/inCoderKaka/local-server/internal/consumerauth"
 	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/gateway/stream"
 	"github.com/inCoderKaka/local-server/internal/jobs"
@@ -137,7 +138,11 @@ func classify(err error, now time.Time) (e *apiError, internal bool) {
 	var ee *engine.Error
 	var nc *checkpoint.NotYetCoveredError
 	var te *stream.TimeoutError
+	var ce *consumerauth.Error
 	switch {
+	case errors.As(err, &ce):
+		// A refusal of the account routes (/v1/me): fixed text, same answer as on the page listener.
+		return &apiError{status: ce.Status, typ: ce.Type, code: ce.Code, param: ce.Param, message: ce.Message, retryAfter: ce.RetryAfter}, false
 	case errors.As(err, &qe):
 		msg := "The token quota for this window is used up."
 		if qe.Unit == limits.UnitRequests {

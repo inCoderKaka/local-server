@@ -562,3 +562,175 @@ func TestBoundedResolverWithZeroTimeoutPassesTheContextThrough(t *testing.T) {
 		t.Errorf("Resolve = %+v, %v", n, err)
 	}
 }
+
+// PLT-F-027: statement 4 of the finish line, over the tailnet's TLS listeners. A consumer signs up
+// from an invite on the page listener, sees its limits, keys and usage with the session cookie,
+// and logs out. The same cookie never works on the consumer API listener, and a key never works on
+// the page listener (req_001 D-148).
+func TestConsumerSignsUpAndSeesItsAccountOnThePageListener(t *testing.T) {
+	_, r, _, pool, _ := startTailnetServe(t, nil)
+	local := "http://" + r.addrs.Admin
+	resp, _ := adminCall(t, testClient, local, "", "", "POST", "/admin/v1/setup", "", `{"username":"page-admin","password":"a long enough password"}`)
+	ck := cookieOf(resp)
+	if resp.StatusCode != http.StatusCreated || ck == nil {
+		t.Fatalf("setup = %d", resp.StatusCode)
+	}
+	admin := func(method, path, body string) (int, map[string]any) {
+		resp, b := adminCall(t, testClient, local, "", local, method, path, ck.Value, body)
+		var m map[string]any
+		json.Unmarshal([]byte(b), &m)
+		return resp.StatusCode, m
+	}
+	_, models := admin("GET", "/admin/v1/models", "")
+	for _, m := range models["data"].([]any) {
+		if code, _ := admin("PATCH", "/admin/v1/models/"+m.(map[string]any)["id"].(string), `{"allowed":true}`); code != http.StatusOK {
+			t.Fatalf("allow model = %d", code)
+		}
+	}
+	code, inv := admin("POST", "/admin/v1/invites", `{}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create invite = %d %v", code, inv)
+	}
+	token := inv["token"].(string)
+
+	c := tailnetClient(pool)
+	pageAddr := upByRole(r.addrs, transport.RoleConsumerPage)
+	apiAddr := upByRole(r.addrs, transport.RoleConsumerAPI)
+	pageHost := testTailnetName + ":8485"
+	page := func(method, path, cookie, body string) (*http.Response, string) {
+		req, err := http.NewRequest(method, "https://"+pageAddr+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = pageHost
+		if method != http.MethodGet {
+			req.Header.Set("Origin", "https://"+pageHost)
+		}
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: "ls_session", Value: cookie})
+		}
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp, string(b)
+	}
+	sessionOf := func(resp *http.Response) *http.Cookie {
+		for _, ck := range resp.Cookies() {
+			if ck.Name == "ls_session" {
+				return ck
+			}
+		}
+		return nil
+	}
+
+	// Sign up from the invite.
+	signup := `{"invite_token":"` + token + `","display_name":"Page Consumer","username":"page-consumer","password":"a long enough password","consent":{"terms_version":"terms-2026-10-v1","privacy_version":"privacy-2026-10-v1"}}`
+	resp, body := page("POST", "/v1/invite-redemptions/password", "", signup)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("sign-up = %d %s", resp.StatusCode, body)
+	}
+	sess := sessionOf(resp)
+	if sess == nil || !sess.Secure || !sess.HttpOnly || sess.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("session cookie = %+v", sess)
+	}
+	var me map[string]any
+	if err := json.Unmarshal([]byte(body), &me); err != nil || me["username"] != "page-consumer" {
+		t.Fatalf("consumer = %s", body)
+	}
+	cid := me["id"].(string)
+	// The invite is spent.
+	if resp, _ := page("POST", "/v1/invite-redemptions/password", "", signup); resp.StatusCode != http.StatusGone {
+		t.Fatalf("second sign-up = %d, want 410", resp.StatusCode)
+	}
+
+	// No grant yet: no limits; no keys; no usage.
+	if resp, _ := page("GET", "/v1/me", sess.Value, ""); resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/me = %d", resp.StatusCode)
+	}
+	if resp, _ := page("GET", "/v1/me/limits", sess.Value, ""); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("limits before a grant = %d, want 404", resp.StatusCode)
+	}
+	// The host gives a grant and a key.
+	if code, _ := admin("PUT", "/admin/v1/consumers/"+cid+"/grant", `{"models":[{"model":"fake-chat","context_limit":4096,"max_output_tokens":1024}],
+"quotas":[{"metric":"tokens","limit":100000,"window_seconds":86400}],"concurrency":2,"on_context_overflow":"refuse","allowed_request_properties":null,"expires_at":null}`); code != http.StatusOK {
+		t.Fatalf("set grant = %d", code)
+	}
+	code, issued := admin("POST", "/admin/v1/consumers/"+cid+"/access-keys", `{"name":"page key"}`)
+	if code != http.StatusCreated {
+		t.Fatalf("issue key = %d %v", code, issued)
+	}
+	secret := issued["secret"].(string)
+	prefix := issued["access_key"].(map[string]any)["prefix"].(string)
+
+	resp, body = page("GET", "/v1/me/limits", sess.Value, "")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "fake-chat") || !strings.Contains(body, `"version":1`) {
+		t.Fatalf("limits = %d %s", resp.StatusCode, body)
+	}
+	resp, body = page("GET", "/v1/me/access-keys", sess.Value, "")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, prefix) || strings.Contains(body, secret) {
+		t.Fatalf("access keys = %d %s", resp.StatusCode, body)
+	}
+	resp, body = page("GET", "/v1/usage?granularity=day", sess.Value, "")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, `"data":[]`) {
+		t.Fatalf("usage = %d %s", resp.StatusCode, body)
+	}
+
+	// A wrong Host is refused by the guard; a key is not accepted on the page listener.
+	req, _ := http.NewRequest("GET", "https://"+pageAddr+"/v1/me", nil)
+	req.Host = "evil.example"
+	req.AddCookie(&http.Cookie{Name: "ls_session", Value: sess.Value})
+	if resp, err := c.Do(req); err != nil || resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("a foreign Host on the page listener: %v %v", resp, err)
+	}
+	req, _ = http.NewRequest("GET", "https://"+pageAddr+"/v1/me", nil)
+	req.Host = pageHost
+	req.Header.Set("Authorization", "Bearer "+secret)
+	if resp, err := c.Do(req); err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("a key on the page listener: %v %v", resp, err)
+	}
+
+	// The consumer API takes the key for /v1/me and never the cookie.
+	apiGet := func(path string, hdr map[string]string) (int, string) {
+		req, _ := http.NewRequest("GET", "https://"+apiAddr+path, nil)
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	if code, b := apiGet("/v1/me", map[string]string{"Authorization": "Bearer " + secret}); code != http.StatusOK || !strings.Contains(b, cid) {
+		t.Fatalf("GET /v1/me with a key = %d %s", code, b)
+	}
+	if code, b := apiGet("/v1/me/access-keys", map[string]string{"Authorization": "Bearer " + secret}); code != http.StatusOK || !strings.Contains(b, prefix) {
+		t.Fatalf("GET /v1/me/access-keys with a key = %d %s", code, b)
+	}
+	if code, _ := apiGet("/v1/me", map[string]string{"Cookie": "ls_session=" + sess.Value}); code != http.StatusUnauthorized {
+		t.Fatalf("GET /v1/me with a cookie on the consumer API = %d, want 401", code)
+	}
+
+	// Log out: the cookie is cleared and the session is gone.
+	resp, _ = page("DELETE", "/v1/session", sess.Value, "")
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("logout = %d", resp.StatusCode)
+	}
+	if resp, _ := page("GET", "/v1/me", sess.Value, ""); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("after logout GET /v1/me = %d, want 401", resp.StatusCode)
+	}
+	// Login again with the password.
+	resp, body = page("POST", "/v1/session/password", "", `{"username":"page-consumer","password":"a long enough password"}`)
+	if resp.StatusCode != http.StatusOK || sessionOf(resp) == nil {
+		t.Fatalf("login = %d %s", resp.StatusCode, body)
+	}
+	r.stop()
+}

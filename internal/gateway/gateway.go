@@ -97,6 +97,10 @@ type Config struct {
 	Checkpoints Checkpoints
 	// Jobs serves the job endpoints (PLT-F-022). Optional: nil leaves them answering 501.
 	Jobs Jobs
+	// Account serves GET /v1/me, /v1/me/limits, /v1/me/access-keys and GET and PATCH
+	// /v1/me/settings with an access key (*consumerauth.Service). Optional: nil leaves them
+	// answering 501.
+	Account Account
 	// Telemetry nil means telemetry.Nop().
 	Telemetry telemetry.Telemetry
 	// Clock nil means time.Now.
@@ -363,7 +367,9 @@ func (g *Gateway) HandleAdminSessionAuth(context.Context, api.OperationName, api
 	return nil, ogenerrors.ErrSkipServerSecurity
 }
 
-// HandleConsumerSessionAuth never authenticates yet: consumer sessions come with PLT-F-027.
+// HandleConsumerSessionAuth never authenticates: a cookie never works on the consumer API, only an
+// access key does. The consumer page listener takes the session (internal/consumerauth, req_001
+// D-148).
 func (g *Gateway) HandleConsumerSessionAuth(context.Context, api.OperationName, api.ConsumerSessionAuth) (context.Context, error) {
 	return nil, ogenerrors.ErrSkipServerSecurity
 }
