@@ -40,10 +40,9 @@
 #   https://tailscale.com/install.sh                 200
 #   https://tailscale.com/download                   200 (download page)
 #   https://apps.apple.com/app/tailscale/id1475387142   301 -> apps.apple.com/us/app/tailscale/id1475387142 (Mac App Store)
-#   https://formulae.brew.sh/api/cask/ollama-app.json   200 (the cask "ollama-app" installs Ollama.app; the token "ollama" is 404 there)
 #   https://formulae.brew.sh/api/cask/tailscale-app.json 200 (the cask "tailscale-app" installs Tailscale.app; the token "tailscale" is 404 there)
 # Not verified: that an unsigned binary fetched by curl passes Gatekeeper (D-30 asks to test it
-# before the first release), and the Linux Ollama and Tailscale scripts themselves (never run here).
+# before the first release), and Ollama's script (Linux and macOS) and Tailscale's Linux script themselves (never run here).
 
 set -eu
 
@@ -596,29 +595,13 @@ wait_for_ollama() {
 }
 
 install_ollama() {
-  case $OS in
-    linux)
-      say "Ollama's own installer will run now. It uses sudo, so it may ask for your password."
-      if fetch_https "$OLLAMA_SCRIPT_URL" "$TMP_DIR/ollama-install.sh" && run_interactive sh "$TMP_DIR/ollama-install.sh"; then
-        say "Ollama's installer finished."
-      else
-        warn "Ollama's installer did not finish."
-        manual_steps ollama
-      fi
-      ;;
-    darwin)
-      if command -v brew >/dev/null 2>&1; then
-        say "Running: brew install --cask ollama-app"
-        if ! run_interactive brew install --cask ollama-app; then
-          warn "Homebrew could not install Ollama."
-          manual_steps ollama
-        fi
-      else
-        say "Homebrew was not found, so Ollama cannot be installed from here."
-        manual_steps ollama
-      fi
-      ;;
-  esac
+  say "Ollama's own installer will run now. It uses sudo, so it may ask for your password."
+  if fetch_https "$OLLAMA_SCRIPT_URL" "$TMP_DIR/ollama-install.sh" && run_interactive sh "$TMP_DIR/ollama-install.sh"; then
+    say "Ollama's installer finished."
+  else
+    warn "Ollama's installer did not finish."
+    manual_steps ollama
+  fi
 }
 
 step_ollama() {
@@ -659,8 +642,9 @@ tailscale_installed() {
   return 1
 }
 
-# macOS: the cask "tailscale-app" installs Tailscale.app, as for Ollama. Signing in is the user's
-# step: this script never runs `tailscale up`.
+# macOS: Tailscale's own script leaves macOS to the App Store, so the cask "tailscale-app", which
+# installs Tailscale.app, is used when brew exists. Signing in is the user's step: this script
+# never runs `tailscale up`.
 install_tailscale_darwin() {
   if command -v brew >/dev/null 2>&1; then
     say "Running: brew install --cask tailscale-app"

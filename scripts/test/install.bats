@@ -670,7 +670,7 @@ BIN() { printf '%s' "$LOCAL_SERVER_PREFIX/local-server"; }
   stub_lacks "installer ran"
 }
 
-@test "macOS, Ollama missing, yes, with brew: the cask ollama-app is installed" {
+@test "macOS, Ollama missing, yes: Ollama's official installer runs, not brew" {
   export FAKE_UNAME_S=Darwin FAKE_UNAME_M=arm64
   export FAKE_LS_DEFAULT_DATA="$HOME/Library/Application Support/local-server"
   make_release v1.0.0 darwin arm64
@@ -683,10 +683,12 @@ BIN() { printf '%s' "$LOCAL_SERVER_PREFIX/local-server"; }
   answers y n
   run_install
   [ "$status" -eq 0 ]
-  stub_has "brew install --cask ollama-app"
+  stub_has "curl https://ollama.com/install.sh"
+  stub_has "installer ran: https://ollama.com/install.sh"
+  stub_lacks "brew install"
 }
 
-@test "macOS, Ollama missing, yes, without brew: the manual steps are shown" {
+@test "macOS, Ollama missing, yes, without brew: the official installer still runs" {
   export FAKE_UNAME_S=Darwin FAKE_UNAME_M=arm64
   export FAKE_LS_DEFAULT_DATA="$HOME/Library/Application Support/local-server"
   make_release v1.0.0 darwin arm64
@@ -697,8 +699,8 @@ BIN() { printf '%s' "$LOCAL_SERVER_PREFIX/local-server"; }
   answers y n
   run_install
   [ "$status" -eq 0 ]
-  out_has "Homebrew was not found"
-  out_has "https://ollama.com/download"
+  stub_has "installer ran: https://ollama.com/install.sh"
+  out_lacks "Homebrew was not found"
 }
 
 @test "Ollama installed but not answering: the start step is shown and the install goes on" {
