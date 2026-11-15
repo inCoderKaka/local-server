@@ -187,6 +187,91 @@ func (s *Service) views(ctx context.Context, consumerID string, vs []grants.Vers
 	return out, nil
 }
 
+// Prepared is the terms of a grant checked against the host's rules and ready to be written in a
+// unit of work: the part of SetGrant that needs no transaction. Apply writes it.
+type Prepared struct {
+	s  *Service
+	nv grants.NewVersion
+	// Warnings is what the host ignored in the terms, or applied differently from how they were
+	// sent.
+	Warnings []string
+}
+
+// Prepare checks the terms of a grant, as SetGrant does before it writes, and returns them ready
+// for Apply. It is for a caller that runs the write inside a larger unit of work (a resource
+// request's approval); every refusal names the field at fault as SetGrant's do.
+func (s *Service) Prepare(ctx context.Context, in Limits) (*Prepared, error) {
+	nv, warnings, err := s.newVersion(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	return &Prepared{s: s, nv: nv, Warnings: warnings}, nil
+}
+
+// Apply makes the new grant version for the consumer and makes it current inside tx, which must
+// be a unit of work run by this service's Events Notifier. It creates the grant when the
+// consumer has none, writes the grant.changed audit row and emits the grant.changed event, all in
+// tx, and returns the new version. reason, when not empty, is stored as the version's reason. It
+// does not clear the key cache: the caller does that after tx has committed (grant.changed
+// reaches the auth service's subscription as well).
+func (p *Prepared) Apply(tx *storage.Tx, actor, consumerID, reason string) (grants.Version, error) {
+	s := p.s
+	nv := p.nv
+	nv.CreatedBy = ptrOrNil(actor)
+	nv.Reason = ptrOrNil(reason)
+	// The consumer as this transaction sees it: it may have been deleted since the terms were
+	// checked.
+	a, err := s.cfg.Identity.Consumers.GetAccountTx(tx, consumerID)
+	if errors.Is(err, identity.ErrNotFound) {
+		return grants.Version{}, errNoConsumer
+	}
+	if err != nil {
+		return grants.Version{}, err
+	}
+	if a.Status == identity.StatusDeleted {
+		return grants.Version{}, errDeleted
+	}
+	// The models as this transaction sees them: one may have been retired or closed since the
+	// check in newVersion. versionModels made one entry per requested model, in order.
+	for i, vm := range nv.Models {
+		param := "limits.models." + strconv.Itoa(i) + ".model"
+		row, err := s.cfg.Grants.Models.GetTx(tx, vm.ModelID)
+		switch {
+		case isNotFound(err):
+			return grants.Version{}, invalid(param, "The host does not know this model.")
+		case err != nil:
+			return grants.Version{}, err
+		case row.RetiredAt != nil:
+			return grants.Version{}, invalid(param, "This model is retired.")
+		case !row.Allowed:
+			return grants.Version{}, invalid(param, "The host has not opened this model for sharing.")
+		}
+	}
+	g, err := s.cfg.Grants.Grants.GetByConsumerTx(tx, consumerID)
+	if isNotFound(err) {
+		g, err = s.cfg.Grants.Grants.Create(tx, consumerID)
+	}
+	if err != nil {
+		return grants.Version{}, err
+	}
+	created, err := s.cfg.Grants.Versions.Create(tx, g.ID, nv)
+	if err != nil {
+		return grants.Version{}, err
+	}
+	if err := s.record(tx, audit.Event{Action: ActionGrantChanged, ActorID: actor, TargetID: a.PrincipalID,
+		Detail: map[string]any{"consumer_id": consumerID, "grant_id": g.ID, "version": created.VersionNo}}); err != nil {
+		return grants.Version{}, err
+	}
+	payload, err := json.Marshal(map[string]any{"consumer_id": consumerID, "grant_id": g.ID, "version": created.VersionNo})
+	if err != nil {
+		return grants.Version{}, err
+	}
+	if _, err := s.cfg.Events.Emit(tx, events.Event{Type: events.GrantChanged, ActorPrincipalID: actor, TargetPrincipalID: a.PrincipalID, Payload: payload}); err != nil {
+		return grants.Version{}, err
+	}
+	return created, nil
+}
+
 // SetGrant makes a new grant version for the consumer and makes it current, even when it equals
 // the current one (req_001 D-25). It creates the grant when the consumer has none. The version,
 // its audit row and its grant.changed event are one unit of work; afterwards the key cache is
@@ -199,59 +284,14 @@ func (s *Service) SetGrant(ctx context.Context, actor, consumerID string, in Lim
 	if acct.Status == identity.StatusDeleted {
 		return GrantVersion{}, errDeleted
 	}
-	nv, warnings, err := s.newVersion(ctx, in)
+	prep, err := s.Prepare(ctx, in)
 	if err != nil {
 		return GrantVersion{}, err
 	}
-	nv.CreatedBy = ptrOrNil(actor)
 	var created grants.Version
 	err = s.write(ctx, func(tx *storage.Tx) error {
-		// The consumer as this transaction sees it: it may have been deleted since the check above.
-		a, err := s.cfg.Identity.Consumers.GetAccountTx(tx, consumerID)
-		if errors.Is(err, identity.ErrNotFound) {
-			return errNoConsumer
-		}
-		if err != nil {
-			return err
-		}
-		if a.Status == identity.StatusDeleted {
-			return errDeleted
-		}
-		// The models as this transaction sees them: one may have been retired or closed since the
-		// check in newVersion. versionModels made one entry per requested model, in order.
-		for i, vm := range nv.Models {
-			param := "limits.models." + strconv.Itoa(i) + ".model"
-			row, err := s.cfg.Grants.Models.GetTx(tx, vm.ModelID)
-			switch {
-			case isNotFound(err):
-				return invalid(param, "The host does not know this model.")
-			case err != nil:
-				return err
-			case row.RetiredAt != nil:
-				return invalid(param, "This model is retired.")
-			case !row.Allowed:
-				return invalid(param, "The host has not opened this model for sharing.")
-			}
-		}
-		g, err := s.cfg.Grants.Grants.GetByConsumerTx(tx, consumerID)
-		if isNotFound(err) {
-			g, err = s.cfg.Grants.Grants.Create(tx, consumerID)
-		}
-		if err != nil {
-			return err
-		}
-		if created, err = s.cfg.Grants.Versions.Create(tx, g.ID, nv); err != nil {
-			return err
-		}
-		if err := s.record(tx, audit.Event{Action: ActionGrantChanged, ActorID: actor, TargetID: acct.PrincipalID,
-			Detail: map[string]any{"consumer_id": consumerID, "grant_id": g.ID, "version": created.VersionNo}}); err != nil {
-			return err
-		}
-		payload, err := json.Marshal(map[string]any{"consumer_id": consumerID, "grant_id": g.ID, "version": created.VersionNo})
-		if err != nil {
-			return err
-		}
-		_, err = s.cfg.Events.Emit(tx, events.Event{Type: events.GrantChanged, ActorPrincipalID: actor, TargetPrincipalID: acct.PrincipalID, Payload: payload})
+		var err error
+		created, err = prep.Apply(tx, actor, consumerID, "")
 		return err
 	})
 	if err != nil {
@@ -264,6 +304,6 @@ func (s *Service) SetGrant(ctx context.Context, actor, consumerID string, in Lim
 	if err != nil {
 		return GrantVersion{}, err
 	}
-	views[0].Warnings = warnings
+	views[0].Warnings = prep.Warnings
 	return views[0], nil
 }

@@ -14,6 +14,7 @@ import (
 	"golang.org/x/mod/sumdb/tlog"
 
 	"github.com/inCoderKaka/local-server/internal/api"
+	"github.com/inCoderKaka/local-server/internal/api/ignored"
 	"github.com/inCoderKaka/local-server/internal/auth"
 	"github.com/inCoderKaka/local-server/internal/engine"
 	"github.com/inCoderKaka/local-server/internal/gateway/stream"
@@ -97,8 +98,9 @@ type Config struct {
 	Checkpoints Checkpoints
 	// Jobs serves the job endpoints (PLT-F-022). Optional: nil leaves them answering 501.
 	Jobs Jobs
-	// Account serves GET /v1/me, /v1/me/limits, /v1/me/access-keys and GET and PATCH
-	// /v1/me/settings with an access key (*consumerauth.Service). Optional: nil leaves them
+	// Account serves GET /v1/me, /v1/me/limits, /v1/me/access-keys, GET and PATCH
+	// /v1/me/settings and the /v1/resource-requests routes with an access key
+	// (*consumerauth.Service). Optional: nil leaves them
 	// answering 501.
 	Account Account
 	// Telemetry nil means telemetry.Nop().
@@ -163,6 +165,7 @@ func New(cfg Config) (*Gateway, error) {
 		ruleFails:        map[string]int64{}, ruleEventAt: map[string]time.Time{},
 	}
 	srv, err := api.NewServer(g, g,
+		api.WithMiddleware(ignored.Only("createResourceRequest")), // names the ask's ignored fields (req_001 D-105)
 		api.WithErrorHandler(g.errorHandler),
 		api.WithNotFound(g.notFound),
 		api.WithMethodNotAllowed(g.methodNotAllowed),

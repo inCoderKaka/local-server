@@ -12,6 +12,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/api"
 	"github.com/inCoderKaka/local-server/internal/grants"
 	"github.com/inCoderKaka/local-server/internal/identity"
+	"github.com/inCoderKaka/local-server/internal/requests"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
@@ -33,6 +34,9 @@ type Config struct {
 	// Limits returns a consumer's current grant version in the API's shape, with model names
 	// (*admin.Admin AdminGetGrant). It is called only for a consumer that has a grant.
 	Limits func(ctx context.Context, consumerID uuid.UUID) (*api.GrantVersion, error)
+	// Requests serves the resource request routes (PLT-F-028). Optional: nil leaves them
+	// answering 501.
+	Requests *requests.Service
 	// LimitBody caps the request body on the page listener, with the same setting as the
 	// consumer API (limits.Limiter.LimitBody).
 	LimitBody func(ctx context.Context, r *http.Request) error

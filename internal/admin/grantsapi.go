@@ -8,6 +8,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	admingrants "github.com/inCoderKaka/local-server/internal/admin/grants"
 	"github.com/inCoderKaka/local-server/internal/api"
+	"github.com/inCoderKaka/local-server/internal/api/ignored"
 )
 
 // The grant operations are thin: package admin/grants owns the rules (req_001 D-25, D-107), this
@@ -35,7 +36,7 @@ func (a *Admin) AdminSetGrant(ctx context.Context, req *api.GrantLimits, params 
 	if err != nil {
 		return nil, err
 	}
-	out.Warnings = withIgnored(ctx, out.Warnings)
+	out.Warnings = ignored.With(ctx, out.Warnings)
 	return out, nil
 }
 

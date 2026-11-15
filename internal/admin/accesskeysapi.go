@@ -9,6 +9,7 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	"github.com/inCoderKaka/local-server/internal/api"
+	"github.com/inCoderKaka/local-server/internal/api/ignored"
 	"github.com/inCoderKaka/local-server/internal/grants"
 )
 
@@ -56,7 +57,7 @@ func (a *Admin) AdminIssueAccessKey(ctx context.Context, req *api.AccessKeyCreat
 	if err != nil {
 		return nil, err
 	}
-	k.Warnings = withIgnored(ctx, k.Warnings)
+	k.Warnings = ignored.With(ctx, k.Warnings)
 	return &api.AccessKeyIssued{AccessKey: k, Secret: is.Secret.Reveal()}, nil
 }
 
@@ -87,7 +88,7 @@ func (a *Admin) AdminUpdateAccessKey(ctx context.Context, req *api.AccessKeyUpda
 	if err != nil {
 		return nil, err
 	}
-	v.Warnings = withIgnored(ctx, v.Warnings)
+	v.Warnings = ignored.With(ctx, v.Warnings)
 	return &v, nil
 }
 

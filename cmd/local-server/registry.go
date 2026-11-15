@@ -7,6 +7,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/identity"
 	"github.com/inCoderKaka/local-server/internal/ledger"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
+	"github.com/inCoderKaka/local-server/internal/requests"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
@@ -28,6 +29,7 @@ var registry = []func() storage.Module{
 	host.Module,      // hst_host, hst_key, hst_metric_minute
 	identity.Module,  // idn_*
 	grants.Module,    // grt_*: references idn_*
+	requests.Module,  // req_*: references idn_* and grt_*
 	audit.Module,     // aud_*: references idn_principal
 	events.Module,    // ntf_*
 	usage.Module,     // use_*

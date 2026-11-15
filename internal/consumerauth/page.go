@@ -11,6 +11,7 @@ import (
 	"github.com/ogen-go/ogen/ogenerrors"
 
 	"github.com/inCoderKaka/local-server/internal/api"
+	"github.com/inCoderKaka/local-server/internal/api/ignored"
 	"github.com/inCoderKaka/local-server/internal/auth/credential"
 	"github.com/inCoderKaka/local-server/internal/identity"
 	"github.com/inCoderKaka/local-server/internal/limits"
@@ -35,6 +36,7 @@ var (
 func (s *Service) buildPage() error {
 	p := &pageAPI{s: s}
 	srv, err := api.NewServer(p, p,
+		api.WithMiddleware(ignored.Only("createResourceRequest")), // names the ask's ignored fields (req_001 D-105)
 		api.WithErrorHandler(s.errorHandler),
 		api.WithNotFound(s.notFound),
 		api.WithMethodNotAllowed(s.methodNotAllowed),
@@ -325,4 +327,49 @@ func (p *pageAPI) GetUsage(ctx context.Context, params api.GetUsageParams) (*api
 		return nil, err
 	}
 	return usage.ConsumerRollups(ctx, p.s.cfg.DB.Reader(), p.s.cfg.Settings, c.ConsumerID, params)
+}
+
+// ListResourceRequests implements GET /v1/resource-requests with a session.
+func (p *pageAPI) ListResourceRequests(ctx context.Context, params api.ListResourceRequestsParams) (*api.ResourceRequestList, error) {
+	c, err := p.caller(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return p.s.ListResourceRequests(ctx, c, params)
+}
+
+// CreateResourceRequest implements POST /v1/resource-requests with a session.
+func (p *pageAPI) CreateResourceRequest(ctx context.Context, req *api.ResourceRequestCreate) (*api.ResourceRequest, error) {
+	c, err := p.caller(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return p.s.CreateResourceRequest(ctx, c, req)
+}
+
+// GetResourceRequest implements GET /v1/resource-requests/{id} with a session.
+func (p *pageAPI) GetResourceRequest(ctx context.Context, params api.GetResourceRequestParams) (*api.ResourceRequest, error) {
+	c, err := p.caller(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return p.s.GetResourceRequest(ctx, c, params)
+}
+
+// CommentOnResourceRequest implements POST /v1/resource-requests/{id}/comments with a session.
+func (p *pageAPI) CommentOnResourceRequest(ctx context.Context, req *api.CommentCreate, params api.CommentOnResourceRequestParams) (*api.ResourceRequest, error) {
+	c, err := p.caller(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return p.s.CommentOnResourceRequest(ctx, c, req, params)
+}
+
+// WithdrawResourceRequest implements POST /v1/resource-requests/{id}/withdraw with a session.
+func (p *pageAPI) WithdrawResourceRequest(ctx context.Context, params api.WithdrawResourceRequestParams) (*api.ResourceRequest, error) {
+	c, err := p.caller(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return p.s.WithdrawResourceRequest(ctx, c, params)
 }

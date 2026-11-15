@@ -30,6 +30,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/offhost/snapshot"
 	"github.com/inCoderKaka/local-server/internal/policy"
 	"github.com/inCoderKaka/local-server/internal/power"
+	"github.com/inCoderKaka/local-server/internal/requests"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
@@ -59,6 +60,8 @@ type services struct {
 	power      *power.Keeper
 	// rules switches off policy rules that failed too many times (PLT-F-026).
 	rules func(ctx context.Context)
+	// expireRequests expires the open resource requests older than their time-to-live (PLT-F-028).
+	expireRequests func(ctx context.Context)
 	// purge removes the data of consumers deleted longer ago than the retention (PLT-F-097).
 	purge func(ctx context.Context)
 	// backup takes the periodic off-host snapshots (PLT-F-044).
@@ -126,12 +129,21 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 		return nil, err
 	}
 
+	// Resource requests (PLT-F-028): the consumer routes (page and consumer API) and the admin
+	// routes serve this one service; an approval makes its grant version through the admin API's
+	// grant operations in the same unit of work.
+	rq, err := requests.New(requests.Config{DB: db, Settings: st, Identity: ir, Events: bus, Logger: log})
+	if err != nil {
+		return nil, fmt.Errorf("requests: %w", err)
+	}
+	sv.expireRequests = rq.RunSweeper
+
 	// Consumer accounts (PLT-F-027): sign-up, login, sessions and the /v1/me routes. The page
 	// listener serves them with the session cookie; the consumer API serves the /v1/me routes that
 	// take a key through the same service (req_001 D-39, D-148). Keys and limits reuse the admin
 	// API's mapping, which is built below, so they are looked up when a request needs them.
 	var adm *admin.Admin
-	acct, err := consumerauth.New(consumerauth.Config{DB: db, Settings: st, Identity: ir, Grants: gr, Telemetry: tel,
+	acct, err := consumerauth.New(consumerauth.Config{DB: db, Settings: st, Identity: ir, Grants: gr, Telemetry: tel, Requests: rq,
 		Keys: func(ctx context.Context, id uuid.UUID) (*api.AccessKeyList, error) {
 			return adm.AdminListAccessKeys(ctx, api.AdminListAccessKeysParams{ConsumerID: id})
 		},
@@ -170,7 +182,7 @@ func wire(d *database, keys *hostkeys.Keys, eng engine.Engine, tel telemetry.Tel
 	if err != nil {
 		return nil, err
 	}
-	adm, err = admin.New(admin.Config{DB: db, Settings: st, Identity: ir, Grants: gr, Auth: au, Events: bus, Audit: auditLog, Sharing: share, Sampler: sv.sampler,
+	adm, err = admin.New(admin.Config{DB: db, Settings: st, Identity: ir, Grants: gr, Auth: au, Events: bus, Requests: rq, Audit: auditLog, Sharing: share, Sampler: sv.sampler,
 		Keys: keys, Engine: eng, RuleFailures: gw, Metrics: metrics, Version: version, Telemetry: tel,
 		Nodes: nodes, TailnetHosts: tn.Hosts, Tailnet: tn.Report,
 		// The built admin UI, or its stub when the binary was built without npm (req_001 D-152).
@@ -225,6 +237,9 @@ func (sv *services) startWorkers(ctx context.Context, sup *supervisor, log *slog
 	sup.Go(ctx, "power", sv.power.Run)
 	// Switches off a policy rule without deny that failed policy.rule.max_failures times (PLT-F-026).
 	sup.Go(ctx, "policy-rule-sweeper", func(ctx context.Context) error { sv.rules(ctx); return nil })
+	// Expires the open resource requests older than requests.ttl, every requests.sweep_interval
+	// (PLT-F-028).
+	sup.Go(ctx, "requests-expiry", func(ctx context.Context) error { sv.expireRequests(ctx); return nil })
 	// Purges consumers deleted longer ago than consumers.deleted_retention (PLT-F-097).
 	sup.Go(ctx, "consumer-purge", func(ctx context.Context) error { sv.purge(ctx); return nil })
 	// Sends an encrypted snapshot of the database to the host's folder or bucket every

@@ -435,6 +435,41 @@ Which migration of which module has been applied, with the checksum of its file 
 | applied_at | INTEGER | no |  | internal | false | When it was applied, Unix milliseconds UTC. |
 | duration_ms | INTEGER | no |  | internal | false | How long applying it took, in milliseconds. |
 
+## req_comment
+
+Module: requests. Classification: personal. Billable: false.
+
+One comment on a resource request, from the consumer or the host. A decision's optional comment is stored here too.
+
+| Column | Type | Null | Key | Classification | Billable | Description |
+|---|---|---|---|---|---|---|
+| id | TEXT | no | PK | internal | false | Comment id, UUIDv7. |
+| request_id | TEXT | no |  | internal | false | The request the comment belongs to. |
+| author_principal_id | TEXT | no |  | internal | false | Principal who wrote it: the consumer or a host admin. |
+| body | TEXT | no |  | personal | false | The comment, plain text. |
+| created_at | INTEGER | no |  | internal | false | When it was written, Unix milliseconds UTC. |
+
+## req_resource_request
+
+Module: requests. Classification: personal. Billable: false.
+
+A consumer asking the host for more (another model, a higher quota, ...). Open until the host approves or rejects it, the consumer withdraws it or its time-to-live passes; every state but open is final.
+
+| Column | Type | Null | Key | Classification | Billable | Description |
+|---|---|---|---|---|---|---|
+| id | TEXT | no | PK | internal | false | Request id, UUIDv7. |
+| consumer_id | TEXT | no |  | internal | false | Consumer who asked. |
+| status | TEXT | no |  | internal | false | open, approved, rejected, withdrawn or expired. |
+| message | TEXT | no |  | personal | false | What the consumer needs and why, in the consumer's own words. |
+| ask | TEXT | yes |  | personal | false | What the consumer asks for as a JSON object (models, quota entries, limits, request properties); empty when it asked for nothing in particular. |
+| created_at | INTEGER | no |  | internal | false | When the request was opened, Unix milliseconds UTC. |
+| expires_at | INTEGER | no |  | internal | false | When the request expires if it is still open, Unix milliseconds UTC; set from the host's requests.ttl setting when it was opened. |
+| decided_at | INTEGER | yes |  | internal | false | When the request reached its final state, Unix milliseconds UTC; empty while open. |
+| decided_by | TEXT | yes |  | internal | false | Principal who made it final (the host admin who decided it or the consumer who withdrew it); empty while open and when it expired. |
+| resulting_version_id | TEXT | yes |  | internal | false | The grant version an approval made; empty unless approved. |
+| row_version | INTEGER | no |  | internal | false | 1 at creation, plus 1 for each change of the row; the version of its syn_change rows. |
+| updated_at | INTEGER | no |  | internal | false | When the row last changed, Unix milliseconds UTC. |
+
 ## sch_job
 
 Module: scheduler. Classification: internal. Billable: false.

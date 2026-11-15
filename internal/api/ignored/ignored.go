@@ -1,4 +1,8 @@
-package admin
+// Package ignored finds the request fields a host ignored, so that an answer can name them in its
+// warnings list (req_001 D-105). It is shared by the admin API and by the consumer API and
+// consumer page, which both take a resource request's `ask` and the admin takes its approval's
+// `limits` (PLT-F-028).
+package ignored
 
 import (
 	"context"
@@ -13,30 +17,46 @@ import (
 	"github.com/ogen-go/ogen/middleware"
 )
 
-// Unknown request fields (req_001 D-105). The /admin/v1 contract is additive only, so a newer
+// Unknown request fields (req_001 D-105). The /admin/v1 and /v1 contracts are additive only, so a newer
 // client may send a field this host does not know yet. The generated decoders skip such a field
 // without a trace; this file finds it again so the answer can name it in its warnings list.
 //
 // Only a field's name is ever kept, never its value, and the request bytes are held no longer than
 // the call that reads them (req_001 D-31, D-40).
 
-type ignoredKey struct{}
+type ctxKey struct{}
 
-// ignoredMiddleware runs after ogen decoded a request body and before the handler. It finds the
-// fields of the body that the decoded request type has no place for and hands their warnings to
-// the handler through the context (see withIgnored).
-func ignoredMiddleware(req middleware.Request, next middleware.Next) (middleware.Response, error) {
-	if w := ignoredFields(req.RawBody, req.Body); len(w) > 0 {
-		req.SetContext(context.WithValue(req.Context, ignoredKey{}, w))
+// Middleware runs after ogen decoded a request body and before the handler. It finds the fields
+// of the body that the decoded request type has no place for and hands their warnings to the
+// handler through the context (see With).
+func Middleware(req middleware.Request, next middleware.Next) (middleware.Response, error) {
+	if w := Fields(req.RawBody, req.Body); len(w) > 0 {
+		req.SetContext(context.WithValue(req.Context, ctxKey{}, w))
 	}
 	return next(req)
 }
 
-// withIgnored returns the warnings of a handler followed by one warning per request field the host
+// Only is Middleware for the operations with these ids (the operationId of api/openapi.yaml) and
+// nothing for the others. The consumer API uses it, so that the body of a chat call is not walked
+// a second time.
+func Only(operationIDs ...string) middleware.Middleware {
+	want := make(map[string]bool, len(operationIDs))
+	for _, id := range operationIDs {
+		want[id] = true
+	}
+	return func(req middleware.Request, next middleware.Next) (middleware.Response, error) {
+		if !want[req.OperationID] {
+			return next(req)
+		}
+		return Middleware(req, next)
+	}
+}
+
+// With returns the warnings of a handler followed by one warning per request field the host
 // ignored. It returns warnings itself when no field was ignored, so an answer without any warning
 // carries no warnings list.
-func withIgnored(ctx context.Context, warnings []string) []string {
-	w, _ := ctx.Value(ignoredKey{}).([]string)
+func With(ctx context.Context, warnings []string) []string {
+	w, _ := ctx.Value(ctxKey{}).([]string)
 	if len(w) == 0 {
 		return warnings
 	}
@@ -45,13 +65,13 @@ func withIgnored(ctx context.Context, warnings []string) []string {
 	return append(out, w...)
 }
 
-// ignoredFields returns one warning for each field of the JSON body raw that the decoded request
+// Fields returns one warning for each field of the JSON body raw that the decoded request
 // req has no field for: nil when there is none. Names are exact and case sensitive, the same as the
 // generated decoder reads them. Paths are dotted, and an array element is its index
 // (`narrowing.quotas.0.bogus`). The order is the order of the walk: object keys sorted, array
 // elements by index. A free-form value (a map, raw JSON, an interface or a one-of type) is not
 // walked. A name that is not safe to echo is not echoed (see safeIgnoredName).
-func ignoredFields(raw []byte, req any) []string {
+func Fields(raw []byte, req any) []string {
 	if len(raw) == 0 || req == nil {
 		return nil
 	}
@@ -166,11 +186,11 @@ func joinPath(parent, name string) string {
 }
 
 // safeIgnoredName reports whether an unknown field's name may be echoed in a warning: valid text
-// of printable characters, no longer than maxFieldName bytes. Unlike safeName it allows a space or
-// any letter, since a client's new field is named by a person and JSON encoding escapes the rest.
+// of printable characters, no longer than maxName bytes. A space or any letter is allowed,
+// since a client's new field is named by a person and JSON encoding escapes the rest.
 // The JSON decoder turns a byte that is not UTF-8 into U+FFFD, so that character is refused too.
 func safeIgnoredName(s string) bool {
-	if s == "" || len(s) > maxFieldName || !utf8.ValidString(s) {
+	if s == "" || len(s) > maxName || !utf8.ValidString(s) {
 		return false
 	}
 	for _, r := range s {
@@ -180,3 +200,6 @@ func safeIgnoredName(s string) bool {
 	}
 	return true
 }
+
+// maxName bounds the field name echoed in a warning.
+const maxName = 64

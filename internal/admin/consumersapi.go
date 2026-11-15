@@ -7,6 +7,7 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	"github.com/inCoderKaka/local-server/internal/api"
+	"github.com/inCoderKaka/local-server/internal/api/ignored"
 	"github.com/inCoderKaka/local-server/internal/identity"
 )
 
@@ -113,7 +114,7 @@ func consumerWithWarnings(ctx context.Context, c identity.ConsumerAccount) (*api
 	if err != nil {
 		return nil, err
 	}
-	v.Warnings = withIgnored(ctx, nil)
+	v.Warnings = ignored.With(ctx, nil)
 	return v, nil
 }
 

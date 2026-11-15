@@ -14,6 +14,8 @@ import (
 	"github.com/inCoderKaka/local-server/internal/auth/credential"
 	"github.com/inCoderKaka/local-server/internal/consumerauth"
 	"github.com/inCoderKaka/local-server/internal/gateway"
+	"github.com/inCoderKaka/local-server/internal/identity"
+	"github.com/inCoderKaka/local-server/internal/requests"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/usage"
@@ -32,7 +34,11 @@ func accountEnv(t *testing.T) (e *env, page http.Handler) {
 				t.Fatal(err)
 			}
 			var err error
-			svc, err = consumerauth.New(consumerauth.Config{DB: e.db, Settings: e.st, Identity: e.ir, Grants: e.gr, Telemetry: e.tel,
+			e.reqs, err = requests.New(requests.Config{DB: e.db, Settings: e.st, Identity: e.ir, Events: e.bus, Logger: e.tel.Logger()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			svc, err = consumerauth.New(consumerauth.Config{DB: e.db, Settings: e.st, Identity: e.ir, Grants: e.gr, Telemetry: e.tel, Requests: e.reqs,
 				Keys: func(ctx context.Context, id uuid.UUID) (*api.AccessKeyList, error) {
 					keys, err := e.ir.AccessKeys.ListByConsumer(ctx, e.db.Reader(), id.String())
 					if err != nil {
@@ -205,4 +211,83 @@ VALUES (?, 60000, ?, ?, ?, ?, 3, 4, 7)`, g, consumer, e.keyID, "model-"+string(r
 			t.Fatalf("%s: another consumer's row", q)
 		}
 	}
+}
+
+// The resource request routes take a key on the consumer API, through the same service as the
+// page: the caller's own consumer only, the ask's ignored fields named, a final request 409, and
+// never a cookie (req_001 D-39, D-105, D-148).
+func TestResourceRequestRoutesTakeAnAccessKey(t *testing.T) {
+	e, _ := accountEnv(t)
+	r := e.do(http.MethodPost, "/v1/resource-requests", `{"message":"More please","ask":{"models":["fake-chat"],"bogus":1}}`)
+	statusIs(t, r, http.StatusCreated)
+	m := r.json()
+	id, _ := m["id"].(string)
+	if m["status"] != "open" || m["consumer_id"] != e.cons.ID {
+		t.Fatalf("created = %s", r.Body.String())
+	}
+	if w, _ := m["warnings"].([]any); len(w) != 1 || w[0] != "ask.bogus is not a known field and was ignored" {
+		t.Errorf("warnings = %v, want the ignored ask field named on the consumer listener", m["warnings"])
+	}
+
+	statusIs(t, e.do(http.MethodPost, "/v1/resource-requests/"+id+"/comments", `{"body":"I run long documents"}`), http.StatusCreated)
+	got := e.do(http.MethodGet, "/v1/resource-requests/"+id, "")
+	statusIs(t, got, http.StatusOK)
+	c, _ := got.json()["comments"].([]any)
+	if len(c) != 1 || c[0].(map[string]any)["author"].(map[string]any)["principal_id"] != e.cons.PrincipalID {
+		t.Errorf("comments = %v", got.json()["comments"])
+	}
+	list := e.do(http.MethodGet, "/v1/resource-requests?status=open", "")
+	statusIs(t, list, http.StatusOK)
+	if d, _ := list.json()["data"].([]any); len(d) != 1 {
+		t.Errorf("list = %s", list.Body.String())
+	}
+
+	// Another consumer's request is 404 with a key too.
+	var otherID string
+	if err := e.db.Write(context.Background(), func(tx *storage.Tx) error {
+		p, err := e.ir.Principals.Create(tx, "consumer", nil, nil)
+		if err != nil {
+			return err
+		}
+		o, err := e.ir.Consumers.Create(tx, p.ID, identity.ConsumerApplication, nil, nil)
+		otherID = o.ID
+		if err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var otherPrincipal string
+	if err := e.db.Reader().QueryRow(context.Background(), `SELECT principal_id FROM idn_consumer WHERE id = ?`, otherID).Scan(&otherPrincipal); err != nil {
+		t.Fatal(err)
+	}
+	theirs, err := e.reqs.Create(context.Background(), otherID, otherPrincipal, requests.NewRequest{Message: "Theirs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ m, p, body string }{
+		{http.MethodGet, "/v1/resource-requests/" + theirs.ID, ""},
+		{http.MethodPost, "/v1/resource-requests/" + theirs.ID + "/comments", `{"body":"x"}`},
+		{http.MethodPost, "/v1/resource-requests/" + theirs.ID + "/withdraw", ""},
+	} {
+		statusIs(t, e.do(c.m, c.p, c.body), http.StatusNotFound)
+	}
+
+	w := e.do(http.MethodPost, "/v1/resource-requests/"+id+"/withdraw", "")
+	statusIs(t, w, http.StatusOK)
+	statusIs(t, e.do(http.MethodPost, "/v1/resource-requests/"+id+"/comments", `{"body":"again"}`), http.StatusConflict)
+	statusIs(t, e.do(http.MethodPost, "/v1/resource-requests/"+id+"/withdraw", ""), http.StatusConflict)
+
+	// No key, no requests; a cookie is never a credential on this listener.
+	statusIs(t, e.doAuth("", http.MethodGet, "/v1/resource-requests", ""), http.StatusUnauthorized)
+	cookie := credential.ConsumerSessionCookie + "=" + e.session()
+	statusIs(t, e.doAuth("", http.MethodGet, "/v1/resource-requests", "", "Cookie", cookie), http.StatusUnauthorized)
+	statusIs(t, e.doAuth("", http.MethodPost, "/v1/resource-requests", `{"message":"x"}`, "Cookie", cookie), http.StatusUnauthorized)
+}
+
+func TestResourceRequestRoutesStay501WithoutTheAccountsService(t *testing.T) {
+	e := newEnv(t)
+	statusIs(t, e.do(http.MethodGet, "/v1/resource-requests", ""), http.StatusNotImplemented)
+	statusIs(t, e.do(http.MethodPost, "/v1/resource-requests", `{"message":"x"}`), http.StatusNotImplemented)
 }

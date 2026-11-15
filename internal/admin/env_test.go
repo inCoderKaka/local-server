@@ -27,6 +27,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/hostmetrics"
 	"github.com/inCoderKaka/local-server/internal/identity"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
+	"github.com/inCoderKaka/local-server/internal/requests"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
@@ -152,6 +153,7 @@ type env struct {
 	ir      *identity.Repos
 	gr      *grants.Repos
 	auth    *auth.Service
+	reqs    *requests.Service
 	clk     *clock
 	tel     *logTel
 	sampler *fakeSampler
@@ -187,7 +189,7 @@ func newEnv(t *testing.T, mod ...func(*envOpts)) *env {
 	}
 	ctx := context.Background()
 	db, err := storage.Open(ctx, storage.DefaultConfig(filepath.Join(t.TempDir(), "t.db"),
-		settings.Module(), host.Module(), identity.Module(), grants.Module(), audit.Module(), events.Module(), usage.Module()))
+		settings.Module(), host.Module(), identity.Module(), grants.Module(), requests.Module(), audit.Module(), events.Module(), usage.Module()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +218,11 @@ func newEnv(t *testing.T, mod ...func(*envOpts)) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.admin, err = admin.New(admin.Config{DB: db, Settings: e.st, Identity: e.ir, Grants: e.gr, Auth: e.auth, Events: bus, Audit: log, Sharing: e.share, Sampler: e.sampler,
+	e.reqs, err = requests.New(requests.Config{DB: db, Settings: e.st, Identity: e.ir, Events: bus, Clock: e.clk.now, Logger: e.tel.Logger()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.admin, err = admin.New(admin.Config{DB: db, Settings: e.st, Identity: e.ir, Grants: e.gr, Auth: e.auth, Events: bus, Requests: e.reqs, Audit: log, Sharing: e.share, Sampler: e.sampler,
 		Keys: fakeKeys{}, Engine: o.engine, Metrics: o.metrics, Version: "1.2.3-test", Telemetry: e.tel, Clock: e.clk.now,
 		Nodes: fakeNodes{}, TailnetHosts: o.tailnetHosts, Tailnet: o.tailnet, UI: o.ui})
 	if err != nil {

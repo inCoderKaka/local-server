@@ -17,6 +17,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	admingrants "github.com/inCoderKaka/local-server/internal/admin/grants"
 	"github.com/inCoderKaka/local-server/internal/api"
+	"github.com/inCoderKaka/local-server/internal/api/ignored"
 	"github.com/inCoderKaka/local-server/internal/audit"
 	"github.com/inCoderKaka/local-server/internal/auth/credential"
 	"github.com/inCoderKaka/local-server/internal/engine"
@@ -25,6 +26,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/hostmetrics"
 	"github.com/inCoderKaka/local-server/internal/identity"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
+	"github.com/inCoderKaka/local-server/internal/requests"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
@@ -77,6 +79,9 @@ type Config struct {
 	// Auth issues and revokes access keys and forgets cached keys after a consumer or key changes
 	// (*auth.Service). Build it with the same Clock.
 	Auth consumers.Auth
+	// Requests serves the resource request operations (PLT-F-028), and runs their approval through
+	// the grant operations. Optional: nil leaves them answering 501.
+	Requests *requests.Service
 	// Events runs the unit of work of every consumer, key and invite write, so that revoking a key
 	// emits access_key.revoked in the same unit.
 	Events  events.Notifier
@@ -166,7 +171,7 @@ func New(cfg Config) (*Admin, error) {
 	a := &Admin{cfg: cfg, now: cfg.Clock, log: cfg.Telemetry.Logger(), auth: au, cons: cons, grs: grs}
 	srv, err := api.NewServer(a, a,
 		api.WithErrorHandler(a.errorHandler),
-		api.WithMiddleware(ignoredMiddleware),
+		api.WithMiddleware(ignored.Middleware),
 		api.WithNotFound(a.notFound),
 		api.WithMethodNotAllowed(a.methodNotAllowed),
 	)

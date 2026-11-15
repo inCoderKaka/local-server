@@ -31,6 +31,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
 	"github.com/inCoderKaka/local-server/internal/policy"
+	"github.com/inCoderKaka/local-server/internal/requests"
 	"github.com/inCoderKaka/local-server/internal/scheduler"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
@@ -269,6 +270,7 @@ type env struct {
 	gr    *grants.Repos
 	ir    *identity.Repos
 	jobs  *jobs.Service
+	reqs  *requests.Service
 	gw    *gateway.Gateway
 	h     http.Handler
 	tel   *testTelemetry
@@ -301,7 +303,7 @@ func newEnv(t testing.TB, mod ...func(*envOpts)) *env {
 	}
 	ctx := context.Background()
 	db, err := storage.Open(ctx, storage.DefaultConfig(filepath.Join(t.TempDir(), "t.db"),
-		settings.Module(), host.Module(), identity.Module(), grants.Module(), audit.Module(), events.Module(), usage.Module(), ledger.Module(), scheduler.Module()))
+		settings.Module(), host.Module(), identity.Module(), grants.Module(), requests.Module(), audit.Module(), events.Module(), usage.Module(), ledger.Module(), scheduler.Module()))
 	if err != nil {
 		t.Fatal(err)
 	}

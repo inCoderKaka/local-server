@@ -25,6 +25,7 @@ import (
 	"github.com/inCoderKaka/local-server/internal/identity"
 	"github.com/inCoderKaka/local-server/internal/limits"
 	"github.com/inCoderKaka/local-server/internal/notifier/events"
+	"github.com/inCoderKaka/local-server/internal/requests"
 	"github.com/inCoderKaka/local-server/internal/settings"
 	"github.com/inCoderKaka/local-server/internal/storage"
 	"github.com/inCoderKaka/local-server/internal/telemetry"
@@ -80,15 +81,16 @@ func newLogTel() *logTel {
 func (l *logTel) Logger() *slog.Logger { return l.log }
 
 type env struct {
-	t   *testing.T
-	db  *storage.DB
-	st  *settings.Store
-	ir  *identity.Repos
-	gr  *grants.Repos
-	clk *clock
-	tel *logTel
-	svc *consumerauth.Service
-	h   http.Handler
+	t    *testing.T
+	db   *storage.DB
+	st   *settings.Store
+	ir   *identity.Repos
+	gr   *grants.Repos
+	reqs *requests.Service
+	clk  *clock
+	tel  *logTel
+	svc  *consumerauth.Service
+	h    http.Handler
 	// admin is the principal that issues invites.
 	admin identity.Principal
 }
@@ -97,7 +99,7 @@ func newEnv(t *testing.T) *env {
 	t.Helper()
 	ctx := context.Background()
 	db, err := storage.Open(ctx, storage.DefaultConfig(filepath.Join(t.TempDir(), "t.db"),
-		settings.Module(), host.Module(), identity.Module(), grants.Module(), audit.Module(), events.Module(), usage.Module()))
+		settings.Module(), host.Module(), identity.Module(), grants.Module(), requests.Module(), audit.Module(), events.Module(), usage.Module()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +117,11 @@ func newEnv(t *testing.T) *env {
 	); err != nil {
 		t.Fatal(err)
 	}
-	e.svc, err = consumerauth.New(consumerauth.Config{DB: db, Settings: e.st, Identity: e.ir, Grants: e.gr, Telemetry: e.tel, Clock: e.clk.now,
+	e.reqs, err = requests.New(requests.Config{DB: db, Settings: e.st, Identity: e.ir, Events: events.New(), Clock: e.clk.now, Logger: e.tel.Logger()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.svc, err = consumerauth.New(consumerauth.Config{DB: db, Settings: e.st, Identity: e.ir, Grants: e.gr, Telemetry: e.tel, Clock: e.clk.now, Requests: e.reqs,
 		Keys: func(ctx context.Context, id uuid.UUID) (*api.AccessKeyList, error) {
 			keys, err := e.ir.AccessKeys.ListByConsumer(ctx, db.Reader(), id.String())
 			if err != nil {

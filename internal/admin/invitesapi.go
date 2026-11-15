@@ -7,6 +7,7 @@ import (
 
 	"github.com/inCoderKaka/local-server/internal/admin/consumers"
 	"github.com/inCoderKaka/local-server/internal/api"
+	"github.com/inCoderKaka/local-server/internal/api/ignored"
 )
 
 // AdminListInvites implements GET /admin/v1/invites: newest first, never a token.
@@ -49,7 +50,7 @@ func (a *Admin) AdminCreateInvite(ctx context.Context, req *api.InviteCreate) (*
 	if err != nil {
 		return nil, err
 	}
-	inv.Warnings = withIgnored(ctx, nil)
+	inv.Warnings = ignored.With(ctx, nil)
 	return &api.InviteIssued{Invite: inv, Token: is.Token.Reveal(), Link: is.Link.Reveal()}, nil
 }
 

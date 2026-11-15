@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/inCoderKaka/local-server/internal/auth/credential"
+	"github.com/inCoderKaka/local-server/internal/requests"
 )
 
 // ReferenceHash exposes referenceHash to the external tests.
@@ -30,5 +31,6 @@ func ClassifyError(err error) (status int, param, message string) {
 	return e.status, e.param, e.message
 }
 
-// IgnoredFields exposes ignoredFields to the external tests.
-func IgnoredFields(raw []byte, req any) []string { return ignoredFields(raw, req) }
+// SetRequestsForTest swaps the requests service of the admin API, to test the 501 of a build
+// without it.
+func (a *Admin) SetRequestsForTest(s *requests.Service) { a.cfg.Requests = s }
