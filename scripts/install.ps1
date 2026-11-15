@@ -482,6 +482,14 @@ function Invoke-LsServiceStart {
     }
 }
 
+# True when `local-server doctor` reports the host rows in the database (D-101, D-102). serve
+# creates the database file before it checks for a terminal, so the file alone proves nothing.
+function Test-LsHostSetUp {
+    param([string]$DataDir)
+    $r = Get-LsProgramOutput -FilePath $script:LsBin -ArgumentList @('doctor', '--data-dir', $DataDir)
+    return ([string]$r.Text -match '(?m)^\[ok  \] host: ')
+}
+
 # --- Ollama and Tailscale -----------------------------------------------------------------------
 
 function Test-LsOllamaInstalled {
@@ -618,8 +626,8 @@ function Invoke-LsFreshInstall {
     Invoke-LsOllamaStep
     Invoke-LsTailscaleStep
     Write-Host ''
-    if (Test-Path -LiteralPath (Join-Path $DataDir $script:LsDbFile)) {
-        Write-Host "Found your data folder ($DataDir); the first run is not needed."
+    if ((Test-Path -LiteralPath (Join-Path $DataDir $script:LsDbFile)) -and (Test-LsHostSetUp -DataDir $DataDir)) {
+        Write-Host "Found your set-up host in $DataDir; the first run is not needed."
         if ($serviceReady) {
             Invoke-LsServiceStart
         }

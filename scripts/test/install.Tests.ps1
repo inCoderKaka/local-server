@@ -369,11 +369,30 @@ Describe 'the whole script with the outside world mocked' {
         Should -Invoke Invoke-LsProgram -Times 1 -ParameterFilter { ($ArgumentList -join ' ') -eq ('service install --data-dir ' + $script:data) }
     }
 
-    It 'starts the service when a database already exists' {
+    It 'starts the service when doctor says the host is set up' {
         New-Item -ItemType Directory -Path $script:data | Out-Null
         [System.IO.File]::WriteAllText((Join-Path $script:data 'local-server.db'), '')
+        Mock Get-LsProgramOutput {
+            if ($ArgumentList -contains 'doctor') {
+                return [pscustomobject]@{ ExitCode = 0; Text = "[ok  ] database: schema matches`n[ok  ] host: this host is set up`n" }
+            }
+            return [pscustomobject]@{ ExitCode = 0; Text = 'local-server v1.0.0' }
+        }
         Install-LocalServerMain | Should -Be 0
         Should -Invoke Invoke-LsProgram -Times 1 -ParameterFilter { ($ArgumentList -join ' ') -like 'service start*' }
+    }
+
+    It 'does not start the service when the database has no host rows' {
+        New-Item -ItemType Directory -Path $script:data | Out-Null
+        [System.IO.File]::WriteAllText((Join-Path $script:data 'local-server.db'), '')
+        Mock Get-LsProgramOutput {
+            if ($ArgumentList -contains 'doctor') {
+                return [pscustomobject]@{ ExitCode = 0; Text = "[warn] host: this host is not set up yet`n" }
+            }
+            return [pscustomobject]@{ ExitCode = 0; Text = 'local-server v1.0.0' }
+        }
+        Install-LocalServerMain | Should -Be 0
+        Should -Invoke Invoke-LsProgram -Times 0 -ParameterFilter { ($ArgumentList -join ' ') -like 'service start*' }
     }
 
     It 'adds the install folder to the user PATH only after a yes' {
