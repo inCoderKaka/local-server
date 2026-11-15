@@ -58,6 +58,8 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Data directory | The folder that holds the host's database and, when the keychain is not used, the master key file. It is `--data-dir`, else `LS_DATA_DIR`, else `local-server` in the user configuration directory, and it is the only thing configured outside the database. | Data directory | D-39, D-54 |
 | First run | A start of `local-server serve` on a database with no host row. It creates the host, its keys and the master key, and prints the recovery code once to a terminal. With no terminal it refuses. | first run | D-101, D-102 |
 | Worker supervisor | Runs each background worker of `serve`. It restarts a worker that panics, fails or returns early after `workers.restart_backoff`, and counts restarts in `supervisor_worker_restarts_total`. | — | D-39, D-54 |
+| Release | A GitHub release made by `release.yml` when a version tag is pushed: six binaries (`local-server_<os>_<arch>`), `SHA256SUMS`, a build provenance attestation and the install scripts. A tag with a `-` in it (for example `v0.1.0-rc.1`) is a pre-release. | — | D-30, D-62, D-156 |
+| Installer | `scripts/install.sh` (macOS, Linux) or `scripts/install.ps1` (Windows): downloads the release binary, checks its SHA-256, puts it on the PATH, registers the service and offers Ollama and Tailscale. It asks before each step and, with no terminal, answers no. The same script upgrades and uninstalls. | — | D-14, D-30, D-156 |
 | Fake engine | The engine adapter that answers without Ollama, for tests, local runs and demos (`serve --engine fake`). | — | D-31 |
 
 ## Access and limits

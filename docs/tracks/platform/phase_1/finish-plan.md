@@ -1,6 +1,6 @@
 # platform / phase_1 — finish plan
 
-Written 2026-11-12, updated 2026-11-13. Decisions: req_001 D-141..D-158. This file overrides `next-steps.md` for work order and overrides any skill that says "capture everything". Every chat on this repo reads this file first and works on the first milestone that is not done.
+Written 2026-11-12, updated 2026-11-15. Decisions: req_001 D-141..D-160. This file overrides `next-steps.md` for work order and overrides any skill that says "capture everything". Every chat on this repo reads this file first and works on the first milestone that is not done.
 
 ## Finish line (D-141)
 
@@ -112,3 +112,4 @@ Nothing else waits on the user: the legal drafts are approved (D-153), the artef
 | 2026-11-15 | M2 build 2 | M2 | 0.2 | 1.9 | PLT-F-035 partial (usage, audit, settings pages) and the M2 Playwright e2e plus CI web job built (d9542e2, 65c5387); left in M2: F-027, F-028, F-035 requests page, M2 gate |
 | 2026-11-15 | M2 build 3 | M2 | 0.7 | 2.6 | PLT-F-027 step A (a5664a5), PLT-F-028 backend (05f3df1), PLT-F-035 requests page (d8b4119) and real-backend e2e (1cc0d70, 2 passed) built; left in M2: PLT-F-027 step B (passkeys), M2 gate over 05b04f2..HEAD; M1 check and push still deferred by the user |
 | 2026-11-15 | M2 build 4 | M2 | 0.35 | 2.95 | PLT-F-027 step B passkeys (8d10dea), ways-of-working separation (7f9eb5b), ROADMAP fix; all M2 tickets built, M2 gate not yet run |
+| 2026-11-15 | M4 build (passive) | M4 | 0.65 | 3.6 | PLT-B-001 (4c6aca5), PLT-C-003 (517aed6), PLT-F-043 (9211b8d) built; M4 gate run (fixes 1d2afb2, 037bc61, 311520c; 36 items parked, 4569d61); real bats 60 of 60 on macOS; CI, Pester, release.yml never run; the M3 chat's windows were not recorded here, so the total is a floor |

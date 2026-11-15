@@ -47,7 +47,7 @@ flowchart LR
 
 ## Install
 
-Installers ship with the first release (batch B8). The steps will be in the [user guide](docs/user-guide.md#host-setup). To build from source once the code lands:
+Installers ship with the first release (batch B8). The steps will be in the [user guide](docs/user-guide.md#host-setup). To build from source:
 
 ```bash
 git clone https://github.com/inCoderKaka/local-server && cd local-server

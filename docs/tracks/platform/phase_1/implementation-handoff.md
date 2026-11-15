@@ -2,28 +2,28 @@
 
 Only what is open. Rewritten whole at the end of each implementation session. Work order: `finish-plan.md` (req_001 D-141..D-160).
 
-## Last session (2026-11-15, M2 build 3, passive)
+## Last session (2026-11-15, passive, M4)
 
-- Built and committed: PLT-F-027 step A `a5664a5` and step B (passkeys, go-webauthn, 13 tests) `8d10dea` (invite sign-up, password login and logout, sessions, lockout, consent, `/v1/me*`, page-listener wiring; `internal/consumerauth/`), PLT-F-028 backend `05f3df1` (`internal/requests/`, 9 routes, atomic approve to a new grant version, TTL sweeper, shared walker `internal/api/ignored`), PLT-F-035 requests page `d8b4119` and the real-backend e2e `1cc0d70` (`make web-admin-e2e`: 2 passed, 0 failed, 0 skipped; admin 127 tests, shared 46). Statement 4's host half (approve and reject in the admin UI) now passes in a browser.
-- Close-out `a85b3f4` plus this commit: worklog, backlog, sizes, glossary, user guide, decision rows I-456..I-463. F-028 re-sized to big.
-- Ungated: no code gate has run over any M2 commit. Spend this chat about 0.7 window; running total 2.6 of 16.
+- Built and gated: PLT-B-001 `4c6aca5` (CI actions pinned, Dependabot), PLT-C-003 `517aed6` (`release.yml`, `make release-dry`, macOS checklist), PLT-F-043 `9211b8d` (install, upgrade, uninstall scripts, bats and Pester, two CI jobs). The M4 gate over `2002da6..HEAD` implemented 6 of 95 candidates (`1d2afb2`, `037bc61`, `311520c`) and parked 36 items (`4569d61`).
+- Checked here: real bats 60 of 60 on macOS (2 skip, no `setsid`), `go test ./cmd/...` passes. Never run: CI, Pester, shellcheck in CI, `release.yml`, the Windows script.
+- `implementation-status.md` rebuilt (M2, M3 and M4). State: tree clean, 72 unpushed commits. Spend about 0.65 window.
+
+## Open items
+
+- **M2+M3 gate:** fixes `5305511..2002da6` (parts 01 to 07) are committed, but the gate's final report never arrived (rate limit). "Gated" for F-027..F-037 is inferred from commits.
+- PLT-F-038 stays `building` until the M1 second-machine check.
+- `docs-drift` flags `ROADMAP.md` B8 ("in progress"); it is true until the rc tag and a clean-account install. Remaining drift: 12 stale-decision warnings (D-41..D-47, D-50, D-141..D-144, D-20), `ticket-sizes.md` header totals, `ROADMAP.md:4` points at `next-steps.md`, `ai-mirror --check` not available here.
+- Worklog has no gate rows for the M2+M3 and M4 gates.
 
 ## Waiting on you
 
-- **Push** `main` so CI runs (M0 done only on green CI, D-158; the `web-admin` CI job has never run). Deferred by you.
-- **M1 second-machine check** (`ops/checks/m1-checklist.md`). Deferred by you.
-- **I-455 (needs-ruling):** does `/usage` alone meet statement 5, and is the in-process e2e harness acceptable? Recommended yes to both.
+1. **Push `main`** (72 commits) so CI runs: the web-admin job, the install-scripts jobs and `release.yml` have never run, and M0 needs a green CI (D-158).
+2. **M1 second-machine check** (`ops/checks/m1-checklist.md`); **M3 browser check** on a second machine (D-146).
+3. **After green CI:** push `v0.1.0-rc.1`; run `ops/checks/macos-launchagent-checklist.md` on macOS 15 and 26; run the install command on a clean macOS user account; then push `v0.1.0` (D-156). Until `v0.1.0` exists, `releases/latest/download/install.sh` returns 404, so docs must show `releases/download/v0.1.0-rc.1/install.sh`.
+4. **Rulings** (parking lines in `phase-2-parking.md`): (a) system-mode service runs the user-owned binary as root; recommended `--run-as "$(id -un)"` or ship user mode only for rc.1; (b) the user service is registered before the first run, so declining it loops at login; recommended register after the first run.
+5. **I-455 (needs-ruling):** is `/usage` plus the in-process e2e harness enough for statement 5? Recommended yes, and turn off failure-trace snapshots.
+6. A reaffirm row for D-141..D-144 (D-133 pattern), recommended; and ROADMAP B8 wording, recommended "built, not yet run on real machines".
 
-## Also this chat
+## Next steps
 
-- An Opus agent separated ways-of-working and delivery items from software ones (`7f9eb5b`): each file has its own section (decisions log `## Ways of working and delivery`, backlog `## Chores — ways of working`, parking `## Ways of working and tooling`), IDs unchanged. docs-drift now shows 12 warnings: a blank line in the decisions log table had hidden D-134..D-160 from the check, and D-141..D-144 depend on `finish-plan.md`, which changed on 2026-11-15 (accept, or add a reaffirm row like D-133). `ROADMAP.md` fixed (`f5b1bdb`).
-- All M2 tickets are built (F-027, F-028, F-035); only the M2 gate is left. Spend this chat about 1.0 window.
-
-## Next steps (M2, in order)
-
-1. M2 gate over `05b04f2..HEAD` (one gate, D-143; include the consumerauth security surface).
-2. M3: PLT-F-036, PLT-F-037 (consumer web page). The e2e for statement 4 is M3.
-
-Open known issues, all parked (no tickets, D-142): `TestUnknownFieldWithAnUnsafeNameIsNotEchoed` flaky about 1 in 140; `GrantVersion.resource_request_id` always null on reads (history "Made by" shows "The host"); purge leaves request text behind; `settingList` returns secret settings to a signed-in admin.
-
-Drift: `ticket-drift` flags the stale `implementation-status.md` (rebuilt at the milestone end) and F-028 "done" while F-027 is in-progress (F-028 needs only step A); 8 `stale-decision` warnings D-41..D-47, D-50; `lld.md` module map lacks `webui` (M5).
+M5: PLT-C-004 (host setup guide and README, show the rc.1 install URL), user guide, developer guide, HLD and LLD reconciled with the code (the LLD module map lacks `webui`), `/phase-retro platform 1`. Spin-offs stay in `phase-2-parking.md` (D-142).
