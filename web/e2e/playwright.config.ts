@@ -1,10 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * The browser end-to-end test of the admin UI (req_001 D-152). The server is the Go harness
- * TestE2EServer (cmd/local-server/e2e_harness_test.go): the real `serve --engine fake` with fakes
- * for the keychain, terminal, sleep lock and Tailscale. The fixture in tests/harness.ts starts it
- * and gives its admin URL as baseURL. Run it with `make web-admin-e2e`.
+ * The browser end-to-end tests (req_001 D-152): the admin UI (host.spec.ts, finish-line
+ * statements 2 and 5) and the consumer web page with the admin UI (consumer.spec.ts, statement 4).
+ * The server is the Go harness TestE2EServer (cmd/local-server/e2e_harness_test.go): the real
+ * `serve --engine fake` with fakes for the keychain, terminal, sleep lock and Tailscale. The
+ * fixture in tests/harness.ts starts it and gives its admin URL as baseURL. Each spec is its own
+ * project, so each runs in its own worker against its own fresh host. Run them with
+ * `make web-e2e`.
  */
 
 /** Longest one test may run, harness start and shutdown included. */
@@ -33,5 +36,8 @@ export default defineConfig({
     actionTimeout: ACTION_TIMEOUT_MS,
     navigationTimeout: ACTION_TIMEOUT_MS,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'host', testMatch: 'host.spec.ts', use: { ...devices['Desktop Chrome'] } },
+    { name: 'consumer', testMatch: 'consumer.spec.ts', use: { ...devices['Desktop Chrome'] } },
+  ],
 });

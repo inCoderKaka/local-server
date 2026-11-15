@@ -76,8 +76,8 @@ jobs:
       - run: go test -race ./...
 
   # The web UIs (D-152): the unit checks of the admin UI and the consumer web page, then the
-  # browser end-to-end test of the admin UI against the Go harness with the fake engine. Linux
-  # only; the report and traces are kept only when it fails.
+  # browser end-to-end tests of the admin UI and the consumer web page against the Go harness with
+  # the fake engine. Linux only; the report and traces are kept only when it fails.
   web-admin:
     name: web-admin
     runs-on: ubuntu-latest
@@ -100,8 +100,8 @@ jobs:
       - name: Chromium and its system libraries
         working-directory: web
         run: npx playwright install --with-deps chromium
-      - name: Browser end-to-end test (D-152)
-        run: make web-admin-e2e
+      - name: Browser end-to-end tests, admin UI and consumer page (D-152)
+        run: make web-e2e
       - name: Keep the Playwright report and traces
         if: failure()
         uses: actions/upload-artifact@v7

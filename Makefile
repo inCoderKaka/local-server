@@ -2,14 +2,14 @@
 # D-152). A plain `go build ./...` needs no npm: it embeds only web/admin/dist/.gitkeep and
 # web/consumer/dist/.gitkeep and serves a one-page stub instead of each UI.
 # The web toolchain is Node.js 24 LTS (web/.nvmrc) with npm workspaces under web/.
-# `make web-admin-test` and `make web-consumer-test` are the fast unit checks; `make web-admin-e2e`
-# is the browser end-to-end test.
+# `make web-admin-test` and `make web-consumer-test` are the fast unit checks; `make web-e2e` (also
+# `make web-admin-e2e`) is the browser end-to-end test.
 
 WEB := web
 ADMIN_DIST := $(WEB)/admin/dist
 CONSUMER_DIST := $(WEB)/consumer/dist
 
-.PHONY: build web-deps web-gen web-admin-build web-admin-test web-admin-e2e web-consumer-build web-consumer-test clean-web
+.PHONY: build web-deps web-gen web-admin-build web-admin-test web-e2e web-admin-e2e web-consumer-build web-consumer-test clean-web
 
 # The binary with the built admin UI and consumer web page inside.
 build: web-admin-build web-consumer-build
@@ -57,14 +57,19 @@ web-consumer-test:
 	cd $(WEB) && npm run build:consumer
 	CGO_ENABLED=0 go build -o bin/local-server ./cmd/local-server
 
-# The browser end-to-end test (web/e2e, Playwright, Chromium): the built admin UI inside the Go
-# harness TestE2EServer (the real serve with the fake engine, an in-memory keychain and no
-# Tailscale), compiled as a test binary so it gets the stop signal. Installs Chromium once, into
+# The browser end-to-end tests (web/e2e, Playwright, Chromium): the built admin UI and consumer web
+# page inside the Go harness TestE2EServer (the real serve with the fake engine, an in-memory
+# keychain and a fake Tailscale whose listeners are redirected to loopback), compiled as a test
+# binary so it gets the stop signal. Both specs run: host.spec.ts (the admin UI) and
+# consumer.spec.ts (the consumer page with the admin UI). Installs Chromium once, into
 # Playwright's own cache (no sudo; CI installs its system libraries first).
-web-admin-e2e: web-admin-build
+web-e2e: web-admin-build web-consumer-build
 	CGO_ENABLED=0 go test -c -o bin/e2e-harness ./cmd/local-server
 	cd $(WEB) && npx playwright install chromium
 	cd $(WEB) && LS_E2E_HARNESS=$(CURDIR)/bin/e2e-harness npm run e2e
+
+# The old name of web-e2e.
+web-admin-e2e: web-e2e
 
 # Removes the built UIs (keeping each .gitkeep) and the generated API types.
 clean-web:

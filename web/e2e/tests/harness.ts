@@ -8,9 +8,11 @@ import { test as base } from '@playwright/test';
 
 /**
  * Starts the Go harness TestE2EServer (cmd/local-server/e2e_harness_test.go) once per worker:
- * the real `serve --engine fake`, with an in-memory keychain, a fake terminal and no Tailscale,
- * on free loopback ports and a throwaway data directory that is removed afterwards. The harness
- * is a compiled test binary (`make web-admin-e2e` builds it), so SIGTERM reaches it.
+ * the real `serve --engine fake`, with an in-memory keychain, a fake terminal and a fake ready
+ * Tailscale whose listeners are redirected to loopback, on free loopback ports and a throwaway
+ * data directory that is removed afterwards. Each project of playwright.config.ts runs in its own
+ * worker, so each spec gets a fresh host. The harness is a compiled test binary (`make web-e2e`
+ * builds it), so SIGTERM reaches it.
  */
 
 /** How often the ready file is looked for while the harness starts. */
@@ -29,6 +31,11 @@ export interface Server {
   admin: string;
   /** The consumer API listener. */
   consumer: string;
+  /**
+   * The consumer page listener, for example https://127.0.0.1:53125. It serves TLS only, with the
+   * harness's self-signed test certificate, so a browser context for it sets ignoreHTTPSErrors.
+   */
+  page: string;
 }
 
 function exited(child: ChildProcess): Promise<number | null> {
@@ -39,7 +46,7 @@ function exited(child: ChildProcess): Promise<number | null> {
 }
 
 async function startHarness(): Promise<{ server: Server; stop: () => Promise<void> }> {
-  if (!existsSync(harnessPath)) throw new Error(`no harness binary at ${harnessPath}: run make web-admin-e2e`);
+  if (!existsSync(harnessPath)) throw new Error(`no harness binary at ${harnessPath}: run make web-e2e`);
   const tmp = await mkdtemp(join(tmpdir(), 'ls-e2e-'));
   const readyFile = join(tmp, 'ready.json');
   // The harness prints only its own log lines (listener addresses, keychain call counts), never
