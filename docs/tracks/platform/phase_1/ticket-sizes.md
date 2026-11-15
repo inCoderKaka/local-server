@@ -55,7 +55,7 @@ The persisted id → big|small map for every feature and chore ticket in `backlo
 | PLT-F-025 | big | Closed. By the rule from build commits 1eb7ba8, 4b94c59: 23 non-test file(s) in 6 directories. |
 | PLT-F-026 | small | Seeded from the 2026-11-06 plan call: Effort Quick win. |
 | PLT-F-027 | big | Seeded from the 2026-11-06 plan call: Effort Rich. Artifact cites `internal/consumerauth/`. |
-| PLT-F-028 | small | Seeded from the 2026-11-06 plan call: Effort Quick win. Artifact cites `internal/requests/`. |
+| PLT-F-028 | big | 2026-11-15 plan call: adds a module, a table and 9 routes, changes shared contracts (seeded small from Effort Quick win). Artifact cites `internal/requests/`. |
 | PLT-F-029 | small | Seeded from the 2026-11-06 plan call: Effort Quick win. |
 | PLT-F-030 | small | Seeded from the 2026-11-06 plan call: Effort Quick win. |
 | PLT-F-031 | small | Seeded from the 2026-11-06 plan call: Effort Quick win. |

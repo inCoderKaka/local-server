@@ -40,7 +40,7 @@ If the admin password is typed wrongly too many times, the admin page stops acce
 
 ### Requests for more
 
-When a consumer needs more (a bigger model, a higher quota) they send a **resource request**. You get a notification, can discuss it in comments, and approve or reject it.
+When a consumer needs more (a bigger model, a higher quota) they send a **resource request**. The admin page shows a count of pending requests (notifications are planned). You can discuss a request in comments, and approve or reject it.
 
 ### See usage
 
@@ -68,7 +68,7 @@ A backup does not contain the host's **master key**, the key that locks the host
 
 ### Asking for more
 
-Send a resource request from your page. You are notified when the host answers.
+Send a resource request from your page. The host answers on the request, with comments (notifications are planned).
 
 ### Receipts
 
