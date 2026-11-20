@@ -7,7 +7,7 @@ Backups and opt-in platform sync with per-dataset keys.
 ## Owns
 
 - Packages: `internal/offhost/` (the port `OffHostSync` is designed: PLT-F-044..F-046; platform sync is not built). Built by PLT-F-044: `internal/offhost/snapshot/` (the snapshot adapter: off-host backup and restore) with the sub-packages below.
-- Tables: `syn_*`, migrations in `internal/offhost/migrations/`. PLT-F-044 adds no table: its state is settings in `hst_setting`.
+- Tables: `syn_*`; the migrations live in the storage module (`internal/storage/migrations/`). PLT-F-044 adds no table: its state is settings in `hst_setting`.
 - Port: `OffHostSync`.
 
 ### Snapshot adapter (`internal/offhost/snapshot`, PLT-F-044)

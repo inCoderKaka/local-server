@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Serves a built single-page web UI from a file system with a strict Content Security Policy, so both embedded UIs (the admin UI now, the consumer web page later) are served the same way. It is its own module because it owns the CSP and the caching and path rules, and knows nothing about either API.
+Serves a built single-page web UI from a file system with a strict Content Security Policy, so both embedded UIs (the admin UI and the consumer web page) are served the same way. It is its own module because it owns the CSP and the caching and path rules, and knows nothing about either API.
 
 ## Owns
 
