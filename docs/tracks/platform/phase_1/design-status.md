@@ -8,7 +8,7 @@ req_002 is at stage 6 (`ticketize`), done (verified 2026-11-21: 31 tickets PLT-F
 Resume notes for req_002:
 - All design stages done (design-lld D-26..D-30, design-ai-arch D-31..D-38, design-close D-39..D-41, ticketize D-42).
 - Q-25 (host-side persistence of AI requests and responses on client consent, D-34) stays deferred; it blocks only the phase-2 slice PLT-F-139, which is scoping-only until a design is recorded.
-- Owed after build: the `@planned` blocks (capability discovery, engine options, effective-options header, default and forced values, task usage, model fingerprint) are topped up in the public docs.
+- Design is closed (req_002 D-43, user 2026-11-21): no `@planned` top-up is owed and no `/design-close` runs. The M5 developer guide marks the integration as planned.
 
 Resume notes for req_001 (the log is the source of truth; req_001 design is complete, stages 0–3, 5 and 6 done, stage 4 skipped; implementation is `/orchestrate-implement platform 1`, `next-steps.md` B1, PLT-C-001):
 - (a) PA's requirement file was written at `personal-assistant/docs/tracks/platform/phase_2/requirements/req_001.md`, not committed (D-17, D-50).
@@ -36,7 +36,7 @@ Open questions: 0 · Deferred: 0 · Artifacts: ADR 0001, ADR 0002, ADR 0003, exe
 | 2 | design-hld | done | decided `HLD:` rows D-20, D-21, D-22, D-23, D-24, D-25 (6 rows; no `HLD: [run-anyway]` row); no open `HLD:` row (Open is empty, Deferred is empty) | verified 2026-11-21 |
 | 3 | design-lld | done | decided `LLD:` rows D-26, D-27, D-28, D-29, D-30 (5 rows; no `LLD: [run-anyway]` row); no open `LLD:` row (Open is empty; the only Deferred row, Q-25, is `AI:`) | verified 2026-11-21 |
 | 4 | design-ai-arch | done | decided `AI:` rows D-31..D-38 (8 rows; no `AI: [run-anyway]` row); no open `AI:` row (Open is empty; Q-25 `AI: [saved-io]` is deferred and its Blocks cell names a phase-2 slice, so it is not open) | verified 2026-11-21 |
-| 5 | design-close | done | sync rows D-39 (discussion), D-40 (design-review), D-41 (ai-architecture); ADR 0006, 0007, 0008, three executive inputs (`26-11-21_platform_req_002_discussion.md`, `_design-review.md`, `_ai-architecture.md`), all 15 listed glossary rows, design.md `req_002` section exist; `@planned` blocks: none (owed after ticketize) | verified 2026-11-21 |
+| 5 | design-close | done | sync rows D-39 (discussion), D-40 (design-review), D-41 (ai-architecture); ADR 0006, 0007, 0008, three executive inputs (`26-11-21_platform_req_002_discussion.md`, `_design-review.md`, `_ai-architecture.md`), all 15 listed glossary rows, design.md `req_002` section exist; `@planned` blocks: none, and none owed (req_002 D-43: design closed) | verified 2026-11-21 |
 | 6 | ticketize | done | 31 tickets PLT-F-114..139 and PLT-C-021..025 (e4eb387, D-42); every coverage row's Uncovered? is no and every Tickets id is in backlog.md; next-steps.md has the req_002 section; no open row, the only Deferred row (Q-25) names its blocked slice | verified 2026-11-21 |
 Open questions: 0 · Deferred: 1 (Q-25, blocks a phase-2 slice only) · Artifacts: ADR 0006, ADR 0007, ADR 0008, executive input 26-11-21_platform_req_002_discussion.md, 26-11-21_platform_req_002_design-review.md and 26-11-21_platform_req_002_ai-architecture.md, formal file (req_002.formal.md), docs/glossary.md, design.md, HLD 6.14, 6.15 and 8.6, LLD, 31 tickets (PLT-F-114..139, PLT-C-021..025), backlog.md, next-steps.md
 
