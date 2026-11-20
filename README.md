@@ -30,7 +30,7 @@ flowchart LR
 | Scheduling | Two-class priority queue with aging, memory admission, load shedding with `Retry-After`, idempotent async jobs | [HLD §6.5](docs/design_docs/hld.md#65-admission-control-and-scheduling-d-26) |
 | Integrity | RFC 6962 Merkle ledger, C2SP signed checkpoints, Ed25519 JWS receipts, rotating key hierarchy | [HLD §6.7](docs/design_docs/hld.md#67-verifiable-usage-ledger-and-receipts-d-16-d-27-d-51-d-52) |
 | Storage | Pure-Go SQLite, WAL, a single writer goroutine, unit of work, data classification on every column | [LLD §3](docs/design_docs/lld.md#3-data-model-d-37-as-superseded-by-d-42-and-d-44-plus-d-53) |
-| Reliability | Transactional outbox, at-least-once webhooks, terminal states that never reopen | [HLD §8.3](docs/design_docs/hld.md#83-reliability-and-failure-modes) |
+| Reliability | One transaction per change with its audit and domain-event rows, terminal states that never reopen; the transactional outbox and at-least-once webhooks are planned (phase 2) | [HLD §8.3](docs/design_docs/hld.md#83-reliability-and-failure-modes) |
 | Security | Zero-trust transport, least-privilege keys, fuzzed parsers, race detector, govulncheck, SLSA provenance | [HLD §8.1](docs/design_docs/hld.md#81-security-threat-model-abridged) |
 | Data | Decentralised by default; envelope-encrypted backups to your own bucket (R2 or Google Cloud Storage) | [HLD §6.10](docs/design_docs/hld.md#610-off-host-backups-and-data-sharing-decentralised-by-default-d-41-d-43-d-59) |
 
@@ -47,7 +47,7 @@ flowchart LR
 
 ## Install
 
-The first release is the pre-release `v0.1.0-rc.1`. Only the macOS (Apple silicon) build has run on a real machine; the Linux and Windows builds are tested in CI only.
+The first release is the pre-release `v0.1.0-rc.1`. It is not published yet, so the commands below work once it is; until then, build from source (below). Only the macOS (Apple silicon) build has run on a real machine; the Linux and Windows builds are tested in CI only.
 
 ```sh
 # macOS and Linux
