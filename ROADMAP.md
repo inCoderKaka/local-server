@@ -1,6 +1,6 @@
 # Roadmap
 
-Phase 1 is fully designed ([HLD](docs/design_docs/hld.md), [LLD](docs/design_docs/lld.md)) and is being built in the order below. Each batch builds on the ones before it. The detailed tickets live in [`docs/tracks/platform/phase_1/`](docs/tracks/platform/phase_1/next-steps.md).
+Phase 1 is fully designed ([HLD](docs/design_docs/hld.md), [LLD](docs/design_docs/lld.md)) and is being built in the order below. Each batch builds on the ones before it. The detailed tickets live in [`docs/tracks/platform/phase_1/`](docs/tracks/platform/phase_1/backlog.md).
 
 ## Phase 1 — share a host's AI with invited consumers
 
