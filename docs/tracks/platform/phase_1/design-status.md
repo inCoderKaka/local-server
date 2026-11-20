@@ -3,7 +3,7 @@ Requirements: req_001 (`requirements/req_001.md`, log `requirements/req_001.deci
 Last updated: 2026-11-21 · Last verified: 2026-11-21
 
 ## Position + next action
-req_002 is at stage 2 (`design-hld`), in progress (stage 1 `req-discuss` verified 2026-11-21: D-03..D-18 decided, D-19 closes the discussion stage; the two open questions Q-14 and Q-15 are `HLD:` questions). Next: run `design-hld platform 2 1`; req_002 is designed now and built in phase 2 (req_001 D-161).
+req_002 is at stage 3 (`design-lld`), not started (stage 2 `design-hld` verified 2026-11-21: decided `HLD:` rows D-20..D-25; Q-14 and Q-15 answered by D-22 and D-23; no open row). Next: run `design-lld platform 2 1`; req_002 is designed now and built in phase 2 (req_001 D-161).
 
 Resume notes for req_001 (the log is the source of truth; req_001 design is complete, stages 0–3, 5 and 6 done, stage 4 skipped; implementation is `/orchestrate-implement platform 1`, `next-steps.md` B1, PLT-C-001):
 - (a) PA's requirement file was written at `personal-assistant/docs/tracks/platform/phase_2/requirements/req_001.md`, not committed (D-17, D-50).
@@ -28,12 +28,12 @@ Open questions: 0 · Deferred: 0 · Artifacts: ADR 0001, ADR 0002, ADR 0003, exe
 |---|---|---|---|---|
 | 0 | req-ingest | done | req_002.md (byte-identical to the intake scratch file) and req_002.decisions.md present; header and all five sections found; req_002.formal.md exists (not required) | verified 2026-11-20 |
 | 1 | req-discuss | done | no unprefixed open row (open rows: Q-14, Q-15, both `HLD:`; Deferred empty); Software-touching? yes (D-01); D-19 closes the discussion stage; topic tags [fit], [already-extensible], [bigger-changes], [extra-use-cases] covered by D-03..D-09; every coverage row's Uncovered? is no | verified 2026-11-21 |
-| 2 | design-hld | in progress | no decided `HLD:` row yet; open `HLD:` rows Q-14 and Q-15 | — |
+| 2 | design-hld | done | decided `HLD:` rows D-20, D-21, D-22, D-23, D-24, D-25 (6 rows; no `HLD: [run-anyway]` row); no open `HLD:` row (Open is empty, Deferred is empty) | verified 2026-11-21 |
 | 3 | design-lld | not started | — | — |
 | 4 | design-ai-arch | not started | — | — |
 | 5 | design-close | not started | — | — |
 | 6 | ticketize | not started | — | — |
-Open questions: 2 · first: Q-14 HLD: can a Vercel function join a tailnet (userspace networking, an ephemeral or reusable auth key, tags and ACLs that limit it to the host's consumer API port), and what does it cost in cold start, secret handling and Tailscale plan limits · Deferred: 0 · Artifacts: formal file (req_002.formal.md)
+Open questions: 0 · Deferred: 0 · Artifacts: formal file (req_002.formal.md); HLD decisions D-20..D-25 (no ADR, executive input or ticket yet)
 
 ## Skips
 Stage 4 (req_001) — skipped (D-20, no AI component of its own); say "run design-ai-arch anyway" to reverse.
