@@ -3,7 +3,11 @@ Requirements: req_001 (`requirements/req_001.md`, log `requirements/req_001.deci
 Last updated: 2026-11-21 · Last verified: 2026-11-21
 
 ## Position + next action
-req_002 is at stage 3 (`design-lld`), not started (stage 2 `design-hld` verified 2026-11-21: decided `HLD:` rows D-20..D-25; Q-14 and Q-15 answered by D-22 and D-23; no open row). Next: run `design-lld platform 2 1`; req_002 is designed now and built in phase 2 (req_001 D-161).
+req_002 is at stage 3 (`design-lld`), not started (stage 2 `design-hld` verified 2026-11-21: decided `HLD:` rows D-20..D-25; Q-14 and Q-15 answered by D-22 and D-23; no open row). Next chat: `/orchestrate-design platform 2 1` → starts design-lld (`design-lld platform 2 1`). The chat stops here at the session budget (53% of the window); req_002 is designed now and built in phase 2 (req_001 D-161).
+
+Resume notes for req_002:
+- For design-lld: option-resolution call flow; grant schema for per-option defaults, forced values and resource caps; usage rollup schema with the task dimension and the `other` bucket; task token length and character set; effective-options header format; `reasoning` field in stream deltas; `supported_parameters` on `/v1/models` and its consistency test with `/v1/capabilities`; openapi-fetch maintenance mode (TS library and web UIs).
+- For design-ai-arch (applies, narrow): engine-contract mapping fidelity, reasoning and structured-output cost, trust limits of forced and capped values.
 
 Resume notes for req_001 (the log is the source of truth; req_001 design is complete, stages 0–3, 5 and 6 done, stage 4 skipped; implementation is `/orchestrate-implement platform 1`, `next-steps.md` B1, PLT-C-001):
 - (a) PA's requirement file was written at `personal-assistant/docs/tracks/platform/phase_2/requirements/req_001.md`, not committed (D-17, D-50).

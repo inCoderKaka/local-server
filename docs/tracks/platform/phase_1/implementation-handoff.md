@@ -11,7 +11,7 @@ Only what is open. Rewritten whole at the end of each implementation session. Wo
 
 ## Open items
 
-- **Portal integration design** (D-161) runs before M5's developer guide: a requirement of its own through the design stages (`/orchestrate-design`, paste the user's ask of 2026-11-20). Open in it: the object's name and field list, grant caps per field, how a client discovers what a model supports (both PA and the portal hard-code it today), task tags through `LS-Request-Properties`.
+- **Portal integration design** (req_001 D-161) is `req_002` in this phase. On 2026-11-21 its stages 0 (ingest), 1 (discussion, closed D-19) and 2 (HLD, D-20..D-25) ran and verified; `design-status.md` records the resume point. **Next:** `/orchestrate-design platform 2 1`, which starts `design-lld`, then `design-ai-arch` (applies, narrow), `design-close`, `ticketize`. Tickets are phase 2 work (D-161); M5's developer guide waits on `design-close` to mark it planned.
 - Seen in the portal repo (not this repo's work, never edited from here): its `local` provider calls from the browser (blocked by D-148), its capability table marks `top_k` and penalties as supported (local-server answers `unsupported_parameter`), and its default `localUrl` is `http://localhost:8080` (local-server's API is 8484).
 - **M2+M3 gate:** fixes `5305511..2002da6` are committed, but the gate's final report never arrived; "gated" for F-027..F-037 is inferred from commits. Worklog has no gate rows for the M2+M3 and M4 gates.
 - PLT-F-038 stays `building` until the M1 second-machine check.
