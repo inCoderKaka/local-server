@@ -1,29 +1,29 @@
 # platform / phase_1 — implementation handoff
 
-Only what is open. Rewritten whole at the end of each implementation session. Work order: `finish-plan.md` (req_001 D-141..D-160).
+Only what is open. Rewritten whole at the end of each implementation session. Work order: `finish-plan.md` (req_001 D-141..D-163).
 
-## Last session (2026-11-15, passive, M4)
+## Last session (2026-11-20, live, M5 slice 1)
 
-- Built and gated: PLT-B-001 `4c6aca5` (CI actions pinned, Dependabot), PLT-C-003 `517aed6` (`release.yml`, `make release-dry`, macOS checklist), PLT-F-043 `9211b8d` (install, upgrade, uninstall scripts, bats and Pester, two CI jobs). The M4 gate over `2002da6..HEAD` implemented 6 of 95 candidates (`1d2afb2`, `037bc61`, `311520c`) and parked 36 items (`4569d61`).
-- Checked: real bats 60 of 60 on macOS (2 skip, no `setsid`); CI green on all three OSes, Pester on Windows. Never run: `release.yml` and the Windows script on a real Windows machine.
-- `implementation-status.md` rebuilt (M2, M3 and M4). State: tree clean, 72 unpushed commits. Spend about 0.65 window.
+- Built: PLT-C-004 `1683cfe` (user guide Host setup, README install steps for `v0.1.0-rc.1`, ROADMAP B10 built and B8 wording after the green CI run). Docs only, no code gate (D-143).
+- Second machine is a **Windows** consumer. `ops/checks/m1-checklist.md` updated for it (Git Bash runs `consumer-api-check`, admin login through the admin UI on 8486); new `ops/checks/m3-checklist.md` (`7aedfa0`). The user deferred both checks; they do not block M5.
+- Decided (`8550851`): D-161 client integration with the interactive-learning-portal is designed now and built in phase 2; D-162 engine options the OpenAI API lacks go in one namespaced body object; D-163 the portal reaches the host through its own server-side route, D-148 (no CORS) stays.
+- Spend 0.15 window (Opus main chat, $4.40).
 
 ## Open items
 
-- **M2+M3 gate:** fixes `5305511..2002da6` (parts 01 to 07) are committed, but the gate's final report never arrived (rate limit). "Gated" for F-027..F-037 is inferred from commits.
+- **Portal integration design** (D-161) runs before M5's developer guide: a requirement of its own through the design stages (`/orchestrate-design`, paste the user's ask of 2026-11-20). Open in it: the object's name and field list, grant caps per field, how a client discovers what a model supports (both PA and the portal hard-code it today), task tags through `LS-Request-Properties`.
+- Seen in the portal repo (not this repo's work, never edited from here): its `local` provider calls from the browser (blocked by D-148), its capability table marks `top_k` and penalties as supported (local-server answers `unsupported_parameter`), and its default `localUrl` is `http://localhost:8080` (local-server's API is 8484).
+- **M2+M3 gate:** fixes `5305511..2002da6` are committed, but the gate's final report never arrived; "gated" for F-027..F-037 is inferred from commits. Worklog has no gate rows for the M2+M3 and M4 gates.
 - PLT-F-038 stays `building` until the M1 second-machine check.
-- `docs-drift` flags `ROADMAP.md` B8 ("in progress"); it is true until the rc tag and a clean-account install. Remaining drift: 12 stale-decision warnings (D-41..D-47, D-50, D-141..D-144, D-20), `ticket-sizes.md` header totals, `ROADMAP.md:4` points at `next-steps.md`, `ai-mirror --check` not available here.
-- Worklog has no gate rows for the M2+M3 and M4 gates.
+- docs-drift: 12 known stale-decision warnings (D-41..D-47, D-50, D-141..D-144); `ticket-sizes.md` header totals; `ROADMAP.md:4` points at `next-steps.md`.
 
 ## Waiting on you
 
-1. ~~Push `main`~~ done 2026-11-15: CI is green on `c96069f` (run 43727505230, all 11 jobs incl. web-admin, install-scripts sh and ps on Windows PowerShell 5.1 and pwsh 7, race on ubuntu and macOS). The first run (7936f4b) failed on a doctor test that needed a local Ollama and on Pester tests sharing TestDrive state; both fixed in `c96069f`. `release.yml` has still never run (it needs a tag).
-2. **M1 second-machine check** (`ops/checks/m1-checklist.md`); **M3 browser check** on a second machine (D-146).
-3. **After green CI:** push `v0.1.0-rc.1`; run `ops/checks/macos-launchagent-checklist.md` on macOS 15 and 26; run the install command on a clean macOS user account; then push `v0.1.0` (D-156). Until `v0.1.0` exists, `releases/latest/download/install.sh` returns 404, so docs must show `releases/download/v0.1.0-rc.1/install.sh`.
-4. **Rulings** (parking lines in `phase-2-parking.md`): (a) system-mode service runs the user-owned binary as root; recommended `--run-as "$(id -un)"` or ship user mode only for rc.1; (b) the user service is registered before the first run, so declining it loops at login; recommended register after the first run.
-5. **I-455 (needs-ruling):** is `/usage` plus the in-process e2e harness enough for statement 5? Recommended yes, and turn off failure-trace snapshots.
-6. A reaffirm row for D-141..D-144 (D-133 pattern), recommended; and ROADMAP B8 wording, recommended "built, not yet run on real machines".
+1. **M1 and M3 second-machine checks** on the Windows machine (`ops/checks/m1-checklist.md`, then `ops/checks/m3-checklist.md`). Say "checks done" in a chat and the host side is read (usage rows, `tailnet request` log lines, consent, session, request and audit rows).
+2. Push `main` (4 new commits), then push `v0.1.0-rc.1`; run `ops/checks/macos-launchagent-checklist.md`; install on a clean macOS user account; then push `v0.1.0` (D-156).
+3. **Rulings** (parking lines): (a) system-mode service runs the user-owned binary as root; recommended `--run-as "$(id -un)"` or user mode only for rc.1; (b) the user service is registered before the first run; recommended register after it.
+4. **I-455:** is `/usage` plus the in-process e2e harness enough for statement 5? Recommended yes.
 
 ## Next steps
 
-M5: PLT-C-004 (host setup guide and README, show the rc.1 install URL), user guide, developer guide, HLD and LLD reconciled with the code (the LLD module map lacks `webui`), `/phase-retro platform 1`. Spin-offs stay in `phase-2-parking.md` (D-142).
+M5, in order: the portal integration design (D-161, a design chat), then the rest of the user guide (its "planned" banner and sections now built), HLD and LLD reconciled with the code (the LLD module map lacks `webui`), the developer guide (marks the portal integration as planned), `/phase-retro platform 1`.
