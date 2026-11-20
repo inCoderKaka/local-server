@@ -419,6 +419,19 @@ The [developer guide](../developer-guide.md) shows these from a client app's sid
 - **Platforms:** CI on macOS, Windows and Linux.
 - **Performance:** benchmarks that turn the §4 estimates into the measured SLOs.
 
+### 8.6 Things to ensure when the client contract changes (planned, req_002 D-23)
+
+A checklist for every later change, so that later chats keep these consistent. It carries the rule of [req_002 D-23](../tracks/platform/phase_1/requirements/req_002.decisions.md) and the decided rows it points to; it adds no new decision. Recorded in [ADR 0007](../adr/0007-req002-system-design.md). A change to any item below changes all the places listed in that item, in the same change.
+
+1. **A new option or standard field** (D-03, D-11, D-12): the spec (`api/openapi.yaml`), the one option table in the engine port, `validateChat`, the engine adapter's mapping, the capability builder that feeds `GET /v1/capabilities` and the `supported_parameters` names on `GET /v1/models`, the admin API's validation, the effective-options header, a contract test, and the glossary.
+2. **A spec change** (D-25): the TypeScript library's generated types are regenerated in the same commit, CI checks they match, and the library's semver is bumped against the API. The developer guide is updated and marks a planned feature as planned.
+3. **Discovery must agree with enforcement** (D-20, D-23): `planChat`, `/v1/capabilities` and `/v1/models` read one builder, and the test that checks they agree must keep passing. Anything a client can be refused for appears in discovery first.
+4. **Client requirement files** (req_002 D-17, D-18; req_001 D-145): the portal's and personal-assistant's requirement files are rewritten whenever the contract changes, and are never committed from this repo.
+5. **Cost and caps** (D-14, req_001 D-38): an option that costs host memory or time is a resource option with a cap, and every time, size or threshold it needs is a host-owned setting, never a constant.
+6. **Content stays out** (D-24, req_001 D-31, D-40): prompts, responses, thinking text, response schemas and images are never logged or stored by default, and a new field must not carry content into a log, a usage record or a receipt.
+7. **Usage dimensions** (D-15, D-21): a new dimension on usage needs a migration, a rollup change, the usage API and pages, and a bound on how many distinct values it can take. The canonical leaf and the receipt change only with a version bump.
+8. **Engine claims** (D-27, D-24): a field mapping or counting rule that rests on an **Unsourced** claim about the engine is pinned by a contract test against a real engine.
+
 ## 9. Future: scale-out and the central service (proposal, not decided)
 
 Phase 1 ships only the seams for this: the `directory` port (a no-op), host identity keys, `plan_id` and category tags on principals, benchmark fields in `/v1/capabilities`, and sharing grants (D-02, D-45). How the central service is built is decided in its own phase's design. The sketch below is the current proposal, using Google Cloud where it fits (D-59).
