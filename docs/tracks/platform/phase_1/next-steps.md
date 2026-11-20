@@ -71,3 +71,48 @@ One item per step, in batch › slice order; `∥` = slices that may run in para
 Early starters (narrow deps, can fill a free builder slot ahead of their position): PLT-F-045. PLT-F-006 done 2026-10-31 (`5cd11e2`). PLT-C-002 done 2026-10-31 (`3cf4f3f`).
 
 Before the consumer-accounts ticket (PLT-F-027) builds: the user approves the legal drafts (PLT-C-002, built; open points in each draft's review note).
+
+## req_002 — client options, discovery and the portal integration (ticketized 2026-11-21)
+
+**Build phase 2** (req_001 D-164): these tickets are outside the phase 1 finish line, the milestones and the budget of `finish-plan.md`. One item per step, in batch › slice order; `∥` = slices that may run in parallel (max 3 builders). **gate it** = touches a shared contract or a security surface, reviewed at the milestone gate (req_001 D-143). Every slice whose ticket edits `api/openapi.yaml` serialises with any other spec edit; PLT-F-114 holds the whole spec change first, so later spec edits are small.
+
+### B11 — Contract and engine
+
+1. S53 **PLT-F-114** Spec for the whole req_002 contract (deps: —) **gate it**
+2. S54 **PLT-F-115** Option table, engine port and Ollama mapping (deps: PLT-F-114) **gate it**  ∥  S55 **PLT-F-116** Grants: per-model options and resource caps storage (deps: PLT-F-114) **gate it**
+3. S56 **PLT-F-117** Grants admin API: per-model options and caps (deps: PLT-F-115, PLT-F-116)  ∥  S57 **PLT-C-021** Real-Ollama contract tests, first set (deps: PLT-F-115)
+
+### B12 — Policy, planner and header
+
+4. S58 **PLT-F-118** Policy decision: defaults, forced values, caps, task and rule caps (deps: PLT-F-116) **gate it**  ∥  S59 **PLT-F-119** Reasoning output (deps: PLT-F-115)  ∥  S60 **PLT-F-120** Model-info cache and support-list builder (deps: PLT-F-115)
+5. S61 **PLT-F-121** Planner: option resolution and capability check (deps: PLT-F-118, PLT-F-120) **gate it**
+6. S62 **PLT-F-122** Effective-options header (deps: PLT-F-121) **gate it**
+7. S63 **PLT-F-123** Client keep-alive within a cap (deps: PLT-F-122)
+8. S64 **PLT-F-124** Jobs carry options, task and the header (deps: PLT-F-123, PLT-F-119) **gate it**
+
+### B13 — Discovery, images and usage by task
+
+9. S65 **PLT-F-125** Capability discovery endpoints (deps: PLT-F-117, PLT-F-120, PLT-F-121)  ∥  S66 **PLT-F-126** Image input for vision (deps: PLT-F-121, PLT-F-124) **gate it**  ∥  S67 **PLT-F-127** Usage storage: migration 0005 and record columns (deps: PLT-F-118) **gate it**
+10. S68 **PLT-F-128** Usage by task: grouping, cap and invariant (deps: PLT-F-127)
+11. S69 **PLT-F-129** Usage API: task filter and field (deps: PLT-F-128)
+12. S70 **PLT-F-130** Usage pages: task (deps: PLT-F-129)
+
+### B14 — Trace and graph
+
+13. S71 **PLT-F-131** Model fingerprint (deps: PLT-F-121, PLT-F-127)
+14. S72 **PLT-F-132** Pipeline graph: chat on named nodes (deps: PLT-F-124, PLT-F-119, PLT-F-125, PLT-F-126, PLT-F-131) **gate it**
+15. S73 **PLT-F-133** Pipeline graph: jobs on the graph (deps: PLT-F-132)
+16. S74 **PLT-F-134** Step trace (deps: PLT-F-132, PLT-F-127)
+
+### B15 — Clients, UI and requirement files
+
+17. S75 **PLT-F-135** TypeScript client library (deps: PLT-F-125, PLT-F-122, PLT-F-119, PLT-F-123, PLT-F-131) **gate it**
+18. S76 **PLT-C-022** npm release workflow for the TypeScript library (deps: PLT-F-135) **gate it**  ∥  S77 **PLT-F-136** Admin UI: per-model options and caps on grants (deps: PLT-F-117, PLT-F-125)  ∥  S78 **PLT-F-137** Admin UI: rule caps for keep-alive and thinking (deps: PLT-F-118); run the three together only if none adds a component to `web/shared`
+19. S79 **PLT-F-138** Consumer page: options and caps (deps: PLT-F-125)  ∥  S80 **PLT-C-023** Real-Ollama contract tests, second set (deps: PLT-F-126, PLT-F-131)
+20. S81 **PLT-C-024** Portal requirement file (deps: PLT-F-135, PLT-C-022, PLT-F-122, PLT-F-131)  ∥  S82 **PLT-C-025** personal-assistant requirement file update (deps: PLT-F-135, PLT-C-022, PLT-F-122, PLT-F-131); both are reviewed by the user and never committed from here
+
+### B16 — Needs scoping
+
+21. S83 **PLT-F-139** Host-side persistence of AI calls on client consent (deps: PLT-F-134); **blocked-on deferred Q-25**: the mechanism is not designed, so scoping comes first.
+
+Owed from the user: set up the npm trusted publisher and the package scope (PLT-C-022). The defaults marked proposed in the log (`policy.task.max_length` 64, `usage.task.max_per_window` 50, `gateway.model_info_ttl` 5m, `scheduler.keep_alive_max` 1h, `reasoning_effort` values `none`, `low`, `medium`, `high`) are confirmed by the builder of each ticket. Parked, not tickets: model classes (D-08), the audio seam (D-16) and a thinking budget (D-38).
