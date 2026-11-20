@@ -142,6 +142,9 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Task | A short name a client gives to the purpose of a call, sent as one standard key of `LS-Request-Properties`. Usage records it as a dimension, and policy rules can match on it. Not the Windows logon task. Planned (phase 2). | Task | req_002 D-15 |
 | Reasoning | The text a model produces while thinking, returned in a `reasoning` field on the message and on stream deltas. Its tokens count as output tokens. It is content: never logged or stored. Planned (phase 2). | Reasoning | req_002 D-24 |
 | TypeScript client library | A small package in this repo, published to npm, that wraps capability discovery, the engine options, the task and the effective options for TypeScript clients, with types generated from the spec. Planned (phase 2). | TypeScript library | req_002 D-13, D-25 |
+| Model fingerprint | An opaque string returned as `system_fingerprint` in an answer and in every stream chunk, built from the engine and the digest of the model that served the call, so a client can tell which weights answered. The host also keeps the full digest on the usage record. Planned (phase 2). | Model fingerprint | req_002 D-32 |
+| Step trace | The list of steps one request went through (each with its start, end, outcome and error code), kept as numbers and ids only on the usage record, so the host owner sees which step was slow or refused. Never holds content. Planned (phase 2). | — | req_002 D-37 |
+| Pipeline node | One named step of the host's request pipeline (identify, evaluate, validate, plan, admit, infer, meter) with its own tunable settings; only infer calls a model. Planned (phase 2). | — | req_002 D-37 |
 
 ## Data and sharing
 

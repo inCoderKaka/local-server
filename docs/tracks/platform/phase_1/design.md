@@ -84,3 +84,12 @@ The HLD and LLD closed on 2026-11-21, recorded in [ADR 0007](../../../adr/0007-r
 - **Thinking and tasks (D-21, D-24, D-28):** thinking text is returned as `reasoning` and counts as output; task names are free-form and bounded, with over-cap values recorded as `other`.
 - **Schema (D-29, D-30):** grants migration 0004 (per-model option rows and two resource caps) and usage migration 0005 (`use_record.task` and a rebuilt `use_rollup`); rules carry caps only.
 - **Portal (D-22):** the Vercel deployment joins the tailnet from inside the function, with no fallback; it is unproven and recorded as a risk.
+
+### ai-architecture
+
+Closed on 2026-11-21, recorded in [ADR 0008](../../../adr/0008-req002-ai-architecture.md). The design is in [HLD §6.15](../../../design_docs/hld.md) and the planned pipeline graph in the [LLD](../../../design_docs/lld.md). Built in phase 2. The host has no prompt, agent or graph of its own; the AI side is the model call it serves for client apps.
+- **Trace (D-32, D-33, D-37):** a model fingerprint in the answer and a stored digest name the exact model; the chat pipeline becomes a named-node graph with an always-on, content-free step trace. Client apps own tunable and comparable steps.
+- **Saved I/O (D-34):** client apps persist every request, response and feedback. The host stays content-free by default; host-side persistence on the client's consent is accepted in principle, with its mechanism deferred (Q-25) to a phase-2 slice.
+- **Trust and prompts (D-35, D-36):** pass-through, with no model substitution, JSON repair or prompt injection; the header states the overflow policy.
+- **Tokens (D-38):** the output cap covers thinking, with no host headroom and a typed thinking-exhausted signal in the library.
+

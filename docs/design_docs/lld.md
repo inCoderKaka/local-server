@@ -148,7 +148,7 @@ Planned, built in phase 2 ([ADR 0007](../adr/0007-req002-system-design.md)). Mig
 | Migration | Change |
 |---|---|
 | `internal/grants/migrations/0004_options.sql` | New table `grt_version_model_option`: `version_id`, `model_id`, `option` (the neutral name, no CHECK list so a new option needs no migration), `mode` (`default` or `forced`), `value` (JSON text); primary key `(version_id, model_id, option)`; foreign key `(version_id, model_id)` to `grt_version_model` with `ON DELETE CASCADE`; the same no-update and no-delete triggers. `grt_version_model` gains `keep_alive_cap_seconds INTEGER` (at least 0, empty means no grant cap) and `thinking_allowed INTEGER` (0 or 1, empty means allowed). Its `context_cap` and `max_output_tokens` stay as the other two resource caps |
-| `internal/usage/migrations/0005_task.sql` | `use_record` gains `task TEXT CHECK (task IS NULL OR task <> '')`. `use_rollup` is rebuilt, because SQLite cannot change a primary key: a new table with `task TEXT NOT NULL DEFAULT ''` in the key `(granularity, bucket_start, consumer_id, access_key_id, model, task)`, every old row copied with `task = ''`, the old table dropped, the new one renamed, the consumer index recreated with `task` last and the keyset cursor gaining `task` last. `use_rollup_state` and the retention rules stay |
+| `internal/usage/migrations/0005_task.sql` | `use_record` gains `task TEXT CHECK (task IS NULL OR task <> '')`. `use_rollup` is rebuilt, because SQLite cannot change a primary key: a new table with `task TEXT NOT NULL DEFAULT ''` in the key `(granularity, bucket_start, consumer_id, access_key_id, model, task)`, every old row copied with `task = ''`, the old table dropped, the new one renamed, the consumer index recreated with `task` last and the keyset cursor gaining `task` last. `use_rollup_state` and the retention rules stay. Extended by the AI-architecture stage ([ADR 0008](../adr/0008-req002-ai-architecture.md), D-32, D-37): `use_record` also gains a nullable `model_digest TEXT` (the full digest of the model that served the call) and a nullable `steps` JSON text column (the per-step trace, numbers and ids only); neither is in the canonical leaf or the receipt |
 
 - **Per model:** options hang off `grt_version_model` because the caps already live per model, so a host can allow thinking for one model and not another. **Values** are validated in code by one option table in the engine port (name, type, bounds, resource or plain), read by `validateChat`, the admin API and the discovery builder.
 - **Policy rules:** `caps` in `rule_v1.schema.json` gains optional `keep_alive_seconds` and `thinking` (boolean), smallest wins and any not-allowed wins, additive in format version 1. **Rules carry caps only**, not defaults or forced values. **Judgement:** forced values have no clean merge across rules. An older binary would refuse such a rule, which is acceptable because migrations only go forward.
@@ -412,7 +412,42 @@ Planned ([ADR 0007](../adr/0007-req002-system-design.md)).
 - **Jobs (F2):** steps 2 to 4 run at submission; the sealed payload also holds the options and the task; the job is decided again at admission, so options resolve then, and its result carries the same header from the admission-time resolution, stored inside the sealed result.
 - **Discovery:** one builder yields the per-model support list for `planChat`, `GET /v1/capabilities` and the `supported_parameters` names on `GET /v1/models`. `/v1/capabilities` shows grant-level values after the key's narrowing and does not apply policy rules, so the header is the truth for one request.
 - **Ollama mapping (adapter only):** `options.top_k`, `min_p`, `repeat_penalty`, `presence_penalty`, `frequency_penalty`; `context_size` becomes `num_ctx`; `keep_alive` is the top-level `keep_alive`; `json_object` becomes `format: "json"` and `json_schema` becomes `format` set to the schema; `reasoning_effort` `none` becomes `think: false`, and `low`, `medium` or `high` becomes the same level string for a model whose `/api/show` lists levels, else `think: true`. `ModelInfo` gains the model's thinking levels, and the capability check reads `thinking`.
+- **Extended by the AI-architecture stage ([ADR 0008](../adr/0008-req002-ai-architecture.md)):** the answer and every stream chunk carry `system_fingerprint` built from the model's digest (D-32); the effective-options header also states the overflow policy in force, `refuse` or `truncate` (D-36); thinking tokens share the output cap and the library signals an empty, length-limited answer (D-38).
 - **Sources:** [Ollama OpenAPI spec](https://docs.ollama.com/openapi.yaml), [structured outputs](https://docs.ollama.com/capabilities/structured-outputs), [thinking](https://docs.ollama.com/capabilities/thinking), [OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility), [OpenAI layer source](https://raw.githubusercontent.com/ollama/ollama/main/openai/openai.go), [API types](https://raw.githubusercontent.com/ollama/ollama/main/api/types.go). **Unsourced:** whether `eval_count` includes thinking tokens, a live `/api/show` response listing `tools`, and Ollama's behaviour for `think: false` on a model without thinking (the gateway sends nothing then). Repo: `internal/gateway/chat.go`, `validate.go`, `pipeline.go`, `jobs.go`, `status.go`.
+
+### Chat pipeline graph, req_002 (planned, D-37)
+
+Planned ([ADR 0008](../adr/0008-req002-ai-architecture.md)). The chat pipeline becomes a **named-node graph in this repo**: a small pipeline package where nodes are named functions over one typed state, plus a runner that records steps. There is no external framework, `CGO_ENABLED=0` is unaffected, and it is a refactor of the steps that already run in this order (`internal/gateway/chat.go`), estimated M.
+
+**State `CallState`** (in memory per request; **C** marks content, never logged or stored except in a consented checkpoint)
+
+| Field | Type | Written by |
+|---|---|---|
+| `run_id` | usage id (UUID) | identify |
+| `identity` | consumer, key, grant version | identify |
+| `request` **C** | messages, options as sent, task | validate |
+| `decision` | caps, defaults and forced values, priority, task | evaluate |
+| `plan` | effective options, numCtx, numPredict, keep-alive, overflow policy, model support | plan |
+| `ticket` | admitted, queue wait | admit |
+| `result` **C** | reasoning text, content, finish reason, token counts | infer |
+| `usage` | usage record, receipt, fingerprint | meter |
+| `steps[]` | per node: id, start, end, outcome, error code | every node appends |
+
+**Nodes**
+
+| Id | Kind | Does | Tunables | Fallback |
+|---|---|---|---|---|
+| `identify` | deterministic | key or session to identity, rate and quota checks | `limits.*` | refuse |
+| `evaluate` | deterministic | policy rules, windows, caps | rules, `policy.*` | refuse |
+| `validate` | deterministic | fields, ranges, task | `limits.max_body_bytes`, `policy.task.max_length` | refuse |
+| `plan` | deterministic | resolve options, capability check, header | grant defaults, forced values and caps, `gateway.model_info_ttl` | refuse, or skip and report (D-27) |
+| `admit` | deterministic | queue, load model | `scheduler.*` | queue-full refusal |
+| `infer` | **model call** | the engine call | the options object, `gateway.engine_timeout`, stream limits | none (D-35) |
+| `meter` | deterministic | usage record, ledger, receipt | metering attempts, timeout, delay | unmetered signed receipt |
+
+- **Edges:** linear. Any node's error goes to a typed error response. A client abort during `infer` goes to `meter` as `aborted` and a failed stream as `failed`, as today. A job runs `identify`, `evaluate`, `validate` and queues, and its worker runs `evaluate`, `plan`, `admit`, `infer`, `meter`, deciding again at admission. No interrupts. No retries of `infer`; metering retries stay as they are.
+- **Per-step trace, always on, no content:** `meter` writes `steps` as numbers and ids only into `use_record.steps`, so the owner sees which step was slow or refused.
+- **Checkpoints and replay, only for consented calls:** a checkpoint holds the state with content and is written only when the client consented to host persistence (the deferred mechanism, Q-25), and for a job only while its sealed payload exists. Replay re-runs from `plan` or `infer` with a changed tunable and compares with the original, as a new run with its own usage id flagged as a replay, so `meter` still writes one record per run. Replay is not the same answer unless a seed is set. The checkpoint store and the replay API are part of Q-25.
 
 ## 6. Concurrency model
 
