@@ -84,7 +84,95 @@ Every answer comes with a signed **usage receipt**. Your app can keep them. Late
 
 ## Host setup
 
-> Filled in when the installers ship. It will cover: install and upgrade commands; setting up Ollama and Tailscale; how apps hosted elsewhere (for example on Fly.io) reach you; public mode and its limits; keeping a headless machine logged in; why closing the lid stops sharing; why your `*.ts.net` name is publicly visible; why renaming the computer breaks consumers' passkeys; building from source; and checking a download's provenance.
+> The first release is the pre-release `v0.1.0-rc.1`. Only the macOS (Apple silicon) build has run on a real machine; the Linux and Windows builds and installers are tested in CI only.
+
+### Install
+
+**macOS and Linux**, in a terminal:
+
+```sh
+curl -fsSL https://github.com/inCoderKaka/local-server/releases/download/v0.1.0-rc.1/install.sh | sh -s -- --version v0.1.0-rc.1
+```
+
+**Windows**, in PowerShell:
+
+```powershell
+$env:LOCAL_SERVER_VERSION = 'v0.1.0-rc.1'
+irm https://github.com/inCoderKaka/local-server/releases/download/v0.1.0-rc.1/install.ps1 | iex
+```
+
+Once `v0.1.0` is out, the version can be left out and `releases/latest/download/install.sh` (or `install.ps1`) installs the latest release.
+
+The installer:
+
+1. Downloads the program for your computer and checks it against the release's `SHA256SUMS`. If the check fails, it stops and changes nothing.
+2. Puts it in `~/.local/bin` (Windows: `%LOCALAPPDATA%\Programs\local-server`) and offers to add that folder to your PATH.
+3. Offers to install Ollama and Tailscale if they are missing. Every question defaults to no, and nothing outside the install folder changes without your yes.
+4. Asks you to run `local-server serve` once yourself. The first run creates the data folder and prints a one-time **recovery code**. Write it down; it is the only way to restore a backup.
+5. Offers to start local-server in the background whenever you log in. On macOS and Linux, `--system-service` starts it at boot instead, for the whole machine (needs `sudo`).
+
+Run `local-server doctor` at any time. It checks the data folder, Ollama, Tailscale and the listeners, and names the fix for anything that is wrong.
+
+**Upgrade:** run the same command with `upgrade` (macOS and Linux: `| sh -s -- upgrade`; Windows: set `$env:LOCAL_SERVER_ACTION = 'upgrade'` first). **Uninstall:** the same with `uninstall`. It removes the program, its background service and its PATH line, then asks whether to delete the data folder too (the default is to keep it). An upgrade never touches your data.
+
+### Set up Ollama
+
+local-server talks to Ollama on your own computer (`http://127.0.0.1:11434` by default). Pull the models you want to share, for example:
+
+```sh
+ollama pull llama3.2:3b
+ollama pull nomic-embed-text
+```
+
+Model names must match exactly as Ollama lists them (Ollama adds `:latest` when no tag is given).
+
+### Set up Tailscale
+
+1. Install the Tailscale app on this computer and log in.
+2. In the Tailscale admin console, on the DNS page, turn on **MagicDNS** and **HTTPS Certificates**.
+3. Restart local-server. It now also listens on your private network, with HTTPS, at your computer's `*.ts.net` name (`local-server doctor` shows it):
+   - `https://<name>.ts.net:8484`: the API that apps call with an access key.
+   - `https://<name>.ts.net:8485`: the consumer page, where invited people sign up and log in. Set the host setting `invites.link_base_url` to this address, so invite links are complete.
+   - `https://<name>.ts.net:8486`: the admin page from another computer, only when you turn on `serve.tailnet_admin_enabled` and restart.
+
+On this computer, the admin page is at `http://127.0.0.1:8485`. If Tailscale is missing or logged out, local-server still starts, serves only this computer, and says so in its log, in `doctor` and on the admin page.
+
+### Let people and apps reach you
+
+- **People with their own computer:** share this machine with them in Tailscale, or invite them into your tailnet as users. Tailscale's free personal plan allows 6 users and is for non-commercial use.
+- **Apps hosted elsewhere** (for example on Fly.io): the app's server must join your tailnet as a node that a user owns. A tagged node from another tailnet cannot reach a shared machine.
+- **Public mode** (planned): an opt-in mode through Tailscale Funnel, so consumers need no Tailscale. It is not built yet. Funnel is a beta feature, works only on ports 443, 8443 and 10000 and on `*.ts.net` names, and Tailscale's free plan is for non-commercial use.
+
+### Keep the computer available
+
+- **Sleep:** while sharing is on (not paused and not in quiet hours), local-server keeps the computer from sleeping when idle. It cannot stop sleep when you close a laptop's lid, so a closed laptop stops sharing.
+- **Headless computers:** the default background service starts when you log in. On a computer with no screen, turn on automatic login, or install with `--system-service` so it starts at boot.
+
+### Things to know
+
+- **Your `*.ts.net` name is public.** HTTPS certificates are listed in public Certificate Transparency logs, so anyone can see the name (not reach the computer).
+- **Renaming the computer** changes its `*.ts.net` name. Consumers' passkeys are tied to that name and stop working; they log in with their password and add a new passkey.
+
+### Build from source
+
+You need Go and, for the web pages, Node.js with npm.
+
+```sh
+git clone https://github.com/inCoderKaka/local-server && cd local-server
+make build
+```
+
+This builds both web pages and writes `bin/local-server`. A plain `CGO_ENABLED=0 go build ./cmd/local-server` also works without npm, but the admin and consumer pages are then one-page placeholders. Put the built `local-server` in a folder on your PATH.
+
+### Check a download's provenance
+
+Every release binary and `SHA256SUMS` carry a signed build-provenance attestation from GitHub Actions. With the GitHub CLI:
+
+```sh
+gh attestation verify local-server_darwin_arm64 --repo inCoderKaka/local-server
+```
+
+The installer checks the checksum; the attestation also proves which workflow built the file.
 
 ## Questions
 

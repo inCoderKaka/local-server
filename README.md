@@ -47,11 +47,24 @@ flowchart LR
 
 ## Install
 
-Installers ship with the first release (batch B8). The steps will be in the [user guide](docs/user-guide.md#host-setup). To build from source:
+The first release is the pre-release `v0.1.0-rc.1`. Only the macOS (Apple silicon) build has run on a real machine; the Linux and Windows builds are tested in CI only.
+
+```sh
+# macOS and Linux
+curl -fsSL https://github.com/inCoderKaka/local-server/releases/download/v0.1.0-rc.1/install.sh | sh -s -- --version v0.1.0-rc.1
+```
+
+```powershell
+# Windows (PowerShell)
+$env:LOCAL_SERVER_VERSION = 'v0.1.0-rc.1'
+irm https://github.com/inCoderKaka/local-server/releases/download/v0.1.0-rc.1/install.ps1 | iex
+```
+
+The installer checks the download against the release's checksums and asks before it changes anything outside its own folder. Setting up Ollama and Tailscale, reaching the host from other machines, upgrading, building from source and checking a release's provenance are in the [user guide's host setup](docs/user-guide.md#host-setup). To build from source:
 
 ```bash
 git clone https://github.com/inCoderKaka/local-server && cd local-server
-CGO_ENABLED=0 go build ./cmd/local-server
+make build   # needs Go and npm; CGO_ENABLED=0 go build ./cmd/local-server works without npm, with placeholder web pages
 ```
 
 ## Licence
