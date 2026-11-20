@@ -98,6 +98,11 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Retention rule | A setting saying how long one kind of record is kept before the retention worker deletes it. | How long we keep … | D-38, D-40 |
 | Setting owner | The one party (platform admin, host or consumer) responsible for a configurable value. It sets the value freely; there is no bounds hierarchy between parties. | — | D-38, D-54 |
 | Capabilities | The caller's effective limits after key narrowing, plus remaining quota (`/v1/capabilities`). | — | D-32 |
+| Capability discovery | The host's answer, per model and per caller, to which request fields and options the model supports, with their ranges and the grant's defaults, forced values and caps, so a client builds its settings from the answer and not from a hard-coded table. Planned (phase 2). | — | req_002 D-13 |
+| Default option | A value the host sets, per grant, for an option. It applies when the client sends none, and a client value replaces it within the caps. Planned (phase 2). | Default | req_002 D-07 |
+| Forced value | A value the host sets, per grant, for an option that replaces the client's value. The answer reports what actually ran (see Effective options). Planned (phase 2). | Forced value | req_002 D-07 |
+| Resource option | An option that costs host memory or time: `context_size`, the output length, `keep_alive` and thinking. Only these get range caps per grant; every other option gets a default or a forced value. Planned (phase 2). | — | req_002 D-14 |
+| Model class | A label the host gives a model (`fast`, `mid` or `strong`), returned by capability discovery, so a client's presets resolve on any host without model names. Scoped for the future. | Model class | req_002 D-08 |
 | Access key narrowing | Limits a key adds on top of its consumer's grant. They can only narrow the grant, never widen it. | — | D-25 |
 | Bound node | The tailnet node an access key is restricted to, checked through Tailscale WhoIs. The host stores both Tailscale's stable node ID (the one checked) and the node's machine name (for people to recognise it). | — | D-39, D-159 |
 | Lockout | An access key's source address or key prefix, or a login, blocked after repeated failures, for durations set by the host's lockout settings. A successful key check clears only its key prefix's counter. | — | D-24, D-99 |
@@ -130,6 +135,9 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Rollup bucket | The UTC minute, hour or day that one rollup row sums, identified by its `bucket_start`. Not the storage bucket an off-host backup is sent to. | — | D-27 |
 | Outbox | The table where an event and its pending webhook deliveries are written in the same transaction, so none are lost. | — | D-29 |
 | Webhook endpoint | A URL a consumer or host registers to receive signed event notifications. | Webhook | D-29 |
+| Engine options | The optional settings of a chat request that the OpenAI API lacks, sent in one object in the request body with names owned by local-server and not by any engine (`top_k`, `min_p`, `repeat_penalty`, `context_size`, `keep_alive`). Each engine adapter maps them to its engine's own options. Planned (phase 2). | Options | req_002 D-03, D-11 |
+| Effective options | The option and sampling values a request actually ran with, after the grant's caps, defaults and forced values, reported to the client in a response header so nothing is clamped silently. Planned (phase 2). | Effective options | req_002 D-06 |
+| Task | A short name a client gives to the purpose of a call, sent as one standard key of `LS-Request-Properties`. Usage records it as a dimension, and policy rules can match on it. Not the Windows logon task. Planned (phase 2). | Task | req_002 D-15 |
 
 ## Data and sharing
 

@@ -62,3 +62,16 @@ The HLD and LLD closed on 2026-10-30, recorded in [ADR 0002](../../../adr/0002-r
   - D-60..D-62: fuzz targets on untrusted input, a race-detector CI job (the only cgo use), SLSA provenance and govulncheck.
   - D-63: the repository is public (except one gitignored owner file); the docs set is the README, roadmap, HLD, LLD, user guide and developer guide.
   - D-64..D-69 (review-gate questions): backups minimize job content and sessions by default, a per-table host choice; a dedicated checkpoint-signing key; webhooks to private or tailnet addresses denied unless the host allows them; the host is alerted when platform sync keeps failing; after a restore, jobs not yet finished whose payload was left out fail with `payload_minimized`; a table can be left out of backups only if every table that references it is too.
+
+## req_002 — portal integration and more tunable request parameters
+
+Requirement: [`requirements/req_002.md`](requirements/req_002.md) · Decisions log: [`requirements/req_002.decisions.md`](requirements/req_002.decisions.md)
+
+### discussion
+
+Closed on 2026-11-21 (D-19), recorded in [ADR 0006](../../../adr/0006-req002-discussion.md). Designed now and built in phase 2, after `v0.1.0`; the phase 1 scope freeze stands (D-02).
+- **Contract (D-03, D-11, D-12):** engine options the OpenAI API lacks travel in one namespaced object with engine-neutral names (`top_k`, `min_p`, `repeat_penalty`, `context_size`, `keep_alive`). `frequency_penalty`, `presence_penalty`, `response_format` and `reasoning_effort` become standard fields. Every new field is optional, so old clients keep working.
+- **Grant control (D-06, D-07, D-14):** the host can set a default or a forced value per option on a grant, range caps apply to resource options only, and every answer reports the options that actually ran.
+- **Discovery and clients (D-13, D-15, D-18):** capability discovery plus a small TypeScript client library make the integration standard; a task key in `LS-Request-Properties` names the purpose of a call and becomes a usage dimension. personal-assistant moves to the same contract in the same release.
+- **Portal (D-10, D-16, D-17):** the portal's Vercel deployment joins the tailnet; it may run text and vision tasks here, with voice kept on cloud providers and a seam for a future audio API. The portal's own code is changed only from its repo, through a requirement file written from here.
+- **Extras (D-08, D-09):** keep-alive settable by clients within a host cap is accepted; model classes (`fast`, `mid`, `strong`) are scoped for the future.
