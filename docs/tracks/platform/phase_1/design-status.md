@@ -1,9 +1,9 @@
 # Design status — platform phase_1
 Requirements: req_001 (`requirements/req_001.md`, log `requirements/req_001.decisions.md`); req_002 (`requirements/req_002.md`, log `requirements/req_002.decisions.md`)
-Last updated: 2026-11-20 · Last verified: 2026-11-20
+Last updated: 2026-11-21 · Last verified: 2026-11-21
 
 ## Position + next action
-req_002 is at stage 1 (`req-discuss`), not started (stage 0 `req-ingest` + `req-formalize` verified 2026-11-20; 9 open questions Q-01..Q-09). Next: run `req-discuss platform 2 1`; req_002 is designed now and built in phase 2 (req_001 D-161).
+req_002 is at stage 2 (`design-hld`), in progress (stage 1 `req-discuss` verified 2026-11-21: D-03..D-18 decided, D-19 closes the discussion stage; the two open questions Q-14 and Q-15 are `HLD:` questions). Next: run `design-hld platform 2 1`; req_002 is designed now and built in phase 2 (req_001 D-161).
 
 Resume notes for req_001 (the log is the source of truth; req_001 design is complete, stages 0–3, 5 and 6 done, stage 4 skipped; implementation is `/orchestrate-implement platform 1`, `next-steps.md` B1, PLT-C-001):
 - (a) PA's requirement file was written at `personal-assistant/docs/tracks/platform/phase_2/requirements/req_001.md`, not committed (D-17, D-50).
@@ -27,13 +27,13 @@ Open questions: 0 · Deferred: 0 · Artifacts: ADR 0001, ADR 0002, ADR 0003, exe
 | Stage | Skill | Status | Evidence / skip record | Verified |
 |---|---|---|---|---|
 | 0 | req-ingest | done | req_002.md (byte-identical to the intake scratch file) and req_002.decisions.md present; header and all five sections found; req_002.formal.md exists (not required) | verified 2026-11-20 |
-| 1 | req-discuss | not started | no discussion row yet; 9 unprefixed open rows (Q-01..Q-09); Software-touching? yes (D-01); no D-NN closes the discussion stage | — |
-| 2 | design-hld | not started | — | — |
+| 1 | req-discuss | done | no unprefixed open row (open rows: Q-14, Q-15, both `HLD:`; Deferred empty); Software-touching? yes (D-01); D-19 closes the discussion stage; topic tags [fit], [already-extensible], [bigger-changes], [extra-use-cases] covered by D-03..D-09; every coverage row's Uncovered? is no | verified 2026-11-21 |
+| 2 | design-hld | in progress | no decided `HLD:` row yet; open `HLD:` rows Q-14 and Q-15 | — |
 | 3 | design-lld | not started | — | — |
 | 4 | design-ai-arch | not started | — | — |
 | 5 | design-close | not started | — | — |
 | 6 | ticketize | not started | — | — |
-Open questions: 9 · first: Q-01 Where does the portal's server run when it calls this host? · Deferred: 0 · Artifacts: formal file (req_002.formal.md)
+Open questions: 2 · first: Q-14 HLD: can a Vercel function join a tailnet (userspace networking, an ephemeral or reusable auth key, tags and ACLs that limit it to the host's consumer API port), and what does it cost in cold start, secret handling and Tailscale plan limits · Deferred: 0 · Artifacts: formal file (req_002.formal.md)
 
 ## Skips
 Stage 4 (req_001) — skipped (D-20, no AI component of its own); say "run design-ai-arch anyway" to reverse.
