@@ -75,3 +75,12 @@ Closed on 2026-11-21 (D-19), recorded in [ADR 0006](../../../adr/0006-req002-dis
 - **Discovery and clients (D-13, D-15, D-18):** capability discovery plus a small TypeScript client library make the integration standard; a task key in `LS-Request-Properties` names the purpose of a call and becomes a usage dimension. personal-assistant moves to the same contract in the same release.
 - **Portal (D-10, D-16, D-17):** the portal's Vercel deployment joins the tailnet; it may run text and vision tasks here, with voice kept on cloud providers and a seam for a future audio API. The portal's own code is changed only from its repo, through a requirement file written from here.
 - **Extras (D-08, D-09):** keep-alive settable by clients within a host cap is accepted; model classes (`fast`, `mid`, `strong`) are scoped for the future.
+
+### design-review
+
+The HLD and LLD closed on 2026-11-21, recorded in [ADR 0007](../../../adr/0007-req002-system-design.md). The design is in [HLD §6.14](../../../design_docs/hld.md) and the planned req_002 subsections of the [LLD](../../../design_docs/lld.md). Built in phase 2.
+- **Resolution (D-20, D-26, D-27):** the existing decision and enforcement split resolves effective options: grants and policy rules own defaults, forced values and resource caps, the gateway's planner combines them with the client's values and the model's capabilities, and the engine adapter only maps names. The chat stream gains a reasoning chunk and the chunk reader surfaces thinking-only chunks.
+- **Discovery and clients (D-23, D-25):** `GET /v1/capabilities` is the full per-caller answer and `GET /v1/models` gains `supported_parameters`, both from one source. The TypeScript library lives in this repo and is published to npm.
+- **Thinking and tasks (D-21, D-24, D-28):** thinking text is returned as `reasoning` and counts as output; task names are free-form and bounded, with over-cap values recorded as `other`.
+- **Schema (D-29, D-30):** grants migration 0004 (per-model option rows and two resource caps) and usage migration 0005 (`use_record.task` and a rebuilt `use_rollup`); rules carry caps only.
+- **Portal (D-22):** the Vercel deployment joins the tailnet from inside the function, with no fallback; it is unproven and recorded as a risk.

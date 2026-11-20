@@ -5,6 +5,7 @@
 | **Status** | Design complete, implementation starting. Once code exists, the code, migrations and `api/openapi.yaml` are the source for anything they define, and this document is kept in step by the docs sync. |
 | **Read first** | [High-level design](hld.md) |
 | **Source of truth** | [`req_001.decisions.md`](../tracks/platform/phase_1/requirements/req_001.decisions.md) (`D-NN` rows). The LLD rows are D-39, D-40, D-42..D-44, D-48, D-51..D-55 and D-57..D-62. |
+| **req_002 additions** | The *planned* subsections marked req_002 come from [`req_002.decisions.md`](../tracks/platform/phase_1/requirements/req_002.decisions.md), LLD rows D-26..D-30 ([ADR 0007](../adr/0007-req002-system-design.md)). They are built in phase 2 |
 | **Labels** | **Judgement**, **Unsourced** and **Illustrative** (a sketch the implementing ticket settles) |
 
 ---
@@ -140,6 +141,32 @@ erDiagram
 
 Usage, the ledger and receipts refer to rows that are therefore only ever soft-deleted (D-42).
 
+### 3.3 req_002 additions (planned): schema and relationships (D-29, D-30)
+
+Planned, built in phase 2 ([ADR 0007](../adr/0007-req002-system-design.md)). Migrations only go forward; new tables are `STRICT` with the `--@table` and `--@column` annotations. A grant version and its child rows stay immutable, so changing a grant's options makes a new version.
+
+| Migration | Change |
+|---|---|
+| `internal/grants/migrations/0004_options.sql` | New table `grt_version_model_option`: `version_id`, `model_id`, `option` (the neutral name, no CHECK list so a new option needs no migration), `mode` (`default` or `forced`), `value` (JSON text); primary key `(version_id, model_id, option)`; foreign key `(version_id, model_id)` to `grt_version_model` with `ON DELETE CASCADE`; the same no-update and no-delete triggers. `grt_version_model` gains `keep_alive_cap_seconds INTEGER` (at least 0, empty means no grant cap) and `thinking_allowed INTEGER` (0 or 1, empty means allowed). Its `context_cap` and `max_output_tokens` stay as the other two resource caps |
+| `internal/usage/migrations/0005_task.sql` | `use_record` gains `task TEXT CHECK (task IS NULL OR task <> '')`. `use_rollup` is rebuilt, because SQLite cannot change a primary key: a new table with `task TEXT NOT NULL DEFAULT ''` in the key `(granularity, bucket_start, consumer_id, access_key_id, model, task)`, every old row copied with `task = ''`, the old table dropped, the new one renamed, the consumer index recreated with `task` last and the keyset cursor gaining `task` last. `use_rollup_state` and the retention rules stay |
+
+- **Per model:** options hang off `grt_version_model` because the caps already live per model, so a host can allow thinking for one model and not another. **Values** are validated in code by one option table in the engine port (name, type, bounds, resource or plain), read by `validateChat`, the admin API and the discovery builder.
+- **Policy rules:** `caps` in `rule_v1.schema.json` gains optional `keep_alive_seconds` and `thinking` (boolean), smallest wins and any not-allowed wins, additive in format version 1. **Rules carry caps only**, not defaults or forced values. **Judgement:** forced values have no clean merge across rules. An older binary would refuse such a rule, which is acceptable because migrations only go forward.
+- **Settings (host-owned, no migration):** `policy.task.max_length` (proposed default 64), `usage.task.max_per_window` (proposed default 50), `gateway.model_info_ttl` (proposed default 5m) and `scheduler.keep_alive_max` (proposed default 1h; the host's cap on a client's `keep_alive` when the grant sets none, which a grant or rule cap can only narrow). Access keys narrow only what they narrow today (`internal/auth/narrowing.go`).
+- **Unchanged:** `ldg_*`, `use_request_counter`, `sch_job*` (the effective options go inside the sealed result).
+- **Compatibility:** old grant versions have no option rows and no new caps and behave as today; old `use_record` rows have no task.
+
+**Relationships (D-30)**
+
+| Pair | Cardinality and key | On delete |
+|---|---|---|
+| `grt_version_model` to `grt_version_model_option` | 1 to 0..n, key `(version_id, model_id)`, at most one row per option name, owned by grants | cascade (never fires: versions are immutable and the triggers block DELETE) |
+| option rows to `grt_model` | through the parent row only; a retired model keeps its rows and the gateway already skips retired models (`internal/gateway/pipeline.go`) | not applicable |
+| `use_record.task` and `use_rollup.task` | **no foreign key**: copied labels, like `model` and the ids | records are never deleted; rollup rows are pruned by the existing retention settings |
+| `use_record` to `use_rollup` | derived; the rollup's task equals the record's task, or `other` over the cap. **Invariant (a test):** per consumer, key, model and bucket, the sum over tasks equals the old per-bucket total | not applicable |
+| a consumer's day to task names | at most `usage.task.max_per_window` named tasks plus `other` and the empty one; lowering the setting keeps the names already in that day's buckets | not applicable |
+| stored option name to the code's option table | **no foreign key**: a name the code does not know is skipped with a log line and never fails a request | not applicable |
+
 ## 4. State machines (D-54)
 
 Terminal states never reopen, so the audit and billing history stays linear. Every timeout and retry count is a setting.
@@ -223,6 +250,18 @@ stateDiagram-v2
 | Sharing grant | requested → active \| declined. active → expired \| revoked, and either one rotates the dataset key |
 | Signing key | active → retired (kept for verifying old receipts) |
 | Sync change | pending → acked → pruned |
+
+### Chat stream and chunk reader, req_002 changes (planned, D-26)
+
+Planned ([ADR 0007](../adr/0007-req002-system-design.md)). Two machines change and none is added.
+
+| Machine | Change |
+|---|---|
+| Chat stream (`internal/gateway/stream/stream.go`) | The order stays opened, role chunk, deltas, finish chunk, optional usage chunk, `[DONE]`. A new event, a **reasoning chunk**, emits `delta{reasoning}` before the finish chunk and resets the idle timer |
+| Ollama chunk reader (`internal/engine/ollama/stream.go`) | `engine.ChatChunk` gains a `Reasoning` text field, and `Recv` returns thinking-only chunks instead of dropping them, so the gateway's first-token and idle limits see a long think and an aborted call's completion count includes it |
+
+- **Unchanged:** the job lifecycle (a queued job is decided again at admission, so its options are re-resolved then), and **model residency**: a client `keep_alive` within the host cap changes only the ticket's expiry value, and a **pinned model keeps `-1`**, so the client's value is ignored for it and the answer reports `-1`. Option resolution is a pure function and holds no state.
+- **Why:** a request's `keep_alive` replaces a loaded model's unload timer in Ollama, so a client value would silently unpin a model the host keeps loaded. **Sources:** [Ollama scheduler](https://raw.githubusercontent.com/ollama/ollama/main/server/sched.go), [Ollama FAQ](https://docs.ollama.com/faq), [Ollama issue 11002](https://github.com/ollama/ollama/issues/11002). **Unsourced:** what Ollama does when a second request shortens `keep_alive` while the first is still running. Repo: `internal/scheduler/scheduler.go`.
 
 ## 5. Call flows (D-39)
 
@@ -351,6 +390,30 @@ Minimization (D-64) runs on the temp copy, never on the live database. The setti
   - Invite: the token creates the consumer and their first credential.
 - **F9 startup:** migrations → keys → check Ollama and Tailscale → listeners → workers (scheduler, outbox, checkpoint, sync, retention, rollups, metrics sampler, sleep lock).
 
+### F1 and F2 changes for req_002 (planned, D-27)
+
+Planned ([ADR 0007](../adr/0007-req002-system-design.md)).
+
+**Chat call (`CreateChatCompletion`), steps that change**
+
+| # | Step | What changes |
+|---|---|---|
+| 2 | `policy.Evaluate`, sync | The `Decision` gains the grant's per-model option defaults and forced values, two resource caps (`keep_alive`, thinking allowed; smallest cap wins, any not-allowed wins) and the validated task from `LS-Request-Properties` (a bad value is `invalid_properties`) |
+| 3 | `validateChat`, sync | Accepts `frequency_penalty`, `presence_penalty`, `response_format` (`json_object`, `json_schema`), `reasoning_effort` and the engine-options object (`top_k`, `min_p`, `repeat_penalty`, `context_size`, `keep_alive`): type and range checks only; an unknown key stays `unsupported_parameter` |
+| 4 | `planChat`, sync | Each option resolves as forced value, else client value, else grant default, else unset (the model's own default); resource options clamp to the caps and are reported. A **client-sent option the model cannot carry is `unsupported_parameter`**; a **grant default or forced value it cannot carry is skipped and reported as not applied**. Model capabilities come from `ModelInfo` through a cache (`gateway.model_info_ttl`) |
+| 5 | `scheduler.Admit`, sync | `scheduler.Request` gains `KeepAlive`; the ticket uses the effective value, a pinned model stays `-1`, and the default is the model's `keep_alive_seconds` when set (stored but unused today) else `scheduler.keep_alive` |
+| 6 | engine port `Chat`, async | `engine.ChatRequest` gains `TopK`, `MinP`, `RepeatPenalty`, `FrequencyPenalty`, `PresencePenalty`, `Format`, `Think` |
+| 7 | chunk reads, async | Reasoning chunks fill the message's `reasoning` field, or `reasoning` stream deltas |
+| 8 | `meter` | Metering gets the task; an aborted call counts reasoning chunks; `reasoning_tokens` is omitted because Ollama gives no separate count |
+| 9 | response | The effective-options header goes out on streamed and non-streamed answers, built at step 4 before the engine runs, in the RFC 9651 dictionary form of `LS-Request-Properties`. Each option gives the value that ran and `was` and `by` (`cap`, `forced`, `not_applied`) when it differs from the request. The exact header and key names are settled in the spec ticket |
+
+- **Failure paths:** a wrong type or range is 400 `invalid_request_error` naming the field; over a cap is clamped and reported, never refused; a failed capability lookup returns the engine's own typed error; no new timeouts (thinking time falls under `gateway.engine_timeout` and the stream limits).
+- **Thinking** is set by `reasoning_effort` alone (`none`, `low`, `medium`, `high`, proposed default); the options object has no `think`. `none` on a model without thinking sends nothing.
+- **Jobs (F2):** steps 2 to 4 run at submission; the sealed payload also holds the options and the task; the job is decided again at admission, so options resolve then, and its result carries the same header from the admission-time resolution, stored inside the sealed result.
+- **Discovery:** one builder yields the per-model support list for `planChat`, `GET /v1/capabilities` and the `supported_parameters` names on `GET /v1/models`. `/v1/capabilities` shows grant-level values after the key's narrowing and does not apply policy rules, so the header is the truth for one request.
+- **Ollama mapping (adapter only):** `options.top_k`, `min_p`, `repeat_penalty`, `presence_penalty`, `frequency_penalty`; `context_size` becomes `num_ctx`; `keep_alive` is the top-level `keep_alive`; `json_object` becomes `format: "json"` and `json_schema` becomes `format` set to the schema; `reasoning_effort` `none` becomes `think: false`, and `low`, `medium` or `high` becomes the same level string for a model whose `/api/show` lists levels, else `think: true`. `ModelInfo` gains the model's thinking levels, and the capability check reads `thinking`.
+- **Sources:** [Ollama OpenAPI spec](https://docs.ollama.com/openapi.yaml), [structured outputs](https://docs.ollama.com/capabilities/structured-outputs), [thinking](https://docs.ollama.com/capabilities/thinking), [OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility), [OpenAI layer source](https://raw.githubusercontent.com/ollama/ollama/main/openai/openai.go), [API types](https://raw.githubusercontent.com/ollama/ollama/main/api/types.go). **Unsourced:** whether `eval_count` includes thinking tokens, a live `/api/show` response listing `tools`, and Ollama's behaviour for `think: false` on a model without thinking (the gateway sends nothing then). Repo: `internal/gateway/chat.go`, `validate.go`, `pipeline.go`, `jobs.go`, `status.go`.
+
 ## 6. Concurrency model
 
 | Goroutine(s) | Role | Communicates by |
@@ -389,6 +452,18 @@ Rules:
 | Secret keys | sealed with a master key in the OS keychain, or a user-only file on headless Linux | never leave the host, except dataset keys wrapped for an approved grantee |
 
 Every retention above is a setting with that default (D-54).
+
+### req_002 data paths (planned, D-28)
+
+Planned ([ADR 0007](../adr/0007-req002-system-design.md)).
+
+- **Task tag:** client `LS-Request-Properties` `task=<token>`, then `policy.ParseProperties` (existing size and count limits), then a check (lowercase letters, digits, `.`, `_`, `-`; at most `policy.task.max_length` characters), then `Decision.Task`, `ledger.Usage.Task` and `use_record.task`, kept forever like the record. The **rollup worker** applies the cap: per consumer and UTC day bucket the first `usage.task.max_per_window` distinct tasks keep their name and later ones become `other`, in `use_record` rowid order, and the minute and hour buckets of that day use the same mapping. The task is **not** in the canonical leaf or the signed receipt, so `LeafVersion` and every leaf hash stay as they are. `checkAllowed` is unchanged: a grant whose `allowed_properties` omits `task` still refuses it, and discovery lists the allowed properties so the TypeScript library sends `task` only when allowed.
+- **Option values:** not stored on `use_record`; they reach the client only in the effective-options header, and for a job inside the sealed result.
+- **Reasoning text:** engine, memory, client; never logged or stored; a job's sealed result holds it with the content. Completion tokens stay the engine's final count, and an aborted call counts each reasoning chunk as one token.
+- **Structured output:** a `json_schema` goes from the body to `engine.ChatRequest.Format` to Ollama `format`, never logged or stored, sealed in a job's payload, and bounded by `limits.max_body_bytes`.
+- **Images:** this corrects F-06 of the log: the spec accepts image parts but `flattenMessage` refuses them. A `data:image/...;base64,` part is checked, the prefix is stripped and the base64 string goes into a new `engine.Message.Images`, which the adapter sends as the message's `images` array. Allowed only when the model's capabilities list `vision`, otherwise 400 `unsupported_parameter` on `messages`. Images are not counted in the prompt-size pre-check or the aborted-call estimate. A job's sealed payload gains the images. Sources: [Ollama chat API](https://docs.ollama.com/api/chat), [Ollama vision](https://docs.ollama.com/capabilities/vision). **Unsourced:** that the native chat endpoint needs no `data:` prefix on `images` (inferred from Ollama's examples; a contract test confirms it).
+- **Capabilities:** `/api/show`, then an in-memory cache (`gateway.model_info_ttl`), then one builder for `planChat`, `/v1/capabilities` and `/v1/models`; the cache holds model facts only.
+- **Usage by task, out:** `GET /v1/usage` and the consumer page gain a `task` filter and a `task` field on rows, `null` where no task was sent.
 
 ## 8. Key hierarchy
 

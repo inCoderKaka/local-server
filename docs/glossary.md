@@ -103,6 +103,8 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Forced value | A value the host sets, per grant, for an option that replaces the client's value. The answer reports what actually ran (see Effective options). Planned (phase 2). | Forced value | req_002 D-07 |
 | Resource option | An option that costs host memory or time: `context_size`, the output length, `keep_alive` and thinking. Only these get range caps per grant; every other option gets a default or a forced value. Planned (phase 2). | — | req_002 D-14 |
 | Model class | A label the host gives a model (`fast`, `mid` or `strong`), returned by capability discovery, so a client's presets resolve on any host without model names. Scoped for the future. | Model class | req_002 D-08 |
+| Option table | The one table in the engine port that lists every engine option and standard field the host accepts (name, type, bounds, resource or plain). Validation, the admin API and capability discovery all read it. Planned (phase 2). | — | req_002 D-29 |
+| Model-info cache | A short-lived in-memory copy of each model's capabilities, kept for the host's model-info time-to-live setting, so a request needs no engine lookup. It holds model facts only, nothing about a caller. Planned (phase 2). | — | req_002 D-27 |
 | Access key narrowing | Limits a key adds on top of its consumer's grant. They can only narrow the grant, never widen it. | — | D-25 |
 | Bound node | The tailnet node an access key is restricted to, checked through Tailscale WhoIs. The host stores both Tailscale's stable node ID (the one checked) and the node's machine name (for people to recognise it). | — | D-39, D-159 |
 | Lockout | An access key's source address or key prefix, or a login, blocked after repeated failures, for durations set by the host's lockout settings. A successful key check clears only its key prefix's counter. | — | D-24, D-99 |
@@ -138,6 +140,8 @@ One word, one meaning. This file is the single place where a term is defined. Ot
 | Engine options | The optional settings of a chat request that the OpenAI API lacks, sent in one object in the request body with names owned by local-server and not by any engine (`top_k`, `min_p`, `repeat_penalty`, `context_size`, `keep_alive`). Each engine adapter maps them to its engine's own options. Planned (phase 2). | Options | req_002 D-03, D-11 |
 | Effective options | The option and sampling values a request actually ran with, after the grant's caps, defaults and forced values, reported to the client in a response header so nothing is clamped silently. Planned (phase 2). | Effective options | req_002 D-06 |
 | Task | A short name a client gives to the purpose of a call, sent as one standard key of `LS-Request-Properties`. Usage records it as a dimension, and policy rules can match on it. Not the Windows logon task. Planned (phase 2). | Task | req_002 D-15 |
+| Reasoning | The text a model produces while thinking, returned in a `reasoning` field on the message and on stream deltas. Its tokens count as output tokens. It is content: never logged or stored. Planned (phase 2). | Reasoning | req_002 D-24 |
+| TypeScript client library | A small package in this repo, published to npm, that wraps capability discovery, the engine options, the task and the effective options for TypeScript clients, with types generated from the spec. Planned (phase 2). | TypeScript library | req_002 D-13, D-25 |
 
 ## Data and sharing
 
