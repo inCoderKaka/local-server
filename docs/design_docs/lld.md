@@ -2,89 +2,122 @@
 
 | | |
 |---|---|
-| **Status** | Design complete, implementation starting. Once code exists, the code, migrations and `api/openapi.yaml` are the source for anything they define, and this document is kept in step by the docs sync. |
+| **Status** | Reconciled with the code as built in phase 1. The code, the migrations and `api/openapi.yaml` are the source for anything they define, and this document is kept in step by the docs sync. A part that is designed but not built is marked *planned* (phase 2): notifications, webhooks and the desktop channel, public mode (Funnel), embedded Tailscale (tsnet), bundles, platform sync and sharing grants, and the req_002 additions. |
 | **Read first** | [High-level design](hld.md) |
-| **Source of truth** | [`req_001.decisions.md`](../tracks/platform/phase_1/requirements/req_001.decisions.md) (`D-NN` rows). The LLD rows are D-39, D-40, D-42..D-44, D-48, D-51..D-55 and D-57..D-62. |
+| **Source of truth** | [`req_001.decisions.md`](../tracks/platform/phase_1/requirements/req_001.decisions.md) (`D-NN` rows). The LLD rows are D-39, D-40, D-42..D-44, D-48, D-51..D-55 and D-57..D-62; later rows that changed the built design are cited where they apply. |
 | **req_002 additions** | The *planned* subsections marked req_002 come from [`req_002.decisions.md`](../tracks/platform/phase_1/requirements/req_002.decisions.md), LLD rows D-26..D-30 ([ADR 0007](../adr/0007-req002-system-design.md)). They are built in phase 2 |
-| **Labels** | **Judgement**, **Unsourced** and **Illustrative** (a sketch the implementing ticket settles) |
+| **Labels** | **Judgement**, **Unsourced** and **Illustrative** (a sketch that the code settles) |
 
 ---
 
 ## 1. Module map
 
-Each module owns its package, its tables (by prefix), and its port where it has one. Core modules import ports, never adapters (D-21). `tools/archcheck` (PLT-C-001) enforces the map in CI with forbidden-import checks: every package under `internal/` belongs to one module, an adapter is imported only by `cmd/` or from inside that adapter, drivers only in their owning module, no import cycles between modules, and nothing under `internal/` imports `cmd/` or `tools/`; a violation fails the build.
+Each module owns its package, its tables (by prefix), and its port where it has one. Core modules import ports, never adapters (D-21). `tools/archcheck` enforces the map in CI with forbidden-import checks: every package under `internal/` belongs to one module, an adapter is imported only by `cmd/` or from inside that adapter, drivers only in their owning module, no import cycles between modules, and nothing under `internal/` imports `cmd/` or `tools/`; a violation fails the build. Its configuration (`tools/archcheck/config.go`) holds the same 29 modules as the table below, and every module has an architecture note in [`docs/modules/`](../modules/).
 
-| Module | Package | Owns tables | Port it defines | Ticket |
+| Module (note) | Package | Owns tables | Port it defines | Status |
 |---|---|---|---|---|
-| storage | `internal/storage/` | `ops_schema_migrations`, `ops_migration_run`, `ops_data_catalog` | repositories, unit of work | PLT-F-002 |
-| settings | `internal/settings/` | `hst_setting` | settings owner model | PLT-F-004 |
-| telemetry | `internal/telemetry/` | — | `Telemetry` | PLT-F-003 |
-| host | `internal/hostkeys/`, `internal/hostmetrics/`, `internal/host/` | `hst_host`, `hst_key`, `hst_metric_minute` | `HostMetrics` | PLT-F-005, PLT-F-012, PLT-F-013 |
-| engine | `internal/engine/` | — | `Engine` | PLT-F-006 |
-| identity and grants | `internal/identity/`, `internal/grants/` | `idn_*`, `grt_*` | — | PLT-F-007 |
-| audit | `internal/audit/` | `aud_event` | — | PLT-F-008 |
-| events | `internal/notifier/events/` | `ntf_event` | domain events | PLT-F-009 |
-| auth | `internal/auth/` | (`idn_access_key`, `idn_session` through identity) | — | PLT-F-010 |
-| policy | `internal/policy/` | `grt_policy_rule` (through grants) | `Policy` | PLT-F-011 |
-| scheduler, jobs | `internal/scheduler/`, `internal/jobs/` | `sch_job`, `sch_job_payload`, `sch_job_result` | — | PLT-F-014, PLT-F-022 |
-| usage, ledger | `internal/usage/`, `internal/ledger/` | `use_*`, `ldg_*` | — | PLT-F-015, PLT-F-016, PLT-F-023 |
-| limits | `internal/limits/` | — | — | PLT-F-017 |
-| gateway | `internal/gateway/` | — | — | PLT-F-018, PLT-F-019 |
-| requests | `internal/requests/` | `req_resource_request`, `req_comment` | — | PLT-F-028 |
-| notifier | `internal/notifier/` | `ntf_notification`, `ntf_pref`, `ntf_webhook_endpoint`, `ntf_outbox_delivery` | `Channel` | PLT-F-029..F-031 |
-| transport | `internal/transport/` | — | transport | PLT-F-038..F-040 |
-| off-host | `internal/offhost/` | `syn_change`, `syn_cursor`, `plt_dataset_key` | `OffHostSync` | PLT-F-044..F-046 |
-| admin | `internal/admin/` | — (writes through the owning modules) | — | PLT-F-024..F-026 |
-| consumer auth | `internal/consumerauth/` | — (`idn_credential`, `idn_session`, `idn_consent` through identity) | auth adapter | PLT-F-027 |
-| bundle | `internal/bundle/` | — | — | PLT-F-045 |
-| sharing | `internal/sharing/` | `plt_admin`, `plt_sharing_grant` | — | PLT-F-047 |
-| power, service | `internal/power/`, `internal/service/` | — | `Power`, service | PLT-F-041, PLT-F-042 |
-| directory | `internal/directory/` | — | `directory` (no-op) | PLT-C-001 |
-| api | `internal/api/` (generated by ogen) | — | server interfaces | PLT-F-001 |
+| [storage](../modules/storage.md) | `internal/storage/` | `ops_schema_migrations`, `ops_migration_run`, `ops_data_catalog`, `syn_change` | unit of work (`DB.Write` on the single writer, `Tx.Capture`), read pool | Built |
+| [settings](../modules/settings.md) | `internal/settings/` | `hst_setting` | settings owner model (`Store`, `Def`, retention rules) | Built |
+| [telemetry](../modules/telemetry.md) | `internal/telemetry/` | none | `Telemetry`; adapter `internal/telemetry/slogprom` (slog to a rotated file, Prometheus) | Built |
+| [host](../modules/host.md) | `internal/host/`, `internal/hostkeys/`, `internal/hostmetrics/` | `hst_host`, `hst_key`, `hst_metric_minute` | `HostMetrics`; host sharing state (`SharingState`); key custody (`hostkeys`) | Built |
+| [engine](../modules/engine.md) | `internal/engine/` | none | `Engine`; adapters `engine/ollama` and `engine/fake`; contract suite `engine/enginetest` | Built |
+| [identity](../modules/identity.md) | `internal/identity/` | `idn_*` | `ContentCapture` (defined, no adapter) | Built |
+| [grants](../modules/grants.md) | `internal/grants/` | `grt_*` | none | Built |
+| [audit](../modules/audit.md) | `internal/audit/` | `aud_event` | none | Built |
+| [events](../modules/events.md) | `internal/notifier/events/` | `ntf_event` | `Notifier` (the domain-event bus: `Emit`, `Write`, `Subscribe`) | Built |
+| [auth](../modules/auth.md) | `internal/auth/` (with `auth/credential`) | none (reads `idn_access_key` and `idn_session` through identity) | none | Built |
+| [policy](../modules/policy.md) | `internal/policy/` | none (reads `grt_policy_rule` through grants by a `RuleSource`) | `Policy` | Built |
+| [scheduler](../modules/scheduler.md) | `internal/scheduler/`, `internal/jobs/` | `sch_job`, `sch_job_payload`, `sch_job_result` | none; admission and model lifecycle (`Scheduler.Admit`, `Ticket`), and the job service and worker, which call the gateway's `jobs.Executor` | Built |
+| [usage](../modules/usage.md) | `internal/usage/` | `use_record`, `use_rollup`, `use_rollup_state`, `use_request_counter` | none | Built |
+| [ledger](../modules/ledger.md) | `internal/ledger/` (with `ledger/checkpoint`) | `ldg_leaf`, `ldg_hash`, `ldg_checkpoint` | receipt `Signer` | Built |
+| [limits](../modules/limits.md) | `internal/limits/` | none (writes `use_request_counter` through usage) | none | Built |
+| [gateway](../modules/gateway.md) | `internal/gateway/` (with `gateway/stream`) | none | none; serves the consumer API | Built |
+| [requests](../modules/requests.md) | `internal/requests/` | `req_resource_request`, `req_comment` | none | Built |
+| [notifier](../modules/notifier.md) | `internal/notifier/` | `ntf_notification`, `ntf_pref`, `ntf_webhook_endpoint`, `ntf_outbox_delivery` | `Channel` | *Planned (phase 2)*: in-app, webhook and desktop channels. Only the `events` bus above is built |
+| [transport](../modules/transport.md) | `internal/transport/` | none | `Transport`; adapter `transport/tailscale` (the host's own Tailscale) | Built. Adapters `transport/tsnet` and `transport/funnel` are *planned (phase 2)* |
+| [offhost](../modules/offhost.md) | `internal/offhost/` | none built (`syn_cursor` and `plt_dataset_key` are *planned*) | `Compressor` and `Target` of the snapshot adapter `offhost/snapshot` (sub-packages `folder`, `s3`, `gzipcodec`, `s3fake` for tests); `OffHostSync` for platform sync | Backup and restore built. Platform sync *planned (phase 2)* |
+| [admin](../modules/admin.md) | `internal/admin/` (with `admin/grants`, `admin/consumers`) | none (writes through the owning modules) | none; serves the admin API and `/metrics` | Built. Notification preference and webhook endpoint operations answer 501 until their module is built |
+| [consumerauth](../modules/consumerauth.md) | `internal/consumerauth/` | none (uses `idn_*` through identity) | `Adapter` (password and passkey adapters) | Built |
+| [bundle](../modules/bundle.md) | `internal/bundle/` | none | none yet | *Planned (phase 2)*: an empty package |
+| [sharing](../modules/sharing.md) | `internal/sharing/` | `plt_admin`, `plt_sharing_grant` | none yet | *Planned (phase 2)*: an empty package |
+| [power](../modules/power.md) | `internal/power/` | none | `Power` (one adapter per OS) | Built |
+| [service](../modules/service.md) | `internal/service/` (with `service/osadapter`) | none | `Manager` (the OS service manager) | Built |
+| [directory](../modules/directory.md) | `internal/directory/` | none | `Directory` (the no-op adapter is the only one) | Built as a seam, no behaviour |
+| [api](../modules/api.md) | `internal/api/` (generated by ogen, with `api/ignored`) | none | server interfaces | Built |
+| [webui](../modules/webui.md) | `internal/webui/` | none | none | Built |
 
-## 2. Ports (Illustrative signatures)
+**webui** serves a built single-page web UI from an `fs.FS` (the admin UI or the consumer web page): `webui.Handler(Config{Files})` returns an `http.Handler` that answers GET and HEAD only, serves a file by its cleaned path, answers a path with no extension that is not a file with `index.html` so a client-side route loads, and puts the same strict Content Security Policy, `nosniff`, no-referrer and same-origin resource policy on every answer (D-10, D-151). Files carry `Cache-Control: no-cache` and an ETag, so a browser revalidates. With no built UI (a plain `go build` without npm embeds only `.gitkeep`) it answers a committed one-page stub (D-152). It imports only the standard library. It consumes no other module and is consumed by `cmd/local-server`, which passes `web/admin` (`adminui.Files()`) into `admin.Config.UI` and `web/consumer` (`consumerui.Files()`) into `consumerauth.Config.UI`. The two single-page apps and their shared client code are in `web/admin`, `web/consumer` and `web/shared`.
 
-The names come from the decisions. The exact Go signatures are settled by each port's ticket.
+**Listeners.** `cmd/local-server` is the only place that wires adapters to ports and binds listeners (D-10, D-148). Loopback: the consumer API (`serve.consumer_listen`, default `127.0.0.1:8484`) and the admin listener (`serve.admin_listen`, default `127.0.0.1:8485`: admin API, `/metrics`, admin UI). Tailnet, bound only to the host's tailnet address over HTTPS with the `*.ts.net` certificate, and only while Tailscale is ready: the consumer API, the consumer web page with its account routes, and, only when the host switches it on, a remote admin listener. The consumer API accepts access keys only; the account routes of the consumer web page take the session cookie.
+
+## 2. Ports (signatures as built, trimmed)
+
+The signatures below are those in the code, with the parts a reader does not need left out. The code is the source for the rest.
 
 ```go
-// Engine — D-22. Ollama is the first adapter; llama.cpp and MLX come later.
+// Engine — D-22. Ollama is the first adapter (internal/engine/ollama); the fake engine
+// (internal/engine/fake) answers without Ollama. llama.cpp and MLX come later.
 type Engine interface {
-    Chat(ctx context.Context, req ChatRequest) (ChatStream, error) // native /api/chat, num_ctx always set
+    Chat(ctx context.Context, req ChatRequest) (ChatStream, error) // native /api/chat, NumCtx and NumPredict mandatory
     Embed(ctx context.Context, req EmbedRequest) (EmbedResult, error)
     ListModels(ctx context.Context) ([]Model, error)
-    ModelInfo(ctx context.Context, name string) (ModelInfo, error)
-    Load(ctx context.Context, name string, keepAlive time.Duration) error
+    ModelInfo(ctx context.Context, name string) (ModelInfo, error) // family, size, context length, capabilities
+    Load(ctx context.Context, name string, keepAlive time.Duration) error // negative keepAlive: until unloaded
     Unload(ctx context.Context, name string) error
     Loaded(ctx context.Context) ([]LoadedModel, error) // /api/ps: memory per loaded model
 }
+// ChatRequest also carries the grant's OnContextOverflow, the per-call first-token and idle
+// timeouts, and the optional temperature, top_p, seed and stop.
 
 // Policy — D-25, D-39 step 3. Decides only; the gateway enforces.
 type Policy interface {
-    Evaluate(ctx context.Context, in Input) (Decision, error) // properties, model, time, grant version
+    Evaluate(ctx context.Context, in Input) (Decision, error) // properties, model, time, grant (after key narrowing)
 }
 type Decision struct {
     Priority PriorityClass // interactive | background
-    Caps     Caps          // context, output, concurrency after narrowing
+    Caps     Caps          // ContextCap, MaxOutputTokens, MaxConcurrency (nil: no limit set)
 }
 
-// Telemetry — D-31. slog + Prometheus by default; OpenTelemetry later.
+// Telemetry — D-31. slog plus Prometheus; the spans are no-ops in phase 1.
 type Telemetry interface {
     Logger() *slog.Logger
-    Counter(name string, labels ...string) Counter
-    Histogram(name string, labels ...string) Histogram
-    StartSpan(ctx context.Context, name string) (context.Context, Span) // no-op by default
+    Counter(name string, labelNames ...string) Counter
+    Gauge(name string, labelNames ...string) Gauge
+    Histogram(name string, labelNames ...string) Histogram
+    StartSpan(ctx context.Context, name string) (context.Context, Span)
 }
 
-// OffHostSync — D-41, D-59, D-64. Snapshot targets: local folder, S3-compatible (R2, GCS).
-// Platform sync: generic Postgres (Supabase, Cloud SQL, AlloyDB).
-type OffHostSync interface {
-    // SnapshotRef records which tables the snapshot minimized; RestoreReport lists them (D-64).
-    Snapshot(ctx context.Context) (SnapshotRef, error)
-    Restore(ctx context.Context, ref SnapshotRef, recoveryCode string) (RestoreReport, error)
+// Snapshot adapter of the off-host port (internal/offhost/snapshot) — D-41, D-59, D-64, D-103.
+// Backup and restore are built as functions of the adapter, behind two small ports:
+type Compressor interface { Name() string; NewWriter(io.Writer) (io.WriteCloser, error); NewReader(io.Reader) (io.ReadCloser, error) }
+type Target interface { // a host-chosen folder, or an S3-compatible bucket (R2, GCS)
+    Put(ctx, name string, r io.Reader, size int64) error
+    Stat(ctx, name string) (Object, error)
+    Open(ctx, name string) (io.ReadCloser, error)
+    List(ctx) ([]Object, error)
+    Delete(ctx, name string) error
 }
+func (r *Runner) Backup(ctx context.Context) (Result, error) // Result lists the tables it minimized (D-64)
+func Restore(ctx context.Context, opts RestoreOptions) (Report, error) // Report lists them and counts the jobs it failed (D-68)
+
+// OffHostSync — planned (phase 2): the platform-sync port. Platform sync: generic Postgres
+// (Supabase, Cloud SQL, AlloyDB). Not built; there is no such interface in the code yet.
 ```
 
-`HostMetrics`, `Channel` (in-app, webhook, desktop; D-84), `Power` (sleep lock), the transport, and `directory` follow the same rule. Each is small, role-specific, and comes with a shared contract test suite that every adapter must pass (D-31).
+The other built ports follow the same rule, each small and role-specific:
+
+- **`HostMetrics`** (`Read(ctx) (Reading, error)`): one reading of host totals, the share-budget slice and other apps.
+- **`Power`** (`Acquire(ctx) (Lock, error)`; a `Lock` has `Release` and `Alive`): the sleep lock, one adapter per OS.
+- **`Transport`** (`Status`, `WhoIs`, `Resolve`, `TLSConfig`): the encrypted channel; the `tailscale` adapter asks the host's own Tailscale.
+- **`Notifier`** (`Emit`, `Write`, `Subscribe`): the domain-event bus of the events module. Its subscribers run after the commit, synchronously, and an event whose process dies between the commit and the call is not replayed.
+- **`Manager`** (`Install`, `Uninstall`, `Start`, `Stop`, `Status`): the OS service manager, with the pure service definitions in `internal/service` and the OS-dependent adapter in `internal/service/osadapter`.
+- **`Adapter`** (`Kind`, `Prepare`, `Authenticate`) of consumerauth: how a person proves who they are. The password adapter and the passkey adapter (a two-round-trip ceremony) are built; an email or OAuth adapter would sit behind the same port.
+- **`ContentCapture`** (`Capture`): defined and off. It has no adapter, and refuses without a matching, unwithdrawn consent record (D-31, D-40, D-45).
+- **`Directory`** (`Discover`): the seam for a future central server; the no-op adapter returns no hosts (D-21).
+- **`jobs.Executor`** and **`jobs.Slot`**: the job worker's view of the gateway (`Admit`, then `Run` and `Release`), implemented by the gateway.
+- **`Channel`** (in-app, webhook, desktop; D-84): *planned (phase 2)*, with the notifier module.
+
+The engine port has a shared contract suite, `engine/enginetest`, that the Ollama adapter (against a fake server, and live when Ollama is present) and the fake engine both pass; the fake engine also stands in for Ollama in the gateway tests (D-31). The other ports have tests per adapter.
 
 ## 3. Data model (D-37 as superseded by D-42 and D-44, plus D-53)
 
@@ -95,10 +128,27 @@ type OffHostSync interface {
 - **IDs and times:** ids are UUIDv7 as TEXT. Times are INTEGER Unix milliseconds, UTC.
 - **Types:** only portable types (TEXT, INTEGER, REAL, BLOB), so a Postgres adapter maps one to one.
 - **Prefixes:** each module's tables carry a short prefix: `hst_ idn_ grt_ req_ sch_ use_ ldg_ ntf_ aud_ syn_ plt_ ops_`.
-- **Metadata:** every table and column has a plain-language comment, a classification (`public` | `internal` | `personal` | `sensitive` | `content`) and a `billable` flag. They are collected into `ops_data_catalog` at startup, and a generated schema reference stays in step with the migrations.
-- **Migrations:** forward-only, per module (`internal/<module>/migrations/`). Destructive changes go expand → backfill → contract across two releases. Exports and sync rows carry the schema version, and import refuses unknown versions.
+- **Metadata:** every table and column has a plain-language comment, a classification (`public` | `internal` | `personal` | `sensitive` | `content`) and a `billable` flag. They are collected into `ops_data_catalog` at startup, and the generated [schema reference](../schema-reference.md) stays in step with the migrations (storage fails to open a database if a table or column has no entry).
+- **Migrations:** forward-only, per module (`internal/<module>/migrations/`, files `NNNN_name.sql`, embedded in the binary), applied at startup, the storage module's first and then the others in the order of the registry in `cmd/local-server/registry.go` (the table below lists them in that order), each in its own transaction and recorded with a SHA-256 checksum in `ops_schema_migrations` and `ops_migration_run`. A changed or missing applied file, or a new file older than an applied one, stops startup. Destructive changes go expand → backfill → contract across two releases. A restored snapshot is opened with the build's migrations, which brings an older snapshot forward and refuses one from a newer build. Sync rows and bundles that carry a schema version are *planned (phase 2)*.
 
-Table names below apply D-44's prefix mapping to D-37's tables. The migrations are the source once written.
+Table names below apply D-44's prefix mapping to D-37's tables. The migrations are the source. The migrations as built:
+
+| Module | Migration files |
+|---|---|
+| storage | `0001_ops_tables.sql`, `0002_syn_change.sql`, `0003_syn_change_created_at.sql` |
+| settings | `0001_setting.sql` |
+| host | `0001_host_keys.sql`, `0002_host_sharing_state.sql`, `0003_host_metric_minute.sql` |
+| identity | `0001_identity_tables.sql`, `0002_consumer_billing_mode.sql`, `0003_access_key_bound_node_name.sql` |
+| grants | `0001_grants_tables.sql`, `0002_version_quota.sql`, `0003_policy_rule_versions_model_config.sql` |
+| requests | `0001_requests_tables.sql` |
+| audit | `0001_audit_event.sql` |
+| events (`internal/notifier/events/`) | `0001_event_tables.sql` |
+| usage | `0001_record.sql`, `0002_limit_indexes.sql`, `0003_rollup.sql`, `0004_request_counter.sql` |
+| ledger | `0001_log.sql`, `0002_checkpoint.sql` |
+| scheduler | `0001_job_tables.sql` |
+| offhost, sharing | none yet: each has an empty `migrations/` folder |
+
+Next in line, *planned (phase 2)*: `grants/0004_options.sql` and `usage/0005_task.sql` (section 3.3).
 
 ### 3.2 Core relationships
 
@@ -106,38 +156,52 @@ Table names below apply D-44's prefix mapping to D-37's tables. The migrations a
 erDiagram
   idn_principal ||--o| idn_admin_user : "is a"
   idn_principal ||--o| idn_consumer : "is a"
-  idn_principal ||--o| plt_admin : "is a"
+  idn_principal ||--o| plt_admin : "is a (planned)"
   idn_principal ||--o{ idn_consent : "gives"
-  idn_consumer ||--o{ idn_credential : "logs in with (0 = key-only)"
+  idn_principal ||--o{ idn_credential : "logs in with (none = key-only consumer)"
+  idn_principal ||--o{ idn_session : "holds"
   idn_consumer ||--o{ idn_access_key : "holds"
   idn_invite |o--o| idn_consumer : "redeemed as"
   idn_consumer ||--|| grt_grant : "has"
   grt_grant ||--|{ grt_version : "immutable versions"
-  grt_version }o--o{ grt_model : "allows (per-model caps)"
+  grt_version ||--o{ grt_version_quota : "quota entries"
+  grt_version }o--o{ grt_model : "allows, through grt_version_model (per-model caps)"
   grt_policy_rule }o--o| grt_grant : "scoped to (none = global)"
+  grt_policy_rule ||--|{ grt_policy_rule_version : "immutable versions"
   idn_consumer ||--o{ req_resource_request : "asks"
   req_resource_request ||--o{ req_comment : "discussed in"
   req_resource_request |o--o| grt_version : "approved as"
-  idn_access_key ||--o{ sch_job : "submits"
+  idn_access_key ||--o{ sch_job : "submits (ids copied, no FK)"
+  sch_job ||--o| sch_job_payload : "holds while queued or running"
   sch_job ||--o| sch_job_result : "produces"
-  idn_access_key ||--o{ use_record : "is metered in"
-  use_record ||--|| ldg_leaf : "is leaf"
-  hst_host ||--o{ hst_key : "identity root + receipt subkeys + checkpoint key"
-  plt_dataset_key ||--o{ plt_sharing_grant : "wrapped for"
+  idn_access_key ||--o{ use_record : "is metered in (ids copied, no FK)"
+  use_record ||--|| ldg_leaf : "is leaf (by usage_id)"
+  hst_host ||--o{ hst_key : "identity root + receipt subkeys + checkpoint keys"
+  plt_dataset_key ||--o{ plt_sharing_grant : "wrapped for (planned)"
 ```
 
 | Table | Key facts |
 |---|---|
-| `idn_principal` | id, kind (`host_admin` \| `consumer` \| `platform_admin` \| future), category and segment tags, `plan_id` (null in Phase 1), status. It has **no** FK to the type tables, so a new user type never alters it (D-53). |
-| `idn_consumer` | `principal_id` UNIQUE FK, kind `individual` \| `application`, personal fields erased on deletion, soft-deleted through `idn_principal.status` (D-42) |
-| `idn_access_key` | `prefix` UNIQUE, secret hash, optional narrowing JSON, `expires_at`, `revoked_at`, `bound_node` |
-| `grt_version` | Immutable. Quotas, concurrency, expiry, allowed properties, `on_context_overflow` (`refuse` \| `truncate`, D-48). `grt_grant.current_version_id` points at the live one. |
-| `use_record` | Immutable. Token counts, model, latency, **copies** `consumer_id` and `grant_version_id`, so the hot path needs no joins |
-| `ldg_leaf`, `ldg_hash`, `ldg_checkpoint` | `leaf_index` PK + leaf hash; tlog stored hashes; `tree_size` PK + root + signed note + signing key id |
-| `sch_job_payload`, `sch_job_result` | The only content-bearing tables. Encrypted with the host data key, never synced, deleted at the terminal state, or once a fetch has written the whole result (D-85) |
-| `syn_change`, `syn_cursor` | `seq` AUTOINCREMENT, dataset, table, pk, version, op, payload. Written **in the same transaction** as the change it records. The cursor tracks the last seq each target acknowledged Always captured; rows no target has acknowledged are pruned after `sync.change.retention` (default 30 d, D-77). |
-| `plt_sharing_grant` | grantor and grantee principal, grantee public key, dataset, purpose, terms version, key version, wrapped key, expiry, `revoked_at` |
+| `idn_principal` | id, kind (`host_admin` \| `consumer` \| `platform_admin` \| future), category and segment tags, `plan_id` (always empty in phase 1), status (`active` \| `suspended` \| `deleted`). It has **no** FK to the type tables, so a new user type never alters it (D-53). |
+| `idn_consumer` | `principal_id` UNIQUE FK, kind `individual` \| `application`, `billing_mode` (`none` \| `prepaid` \| `postpaid`, a label only, D-107), `row_version`, personal fields erased on deletion, soft-deleted through `idn_principal.status` (D-42). A purge, a retention period after deletion (`consumers.deleted_retention`, default 90 d), removes what is still personal or credential-bearing and leaves the consumer and principal rows as a tombstone (D-106, D-134, D-136). |
+| `idn_access_key` | `prefix` UNIQUE, secret hash, optional narrowing JSON, `expires_at`, `revoked_at`, `bound_node` (Tailscale's stable node id, the one checked) and `bound_node_name` (the machine name, for people; not checked) |
+| `idn_credential`, `idn_session`, `idn_invite`, `idn_consent` | A password hash or a passkey public key (never synced); a session keeps only the hash of its token; an invite keeps only a prefix and a token hash; a consent is a record of one purpose under one version of the terms |
+| `grt_version` | Immutable. Expiry, concurrency, allowed properties, `on_context_overflow` (`refuse` \| `truncate`, D-48). `grt_grant.current_version_id` points at the live one. Its quotas are rows in `grt_version_quota` (metric `tokens` or `requests`, limit, window in ms; D-107); the two old `quota_*_per_day` columns stay as a read-only alias for versions made before it. |
+| `grt_version_model`, `grt_version_quota` | Immutable, with their version (update and delete triggers refuse). `grt_version_model` holds the per-model `context_cap` and `max_output_tokens`. |
+| `grt_model` | A model name a grant can allow, with the host's sharing configuration: `allowed` and `keep_alive_seconds` (stored, not yet used by the scheduler), and `retired_at` (soft delete) |
+| `grt_policy_rule`, `grt_policy_rule_version` | The rule's head (scope, order, switch, a copy of the live version, `deleted_at`) and its immutable versions (D-87) |
+| `use_record` | Immutable. Token counts, model, outcome, latency, the receipt's key id and signature, **copies** of `consumer_id`, `access_key_id` and `grant_version_id`, so the hot path needs no joins. Update and delete triggers refuse. |
+| `use_rollup`, `use_rollup_state` | Sums per minute, hour or day, consumer, key and model, filled by the rollup worker from `use_record` (which stays the source); the state row is the worker's place in `use_record`, moved in the same unit of work as the sums it covers |
+| `use_request_counter` | Calls admitted per consumer or key, quota window and fixed window, metered or not; it survives a restart and is pruned after `limits.counter_retention` |
+| `ldg_leaf`, `ldg_hash`, `ldg_checkpoint` | `leaf_index` PK + leaf hash and `usage_id`; tlog stored hashes; `tree_size` PK + root + signed note + signing key id. All immutable and kept forever (triggers refuse update and delete) |
+| `sch_job`, `sch_job_payload`, `sch_job_result` | `sch_job` holds ids, status, failure reason and times, no content. The other two are the only content-bearing tables: encrypted with the host data key, never synced, the payload deleted at every terminal state, the result once a fetch has written it whole (D-85) or at its expiry |
+| `req_resource_request`, `req_comment` | The request (status `open` \| `approved` \| `rejected` \| `withdrawn` \| `expired`, the ask as JSON, `expires_at`, the resulting grant version) and its comments; the consumer's and the host's own text, never logged |
+| `ntf_event` | A domain event (type from a closed set defined in code, actor, target, JSON payload of ids and counters), written in the unit of work of the change |
+| `syn_change` | `seq` AUTOINCREMENT, dataset, table, pk, version, op, payload, `created_at`. Written **in the same transaction** as the change it records, always captured (in storage's migrations, because of that). Rows are pruned after `sync.change.retention` (default 30 d, D-77); until platform sync exists nothing acknowledges a row, so every row is unacknowledged. `syn_cursor`, which tracks the last `seq` each target acknowledged, is *planned (phase 2)*. |
+| `hst_host`, `hst_key`, `hst_metric_minute`, `hst_setting` | The one host row (id = the identity public key, the sealed data key, the manual sharing state `sharing` \| `paused`), the identity, receipt and checkpoint keys with their sealed private halves, one metrics row per minute, and the settings the host changed from the defaults |
 | `aud_event` | Append-only, kept forever |
+| `ops_*` | `ops_schema_migrations`, `ops_migration_run`, `ops_data_catalog` (module, classification and billable flag of every table and column, rebuilt at startup) |
+| `plt_sharing_grant`, `plt_admin`, `plt_dataset_key`, `ntf_notification`, `ntf_pref`, `ntf_webhook_endpoint`, `ntf_outbox_delivery` | *Planned (phase 2).* Not in any migration. A sharing grant would hold grantor and grantee principal, the grantee's public key, dataset, purpose, terms version, key version, wrapped key, expiry and `revoked_at` |
 
 Usage, the ledger and receipts refer to rows that are therefore only ever soft-deleted (D-42).
 
@@ -177,11 +241,14 @@ Terminal states never reopen, so the audit and billing history stays linear. Eve
 stateDiagram-v2
   [*] --> queued: POST /v1/jobs (Idempotency-Key)
   queued --> running: admitted (slot, memory, policy window)
-  queued --> expired: deadline passed
+  queued --> queued: not admissible yet (closed window, full queue, quota used up, engine down), not_before moves
+  queued --> expired: deadline passed (jobs.deadline)
   queued --> cancelled: consumer cancels
-  running --> succeeded: engine done (metered, receipt, encrypted result)
-  running --> failed: engine error or timeout (tokens metered)
+  running --> succeeded: engine done (metered, receipt, encrypted result, job.done event)
+  running --> failed: engine error or timeout (tokens metered; reason is the API error code)
   running --> failed: host restart (reason host_restart)
+  queued --> failed: refused for good at admission (key revoked, grant expired, policy denies; reason is the API error code)
+  queued --> failed: payload unreadable (reason payload_unreadable)
   queued --> failed: restored from a snapshot without its payload (reason payload_minimized)
   running --> failed: restored from a snapshot without its payload (reason payload_minimized)
   running --> cancelled: consumer cancels
@@ -199,14 +266,18 @@ stateDiagram-v2
   [*] --> received
   received --> rejected: auth, limits, policy or validation fails
   received --> queued: passes
-  queued --> rejected: queue wait limit (queue_full)
+  queued --> rejected: queue wait limit or full queue (queue_full), host paused or in quiet hours (host_paused)
   queued --> running: admitted
   running --> completed: done (metered, receipt)
+  running --> failed: engine error or stream timeout after the stream began (tokens so far metered as failed, receipt on the stream)
   running --> aborted: client disconnects (engine cancelled, completion tokens so far plus an estimated prompt metered)
   rejected --> [*]
   completed --> [*]
+  failed --> [*]
   aborted --> [*]
 ```
+
+An engine error before the first chunk is an HTTP error and writes no usage record.
 
 ### Resource request, access key, invite, consumer
 
@@ -237,19 +308,20 @@ stateDiagram-v2
     suspended --> c_active
     c_active --> deleted: soft, keys revoked, personal fields erased
     suspended --> deleted
+    deleted --> purged: after consumers.deleted_retention (consents, credentials, sessions, keys, requests removed; tombstone stays)
   }
 ```
 
-### Host sharing, models, webhooks, sharing grants
+### Host sharing, models, signing keys, sync changes, webhooks, sharing grants
 
 | Entity | Transitions |
 |---|---|
-| Host sharing | sharing ↔ paused (manual), sharing ↔ quiet (schedule). While paused or quiet, interactive calls get `host_paused`, jobs wait, and the sleep lock is released |
-| Model (from `/api/ps`) | unloaded → loading → loaded → unloading → unloaded. A failed load returns to unloaded (`load_failed`) |
-| Webhook delivery | pending → delivering → delivered \| retry_scheduled → … \| failed. The endpoint is disabled after a `410` or N consecutive failures |
-| Sharing grant | requested → active \| declined. active → expired \| revoked, and either one rotates the dataset key |
-| Signing key | active → retired (kept for verifying old receipts) |
-| Sync change | pending → acked → pruned |
+| Host sharing | sharing ↔ paused (manual, stored in `hst_host`), sharing ↔ quiet (derived from the quiet-hours settings and the clock, never stored). A pause wins over quiet hours. While paused or quiet, interactive calls get `host_paused`, jobs wait, and the sleep lock is released. Pausing writes an audit row and one `host.paused` event; resuming writes an audit row and no event |
+| Model residency (the engine's `/api/ps` is the truth) | unloaded → loading (an admitted request, or a preload) → loaded. Leaving: idle unload after the keep-alive (`scheduler.keep_alive`), or reclaim (an idle model unloaded to make room under the memory budget). A preloaded model is pinned until it leaves `scheduler.preload_models` and is never unloaded for idleness or to make room. A load that fails surfaces as the call's engine error (a failed preload is logged); nothing is stored |
+| Signing key | active → retired (kept for verifying old receipts and checkpoints). The checkpoint worker rotates the keys on its schedule (`ledger.key_check_interval`) |
+| Sync change | pending → pruned after `sync.change.retention`. *Planned (phase 2):* pending → acked → pruned, once a sync target acknowledges rows |
+| Webhook delivery | *Planned (phase 2).* pending → delivering → delivered \| retry_scheduled → … \| failed. The endpoint is disabled after a `410` or N consecutive failures |
+| Sharing grant | *Planned (phase 2).* requested → active \| declined. active → expired \| revoked, and either one rotates the dataset key |
 
 ### Chat stream and chunk reader, req_002 changes (planned, D-26)
 
@@ -271,7 +343,7 @@ Planned ([ADR 0007](../adr/0007-req002-system-design.md)). Two machines change a
 sequenceDiagram
   autonumber
   participant C as Client app
-  participant T as Transport (tailnet / Funnel)
+  participant T as Transport (tailnet; Funnel is planned)
   participant G as Gateway
   participant A as Auth + limits
   participant P as Policy
@@ -280,23 +352,26 @@ sequenceDiagram
   participant W as Writer (SQLite)
   C->>T: POST /v1/chat/completions (Bearer ls_prefix_secret, LS-Request-Properties)
   T->>G: request (TLS / WireGuard ends on the host)
-  G->>A: lookup by prefix, constant-time hash compare, cached key, consumer and grant
-  A-->>G: ok, or 401 / quota_exceeded / lockout
+  G->>A: lockout check, body-size limit, lookup by prefix, constant-time hash compare, cached key, consumer and grant, bound-node check, quota and rate limits
+  A-->>G: ok, or 401 / quota_exceeded / rate_limit_exceeded / lockout
   G->>P: Evaluate(properties, model, time, grant version)
   P-->>G: priority + caps, or model_not_granted / denied
   G->>G: validate: reject unsupported fields, cap max_tokens, pre-check prompt size (context_too_long)
-  G->>S: Admit(priority, model, estimated memory)
-  S-->>G: slot, or queue_full + Retry-After
+  G->>S: Admit(class, grant concurrency, model, estimated context)
+  S-->>G: slot, or queue_full + Retry-After, host_paused, over_budget
+  G->>A: count the admitted call (request counter)
   G->>E: Chat(num_ctx = cap, num_predict, keep_alive) with first-token, idle and total timeouts
   E-->>G: token stream
   G-->>C: OpenAI SSE chunks (a client disconnect cancels the engine call)
   G->>W: one BEGIN IMMEDIATE batch: use_record + ldg_leaf/ldg_hash + syn_change
   W-->>G: leaf_index, tree_size
-  G-->>C: LS-Receipt (JWS) or SSE comment line before [DONE]
+  G-->>C: LS-Receipt header (JWS), or for a stream an SSE comment line that starts with ls-receipt and carries the JWS, before [DONE]
 ```
 
+The auth and limit steps run in the security handler, before the body is read; the policy, validate and admit steps run in the handler, in this order. Embeddings take the same steps with `Embed` in place of `Chat` and no stream. A streamed call is metered when its stream ends, with outcome `completed`, `failed` (the engine failed after the stream began) or `aborted` (the client went away).
+
 Failure branches:
-- **Engine down:** `503 engine_unavailable`.
+- **Engine down:** `503 engine_unavailable`. A call whose engine fails before the first chunk is an HTTP error and writes no usage record.
 - **Metering write keeps failing:** it is retried in memory first. If it still fails, the answer is returned with a signed receipt marked `unmetered` and no leaf index. The failure is logged, counted and emitted as `metering.failed` (D-51). If the unmetered receipt cannot be signed either, the call answers 500 and metering.failed is still emitted: no answer goes out without a receipt (D-16, D-51).
 - **Context overflow:** with `on_context_overflow = refuse`, the adapter sends `truncate:false` and `shift:false`, and maps Ollama's error to `context_too_long` (D-48).
 
@@ -308,22 +383,23 @@ sequenceDiagram
   participant G as Gateway / jobs
   participant W as Writer
   participant K as Job worker
-  participant O as Outbox worker
   C->>G: POST /v1/jobs (Idempotency-Key)
-  G->>G: F1 auth, limits, policy, validate
+  G->>G: F1 auth, limits, policy, validate (a closed policy window queues the job instead of refusing it)
   alt duplicate Idempotency-Key
     G-->>C: 200 existing job
   else new
     G->>W: insert sch_job (queued) + encrypted sch_job_payload
     G-->>C: 202 job id
   end
-  K->>K: pick by priority + aging when admitted (respects paused, quiet and background hours)
-  K->>K: F1 steps admit, engine, meter, sign
-  K->>W: encrypted sch_job_result, status succeeded, ntf_event job.done + outbox row (one transaction)
-  O-->>C: webhook job.done (Standard Webhooks, HMAC)
+  K->>K: oldest queued first, then the scheduler orders by class and aging (paused, quiet hours and closed windows keep it queued)
+  K->>K: F1 steps again: key, grant expiry and quota, policy, caps, admit (background class), engine, meter, sign
+  K->>W: encrypted sch_job_result, status succeeded, payload deleted, ntf_event job.done (one transaction)
+  C->>G: GET /v1/jobs/{id} (poll)
   C->>G: GET /v1/jobs/{id}/result
-  G-->>C: result (deleted once fully written, D-85)
+  G-->>C: result with LS-Receipt (deleted once fully written, D-85)
 ```
+
+A job cannot stream. `POST /v1/jobs/{id}/cancel` cancels a queued or running job (a running job's engine call is cancelled and the tokens so far are metered); a job already in a terminal state is answered 409. A result that was not fetched is deleted after `jobs.result_ttl` (default 24 h). The webhook delivery of `job.done` (an outbox row in the same transaction, then a Standard Webhooks POST) is *planned (phase 2)*: in phase 1 the event is written and handed to in-process subscribers only, and a client polls.
 
 ### F3 — resource request approval (one unit of work)
 
@@ -333,15 +409,17 @@ sequenceDiagram
   participant R as Requests
   participant H as Host (admin UI)
   participant W as Writer
-  participant N as Channel
+  participant A as Auth cache
   Co->>R: POST /v1/resource-requests (+ comments)
-  R->>W: insert request + ntf_event
-  N-->>H: in-app (SSE) and desktop notification
-  H->>R: POST /admin/v1/resource-requests/{id}/approve
-  R->>W: ONE transaction: new grt_version, current pointer, status, aud_event, ntf_event, syn_change
-  R->>R: clear the auth/grant cache
-  N-->>Co: webhook + in-app notification
+  R->>W: insert request + ntf_event resource_request.created + syn_change
+  H->>R: poll GET /admin/v1/resource-requests?status=open (count of pending requests)
+  H->>R: POST /admin/v1/resource-requests/{id}/approve (with the limits the host grants)
+  R->>W: ONE transaction: new grt_version (+ quota and model rows), current pointer, grant.changed event, status, optional comment, aud_event, resource_request.decided event, syn_change
+  R->>A: clear the auth/grant cache
+  Co->>R: GET /v1/resource-requests/{id} (poll the decision)
 ```
+
+A rejection is the same unit without the grant version. The host gives the limits at approval; the consumer's ask is a message and a JSON ask, not an automatic grant. Pushing the event to the host (in-app SSE, desktop) and to the consumer (webhook, in-app) through the `Channel` is *planned (phase 2)*: the admin UI polls the count of open requests instead. An open request that is not decided within `requests.ttl` is expired by the `requests-expiry` worker.
 
 ### F5 — checkpoint, and how a consumer verifies
 
@@ -350,45 +428,49 @@ sequenceDiagram
   participant K as Checkpoint worker
   participant L as Ledger
   participant C as Consumer tool
-  K->>L: every N leaves or T seconds: tlog root over [0, tree_size)
+  K->>L: every ledger.checkpoint_min_leaves new leaves, or ledger.checkpoint_max_interval with at least one new leaf: tlog root over [0, tree_size)
   K->>L: C2SP signed note into ldg_checkpoint
   C->>L: GET /v1/usage/{id}/proof (receipt leaf_index)
-  L-->>C: first checkpoint covering the leaf + inclusion proof
+  L-->>C: first checkpoint covering the leaf + inclusion proof (409 with Retry-After until one covers it)
   C->>C: verify receipt signature (/v1/keys), inclusion proof, checkpoint signature
-  C->>L: GET /v1/ledger/checkpoint later
+  C->>L: GET /v1/ledger/checkpoint?from_tree_size=old later
   C->>C: consistency proof old to new: the log only grew
 ```
 
-### F6 — off-host backup and opt-in platform sync
+### F6 — off-host backup, and opt-in platform sync (planned)
 
 ```mermaid
 sequenceDiagram
   participant B as Backup worker
   participant DB as SQLite
   participant S as Host bucket (R2 / GCS) or folder
-  participant Y as Sync worker
-  participant PG as Platform Postgres (Supabase / Cloud SQL)
-  B->>DB: VACUUM INTO temp file
+  participant Y as Sync worker (planned)
+  participant PG as Platform Postgres (planned)
+  B->>B: check D-69 over the current schema (fail and notify, nothing copied, if broken)
+  B->>DB: VACUUM INTO temp file (private folder)
   B->>B: delete rows of tables set to minimize (default: job content, sessions), then VACUUM the copy
-  B->>B: compress, encrypt (host data key)
-  B->>S: multipart upload, verify, prune old snapshots
+  B->>B: compress (gzip), encrypt in framed chunks (host data key)
+  B->>S: upload (multipart over the part size), check the stored size, prune old snapshots
   Y->>DB: syn_change rows past syn_cursor (batch)
   Y->>Y: AEAD per dataset key
   Y->>PG: upsert in one transaction
   Y->>DB: advance syn_cursor (backoff on failure)
 ```
 
-Minimization (D-64) runs on the temp copy, never on the live database. The setting is one entry per table in `ops_data_catalog`, kept in `hst_setting` (PLT-F-004); the catalog itself is rebuilt at startup (D-44) and holds no settings. Deletes run with `foreign_keys=ON`. A table can be set to minimize only when every table that references it is also minimized (D-69), so a kept table never holds a dangling reference and a CASCADE never empties a table the host chose to keep. After the deletes commit, the copy is vacuumed, so freed pages keep no deleted rows. On restore, `Restore` marks every job that was queued or running in the snapshot and lost its `sch_job_payload` row `failed(payload_minimized)`, and its `RestoreReport` gives their count (D-68). Restore runs before the host next starts, so the start-up `host_restart` pass finds those jobs already terminal (D-72). Every backup run first re-checks D-69 over the current schema; if a migration broke it, the run fails, names the tables and notifies the host, and nothing is silently emptied (D-71).
+The backup worker runs while `backup.enabled` is true, every `backup.interval`, counted from the last success. A failed run is logged without content and raises a `backup.failed` event, then at most once per `backup.failure_notify_interval`. The sync worker, `syn_cursor` and the Postgres target are *planned (phase 2)*; `syn_change` rows are captured and pruned but not shipped.
+
+Minimization (D-64) runs on the temp copy, never on the live database. The setting is one entry per table in `ops_data_catalog` (`backup.minimize.<table>`), kept in `hst_setting`; the catalog itself is rebuilt at startup (D-44) and holds no settings. Deletes run with `foreign_keys=ON`. A table can be set to minimize only when every table that references it is also minimized (D-69), so a kept table never holds a dangling reference and a CASCADE never empties a table the host chose to keep. After the deletes commit, the copy is vacuumed, so freed pages keep no deleted rows. On restore, `Restore` marks every job that was queued or running in the snapshot and lost its `sch_job_payload` row `failed(payload_minimized)`, and its `RestoreReport` gives their count (D-68). Restore (`local-server restore`) runs offline, before the host next starts, so the start-up `host_restart` pass finds those jobs already terminal (D-72). It replaces the database by renaming and keeps the old one aside, and its report also gives the newest ledger checkpoint size, because receipts issued after the snapshot will not verify against the restored ledger (D-109). `ops_schema_migrations`, `hst_host` and `hst_key` are protected tables that a backup always keeps (D-139). Every backup run first re-checks D-69 over the current schema; if a migration broke it, the run fails, names the tables and notifies the host, and nothing is silently emptied (D-71).
 
 ### F4, F7, F8, F9
 
-- **F4 webhooks:** due outbox rows → a Standard Webhooks POST (`webhook-id`, `webhook-timestamp`, `webhook-signature` HMAC-SHA256 `v1`) with a timeout → delivery status. Exponential backoff between attempts.
-- **F7 sharing grant:** the grantee's tool writes a request row into the platform store → the host's sync pulls it → the host approves in the admin UI → the dataset key is wrapped to the grantee's X25519 key and pushed → the grantee decrypts locally. A host timer rotates the key at expiry or revocation.
+- **F4 webhooks (planned, phase 2):** due outbox rows → a Standard Webhooks POST (`webhook-id`, `webhook-timestamp`, `webhook-signature` HMAC-SHA256 `v1`) with a timeout → delivery status. Exponential backoff between attempts. Not built: there is no outbox table and no webhook sender, and the notification preference and webhook endpoint operations of both APIs answer 501.
+- **F7 sharing grant (planned, phase 2):** the grantee's tool writes a request row into the platform store → the host's sync pulls it → the host approves in the admin UI → the dataset key is wrapped to the grantee's X25519 key and pushed → the grantee decrypts locally. A host timer rotates the key at expiry or revocation.
 - **F8 login:**
-  - Password: argon2id (at or above OWASP's minimum) → session cookie (HttpOnly, Secure, SameSite=Strict).
-  - Passkey: go-webauthn discoverable login.
-  - Invite: the token creates the consumer and their first credential.
-- **F9 startup:** migrations → keys → check Ollama and Tailscale → listeners → workers (scheduler, outbox, checkpoint, sync, retention, rollups, metrics sampler, sleep lock).
+  - Admin: the first-run setup (`POST /admin/v1/setup`) creates the admin; login checks a name and a password with the lockout of `internal/auth/credential`, then sets the `ls_admin_session` cookie. The same login guards `local-server recovery-code`, which writes an audit row.
+  - Consumer password: argon2id (cost from host settings) → `ls_session` cookie on the consumer page listener. Both cookies are HttpOnly, Secure and SameSite=Strict; the host stores only the hash of the session token; the Host and Origin checks of `credential.Guard` run first (D-10).
+  - Consumer passkey: go-webauthn discoverable login (a begin and a finish call, with state the host holds in between).
+  - Invite: the token (shown once, hashed at rest) creates the consumer, their first credential and their consent rows in one unit of work, with a password or a passkey.
+- **F9 startup** (`cmd/local-server/serve.go`): data directory → database and migrations → settings → logging and telemetry → keys (a first run creates the host and shows the recovery code once, on a terminal only) → engine check (an Ollama older than the minimum version stops the start; an unreachable one only warns, and calls get `engine_unavailable` until it is up) → sleep lock adapter and tailnet status → wire the modules → bind the loopback and tailnet listeners → mark jobs left running by the last stop `failed(host_restart)`, only once every port is held → serve → start the workers under a supervisor. The workers are the settings retention rules, the scheduler (preload, idle unload, queue re-check), the host-metrics sampler, the ledger checkpoint worker (with host key rotation), the job worker, the usage rollups, the sleep lock keeper, the policy rule sweeper, the resource-request expiry, the consumer purge and the backup worker; the supervisor restarts one that panics, fails or returns early after `workers.restart_backoff`. Shutdown runs in reverse: stop accepting, let requests in flight finish for `serve.shutdown_timeout`, close what is left and wait for those handlers to record their usage for the same time again, stop the workers, then close telemetry and the database. The outbox, platform sync and webhook workers are *planned (phase 2)*.
 
 ### F1 and F2 changes for req_002 (planned, D-27)
 
@@ -454,17 +536,17 @@ Planned ([ADR 0008](../adr/0008-req002-ai-architecture.md)). The chat pipeline b
 | Goroutine(s) | Role | Communicates by |
 |---|---|---|
 | HTTP handlers (one per request, `net/http`) | F1 pipeline. Request `context.Context` cancellation reaches the engine call | function calls; `Admit` blocks with the request context |
-| Scheduler | holds the priority queue (binary heap with aging) and the slot and memory accounting | admit requests and release signals |
+| Scheduler | holds the admission queue (two classes; an interactive request goes ahead, a waiting background request ages so it is never starved; ordered at each dispatch) and the slot and memory accounting, and runs the model lifecycle worker | admit requests and release signals |
 | Writer (exactly one) | owns the only write connection, and batches queued units of work into `BEGIN IMMEDIATE` transactions | a channel of units of work, each with a result channel |
 | Read pool | a few read-only connections (WAL lets readers run alongside the writer) | `database/sql` |
-| Workers | outbox delivery, checkpoints, rollups, retention, off-host sync and snapshots, host-metrics sampler, sleep lock | tickers driven by settings, plus domain events |
-| Cache invalidation | key → consumer → grant cache | change events cause eviction |
+| Workers (under a supervisor that restarts one that fails) | settings retention rules, model lifecycle, host-metrics sampler, ledger checkpoints and key rotation, job worker, usage rollups, sleep lock, policy rule sweeper, resource-request expiry, consumer purge, off-host snapshots. *Planned (phase 2):* outbox delivery, platform sync | tickers driven by settings, plus domain events |
+| Cache invalidation | key → consumer → grant cache (`auth.cache_ttl`, default 60 s, bounds how stale an entry can get) | change events cause eviction through the events bus; a grant change made by an admin call also clears it directly |
 
 Rules:
 - **Context everywhere:** every blocking call takes a context.
 - **One writer:** no other goroutine writes to the database (D-28).
 - **Disconnects cancel:** a client disconnect cancels the engine call through the context. Tokens already produced are still metered, with an estimated prompt count (the prompt's size in bytes over `gateway.chars_per_token`) that the receipt marks `prompt_tokens_estimated`.
-- **Shutdown** (**Judgement**, settled in PLT-F-020): stop accepting, drain in-flight requests up to a setting, stop the workers, then flush the writer.
+- **Shutdown:** stop accepting, drain in-flight requests up to `serve.shutdown_timeout`, wait for the force-closed handlers to record their usage for the same time again, stop the workers, then close the database, which drains the writer.
 - **CI:** `go test -race` on Linux and macOS covers all of this (D-61).
 
 ## 7. Data paths (D-40)
@@ -476,15 +558,16 @@ Rules:
 | Job result | `sch_job_result`, encrypted, only to its consumer | until a fetch has written it whole (D-85), or 24 h; left out of backups by default (D-64) |
 | Access key secret | generated and shown once; only the prefix and hash are stored | never synced |
 | Credentials | argon2id hash or WebAuthn public key | never synced |
-| Consumer personal data | `idn_consumer`; erased on deletion, the row stays | synced encrypted (consumer-directory dataset) |
-| Usage metadata | `use_record` → ledger leaf → rollups (minute 7 d, hour 90 d, day forever) | records and ledger forever; usage dataset |
-| Audit events | `aud_event` | forever; audit dataset |
+| Consumer personal data | `idn_consumer`; personal fields erased on deletion, the row stays as a tombstone after the purge (`consumers.deleted_retention`, 90 d) | change rows captured in `syn_change`; synced encrypted (consumer-directory dataset) only once platform sync exists (*planned*) |
+| Usage metadata | `use_record` → ledger leaf → rollups (minute 7 d, hour 90 d, day forever) | records and ledger forever; usage dataset (synced only with platform sync, *planned*) |
+| Audit events | `aud_event` | forever; audit dataset (synced only with platform sync, *planned*) |
 | Host readings | sampler → `hst_metric_minute` → `/metrics` and the UI | 7 d; not synced |
-| Logs | slog JSON → lumberjack-rotated files, redacted types | 14 d / 50 MB; not synced |
-| Webhook payloads | event (no content) → outbox → receiver | delivered + 7 d |
-| Domain events | `ntf_event` | 30 d (`events.retention`, D-83); outbox rows never outlive their event |
-| Change feed | `syn_change` | unacknowledged rows 30 d (`sync.change.retention`, D-77) |
-| Secret keys | sealed with a master key in the OS keychain, or a user-only file on headless Linux | never leave the host, except dataset keys wrapped for an approved grantee |
+| Logs | slog JSON → lumberjack-rotated file in the OS user log folder, redacted types | 14 d / 50 MB (`log.max_age_days`, `log.max_size_mb`); not synced |
+| Webhook payloads | *Planned (phase 2).* event (no content) → outbox → receiver | delivered + 7 d |
+| Domain events | `ntf_event` | 30 d (`events.retention`, D-83); *planned:* outbox rows never outlive their event |
+| Change feed | `syn_change` | 30 d (`sync.change.retention`, D-77); with no sync target yet, every row is unacknowledged |
+| Secret keys | sealed with a master key in the OS keychain, or a user-only file (`master.key`) when the keychain cannot be used | never leave the host (dataset keys wrapped for an approved grantee are *planned*) |
+| Snapshots | `VACUUM INTO` copy, minimized, compressed, encrypted with the host data key → the host's folder or bucket | by `backup.retention_count` and `backup.retention_age`; the bucket access key is sealed in a setting and never logged |
 
 Every retention above is a setting with that default (D-54).
 
@@ -507,52 +590,60 @@ flowchart TB
   MK["Host master key (OS keychain or user-only file)"] --> SEAL["seals every secret at rest"]
   SEAL --> ID["Host identity key (Ed25519): the host's global id"]
   SEAL --> DK["Host data key: job payloads and results, snapshots"]
-  SEAL --> DSK["Dataset keys (usage, audit, consumer directory)"]
-  SEAL --> WHS["Webhook secrets, bucket and Postgres credentials"]
+  SEAL --> BK["Bucket access key (a setting)"]
+  SEAL -.-> DSK["Dataset keys (usage, audit, consumer directory), planned"]
+  SEAL -.-> WHS["Webhook secrets and platform database credentials, planned"]
   ID -- signs --> RK["Receipt-signing subkeys (rotating; retired, never deleted)"]
   ID -- signs --> CK["Checkpoint-signing key (rotates rarely)"]
   CK -- signs --> CP["C2SP ledger checkpoints"]
   RK -- signs --> RCPT["JWS usage receipts"]
-  DSK -- "wrapped to grantee X25519 key" --> SG["Sharing grants"]
+  DSK -. "wrapped to grantee X25519 key, planned" .-> SG["Sharing grants"]
   DK --> RC["Recovery code (shown once) for restore"]
 ```
 
-Checkpoints have their own signing key (D-65): stable, so verifiers and future witnesses can follow the log, and separate from the receipt subkeys, so a leaked receipt key cannot forge tree heads. The identity, receipt-signing and checkpoint-signing public keys, current and retired, are published at `/v1/keys`.
+The recovery code is the host data key in a readable form (D-41): a snapshot never holds the master key, so a restore works on the same machine, or where `master.key` or the keychain entry survives. Checkpoints have their own signing key (D-65): stable, so verifiers and future witnesses can follow the log, and separate from the receipt subkeys, so a leaked receipt key cannot forge tree heads. The identity, receipt-signing and checkpoint-signing public keys, current and retired, are published at `/v1/keys` as a JWK Set, each signing key with the identity key's endorsement (D-96).
 
 ## 9. Error model
 
-The OpenAI error envelope (`{"error": {"message", "type", "code"}}`) plus local-server's typed codes. The HTTP status of each code is fixed in `api/openapi.yaml` (PLT-F-001).
+The OpenAI error envelope (`{"error": {"message", "type", "code", "param"}}`) plus local-server's typed codes. The HTTP status of each code is fixed in `api/openapi.yaml`. Error text is fixed and never quotes request bytes (D-31, D-40). Both listeners use the envelope, including for an unknown path, a wrong method or a panic.
 
-| Code | Meaning | Client action |
-|---|---|---|
-| `quota_exceeded` | Token quota for the window used up | Wait for `Retry-After`, or file a resource request |
-| `queue_full` | Admission queue full | Retry after `Retry-After`, or fall back |
-| `host_paused` | Host paused or in quiet hours | Fall back; background work waits |
-| `model_not_granted` | Model not in the grant | Use `/v1/capabilities`, or file a resource request |
-| `context_too_long` | Prompt exceeds the grant's context cap (overflow policy `refuse`) | Shorten the prompt |
-| `engine_unavailable` | Ollama not reachable | Fall back |
-| `over_budget` | The request can never fit the share budget (D-93) | Use a smaller model or context |
-| `policy_denied` | A deny rule, or a request property the grant does not allow (D-79) | Change the request; the error names the rule and properties |
-| `outside_time_window` | A policy rule's time window is closed (D-79) | Retry after `Retry-After`; jobs wait in the queue |
-| `invalid_request_properties` | Malformed `LS-Request-Properties` header (D-79) | Fix the header |
+| Code | Status | Meaning | Client action |
+|---|---|---|---|
+| `invalid_api_key` | 401 | The access key is missing, unknown, expired or revoked | Check the key |
+| `quota_exceeded` | 429 | Token or request quota for a window used up | Wait for `Retry-After`, or file a resource request |
+| `rate_limit_exceeded` | 429 | Too many requests, or too many failed attempts (lockout) | Slow down; wait for `Retry-After` |
+| `queue_full` | 429 | Admission queue full, or the request waited too long for a slot | Retry after `Retry-After`, or fall back |
+| `host_paused` | 503 | Host paused or in quiet hours | Fall back; background work waits |
+| `model_not_granted` | 403 | Model not in the grant | Use `/v1/capabilities`, or file a resource request |
+| `context_too_long` | 400 | Prompt exceeds the grant's context cap (overflow policy `refuse`) | Shorten the prompt |
+| `engine_unavailable` | 503 | Ollama not reachable, or older than the supported version | Fall back |
+| `over_budget` | 422 | The request can never fit the share budget (D-93) | Use a smaller model or context |
+| `policy_denied` | 403 | A deny rule, or a request property the grant does not allow (D-79) | Change the request; the error names the rule and properties |
+| `outside_time_window` | 429 | A policy rule's time window is closed (D-79) | Retry after `Retry-After`; jobs wait in the queue |
+| `invalid_request_properties` | 400 | Malformed `LS-Request-Properties` header (D-79) | Fix the header |
+| `unsupported_parameter` | 400 | A field the engine port or the gateway cannot carry (D-32); never silently dropped | Remove the field |
+
+Errors without a code of their own use the status alone: 413 for a body over `limits.max_body_bytes`, 404 for a model not installed or an unknown job or usage id, 409 for a job with no result yet, a final resource request or a usage record no checkpoint covers yet, 410 for a job result already fetched or expired, 499 when the client closed the request, 504 when the engine did not answer in time.
 
 ## 10. Testing and verification
 
 | Layer | What | Decision |
 |---|---|---|
-| Unit and table tests | per module, `go test ./...` on 3 OSes | D-31 |
-| Port contract suites | every adapter of a port passes the same suite; a fake engine for the gateway | D-31 |
-| Golden tests | OpenAI-compatible request and response shapes, byte for byte | D-32 |
-| Fuzz targets | access-key header, request properties, policy rules, request decoding, checkpoint notes and receipts, import bundles; seeds run on every CI run, timed fuzzing on a schedule | D-60 |
+| Unit and table tests | per module, `go test ./...` on Linux, macOS and Windows | D-31 |
+| Port contract suites | the engine port has one (`engine/enginetest`) that the Ollama adapter and the fake engine pass; a fake engine for the gateway | D-31 |
+| Golden tests | OpenAI-compatible request and response shapes, byte for byte; the API spec's examples and contract | D-32 |
+| Fuzz targets | access-key header, request properties, policy rules, request decoding, checkpoint notes and receipts; seeds run on every CI run, timed fuzzing on a schedule. Bundle import targets are *planned* with bundles | D-60 |
 | Race detector | `CGO_ENABLED=1 go test -race ./...` on Linux and macOS (the only cgo use) | D-61 |
 | Vulnerabilities | `go tool govulncheck ./...` fails CI on a reachable known vulnerability | D-62 |
-| Benchmarks | gateway overhead, admission latency, receipt signing on the fake engine → SLO targets the owner approves | D-55 |
+| Benchmarks and service-level targets | gateway overhead, admission latency, receipt signing on the fake engine, checked against the `gateway.slo_*` settings | D-55 |
 | Architecture | `tools/archcheck` forbidden imports; every module has an architecture note | D-21 |
-| Real services | Postgres and real R2/GCS bucket tests behind build tags, with credentials from the environment | D-59 |
+| API spec | `api/openapi.yaml` linted with vacuum; the server and the TypeScript types are generated from it | D-57 |
+| End to end | browser tests of the admin UI and the consumer web page against the fake engine (Linux CI); the install scripts | D-151 |
+| Real services | a real R2 or GCS bucket test behind the build tag `bucket`, and a live Ollama test, with credentials from the environment; Postgres tests are *planned* with platform sync | D-59 |
 
 ## 11. Build and release
 
-- **Builds:** `CGO_ENABLED=0` for darwin, linux and windows on amd64 and arm64. Both SPAs are built first and embedded with `go:embed`.
+- **Builds:** `CGO_ENABLED=0` for darwin, linux and windows on amd64 and arm64. Both SPAs (`web/admin`, `web/consumer`) are built first and embedded with `go:embed`; a plain `go build` without npm embeds only the placeholder and serves the stub page.
 - **Darwin binaries:** never stripped or re-signed after the build. Go's linker ad-hoc signs darwin/arm64 binaries, and curl-installed binaries skip Gatekeeper (F-07).
 - **Release artifacts:** `SHA256SUMS`, plus SLSA build provenance for every binary and for `SHA256SUMS` through GitHub artifact attestations (`gh attestation verify`, D-62).
 - **Dev tools:** pinned as `tool` directives in `go.mod` and run as `go tool …`: ogen, vacuum and govulncheck (D-57, D-62).
